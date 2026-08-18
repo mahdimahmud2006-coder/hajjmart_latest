@@ -1,0 +1,25 @@
+{
+  "name": "hajjmart-frontend",
+  "version": "2.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "verify:admin-pagination": "node scripts/verify-admin-pagination.mjs"
+  },
+  "dependencies": {
+    "next": "^15.5.9",
+    "react": "^19.1.2",
+    "react-dom": "^19.1.2"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.1.10",
+    "@types/node": "22.15.21",
+    "@types/react": "19.1.5",
+    "@types/react-dom": "19.1.5",
+    "tailwindcss": "4.1.10",
+    "typescript": "5.8.3"
+  }
+}

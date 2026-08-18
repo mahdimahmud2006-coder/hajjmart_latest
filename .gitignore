@@ -1,0 +1,9 @@
+.env
+Backend/.env
+Backend/vendor/
+Backend/storage/logs/*.log
+Frontend/.env.local
+Frontend/node_modules/
+Frontend/.next/
+*.zip
+.DS_Store

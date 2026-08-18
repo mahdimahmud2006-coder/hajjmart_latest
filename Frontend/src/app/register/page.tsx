@@ -1,0 +1,4 @@
+import type { Metadata } from "next";
+import { AuthForm } from "@/components/auth-form";
+export const metadata: Metadata = { title: "Create account | HajjMart" };
+export default function RegisterPage() { return <main className="auth-page"><div className="auth-art"><div className="auth-art-pattern"/><div className="relative z-10 max-w-lg"><p className="eyebrow text-[var(--gold-light)]">Prepared, together</p><h2 className="mt-4 font-serif text-5xl leading-tight text-white">A quieter, clearer way to prepare for sacred travel.</h2><p className="mt-5 text-sm leading-7 text-white/65">Your account keeps the practical details close so your attention can stay on what matters.</p></div></div><div className="grid place-items-center px-5 py-12 sm:px-10"><AuthForm mode="register"/></div></main>; }

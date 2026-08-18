@@ -1,0 +1,13 @@
+{
+  "name": "HajjMart Point of Sale",
+  "short_name": "HajjMart POS",
+  "description": "HajjMart offline-capable point of sale",
+  "start_url": "/admin/pos",
+  "scope": "/admin/",
+  "display": "standalone",
+  "background_color": "#f7f4ed",
+  "theme_color": "#123f38",
+  "icons": [
+    { "src": "/pos-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

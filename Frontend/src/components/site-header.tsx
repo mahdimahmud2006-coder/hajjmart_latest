@@ -26,8 +26,8 @@ export function SiteHeader({ categories }: { categories: Category[] }) {
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const closeMobile = useCallback(() => setMobileOpen(false), []);
   const closeSearch = useCallback(() => setSearchOpen(false), []);
-  const mobilePanelRef = useOverlayPrimitive(mobileOpen, closeMobile);
-  const searchPanelRef = useOverlayPrimitive(searchOpen, closeSearch);
+  const mobilePanelRef = useOverlayPrimitive<HTMLElement>(mobileOpen, closeMobile);
+  const searchPanelRef = useOverlayPrimitive<HTMLDivElement>(searchOpen, closeSearch);
 
   useEffect(() => {
     window.queueMicrotask(() => {

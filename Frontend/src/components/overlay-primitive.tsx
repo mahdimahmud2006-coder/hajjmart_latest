@@ -23,8 +23,8 @@ const FOCUSABLE = [
   "[tabindex]:not([tabindex='-1'])",
 ].join(",");
 
-export function useOverlayPrimitive(open: boolean, onClose: () => void) {
-  const panelRef = useRef<HTMLElement | null>(null);
+export function useOverlayPrimitive<T extends HTMLElement = HTMLElement>(open: boolean, onClose: () => void) {
+  const panelRef = useRef<T | null>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
 
   useEffect(() => {

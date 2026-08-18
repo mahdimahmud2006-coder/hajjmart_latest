@@ -171,7 +171,7 @@ export function ProductPicker({ cart, onAdd, priceMode = "retail", preferOffline
     }
 
     if (preferOffline && resolvedStore) {
-      void getCachedCatalog(resolvedStore).then((cached) => {
+      void getCachedCatalog(Number(resolvedStore)).then((cached) => {
         if (sequence !== requestSequence.current) return;
         const result = localProductPage(cached, debouncedSearch, page, perPage, sort, priceMode);
         setProducts(result.data);
@@ -195,7 +195,7 @@ export function ProductPicker({ cart, onAdd, priceMode = "retail", preferOffline
       .catch(async () => {
         if (sequence !== requestSequence.current || !resolvedStore) return;
         try {
-          const cached = await getCachedCatalog(resolvedStore);
+          const cached = await getCachedCatalog(Number(resolvedStore));
           const result = localProductPage(cached, debouncedSearch, page, perPage, sort, priceMode);
           if (sequence !== requestSequence.current) return;
           setProducts(result.data);

@@ -24,13 +24,15 @@ class CheckoutWorkflowTest extends TestCase
     {
         parent::setUp();
 
-        $this->shop = Shop::create([
-            'name' => 'Main Store',
-            'code' => 'MAIN',
-            'slug' => 'main-store',
-            'is_active' => true,
-            'is_default' => true,
-        ]);
+        $this->shop = Shop::firstOrCreate(
+            ['code' => 'MAIN'],
+            [
+                'name' => 'Main Store',
+                'slug' => 'main-store',
+                'is_active' => true,
+                'is_default' => true,
+            ]
+        );
         $this->product = Product::factory()->create([
             'name' => 'Ihram',
             'selling_price' => 1350,

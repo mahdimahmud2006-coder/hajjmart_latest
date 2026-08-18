@@ -285,8 +285,12 @@ class ReportService
 
     public function months(array $filters): array
     {
+        $monthExpr = DB::getDriverName() === 'sqlite'
+            ? "strftime('%Y-%m', orders.created_at)"
+            : "DATE_FORMAT(orders.created_at, '%Y-%m')";
+
         return $this->aggregateSelect($this->orderItemsBase($filters))
-            ->addSelect(DB::raw("DATE_FORMAT(orders.created_at, '%Y-%m') as month"))
+            ->addSelect(DB::raw("{$monthExpr} as month"))
             ->groupBy('month')
             ->orderBy('month')
             ->get()

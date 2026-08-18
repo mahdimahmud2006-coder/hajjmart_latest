@@ -198,7 +198,7 @@ export function CheckoutForm() {
 
   if (!cart.length) return <div className="rounded-[2rem] bg-white p-10 text-center"><h2 className="font-serif text-3xl">Your cart is empty.</h2><p className="mt-3 text-sm text-[var(--muted)]">Add at least one product before checkout.</p><Link href="/shop" className="button-primary mt-7">Browse products</Link></div>;
 
-  const quotedItem = (productId: number, variantId: number | null) => quote?.items.find((item) => item.product_id === productId && item.variant_id === (variantId || null));
+  const quotedItem = (productId: number, variantId?: number | null) => quote?.items.find((item) => item.product_id === productId && item.variant_id === (variantId || null));
   const totalLabel = quote ? formatPrice(quote.grand_total) : formatPrice(localSubtotal);
 
   return <form onSubmit={submit} className="checkout-flow grid gap-8 lg:grid-cols-[1fr_420px]">

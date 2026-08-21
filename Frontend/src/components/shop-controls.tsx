@@ -24,7 +24,7 @@ export function ShopControls({ categories, count }: { categories: Category[]; co
   const searchParams = useSearchParams();
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
-  const panelRef = useOverlayPrimitive(open, close);
+  const panelRef = useOverlayPrimitive<HTMLDivElement>(open, close);
   const activeCategory = searchParams.get("category") || "";
   const inStock = searchParams.get("in_stock") === "1";
   const minPrice = searchParams.get("min_price") || "";

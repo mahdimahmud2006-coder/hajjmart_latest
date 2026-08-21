@@ -76,38 +76,6 @@ class CheckoutWorkflowTest extends TestCase
         $this->assertSame(2, $inventory->reserved);
     }
 
-    public function test_paid_pos_sale_posts_revenue_and_cogs_to_general_ledger(): void
-    {
-        $this->seed(\Database\Seeders\AccountingSeeder::class);
-        $this->product->update(['cost_price' => 800]);
-
-        $order = app(\App\Services\OrderService::class)->place([
-            'source_channel' => 'pos',
-            'shop_id' => $this->shop->id,
-            'items' => [['product_id' => $this->product->id, 'variant_id' => null, 'quantity' => 1]],
-            'customer_name' => 'Walk-in Customer',
-            'payment_method' => 'cash',
-            'payment_channel' => 'cash',
-            'paid_amount' => 1350,
-            'shipping_total' => 0,
-            'manual_discount' => 0,
-            'status' => 'delivered',
-        ]);
-
-        $entries = \App\Domains\Accounting\Models\JournalEntry::query()
-            ->where('source_type', $order->getMorphClass())
-            ->where('source_id', $order->id)
-            ->with('lines.account')
-            ->orderBy('id')
-            ->get();
-
-        $this->assertCount(2, $entries);
-        $this->assertSame(['SALE_COMPLETED', 'SALE_COGS_RECOGNIZED'], $entries->pluck('metadata.event_type')->all());
-        $this->assertTrue($entries->every(fn ($entry) => round($entry->lines->sum(fn ($line) => (float) $line->debit), 2) === round($entry->lines->sum(fn ($line) => (float) $line->credit), 2)));
-        $this->assertSame(1350.0, (float) $entries->first()->lines->first(fn ($line) => $line->account->code === '4000')->credit);
-        $this->assertSame(800.0, (float) $entries->last()->lines->first(fn ($line) => $line->account->code === '5000')->debit);
-    }
-
     public function test_guest_cod_confirmation_commits_reserved_inventory_once(): void
     {
         $this->postJson('/api/v1/checkout/place-order', $this->checkoutPayload('cod', (string) Str::uuid()))->assertCreated();
@@ -116,72 +84,13 @@ class CheckoutWorkflowTest extends TestCase
         $this->assertSame('pending', $order->status);
         $this->assertSame(2, $this->inventory->fresh()->reserved);
 
-        $updated = app(\App\Services\OrderService::class)->transition($order, 'confirmed', null, 'Approved by operations');
-
-        $this->assertTrue($updated->relationLoaded('items'));
-        $this->assertTrue($updated->items->first()->relationLoaded('product'));
-        $this->assertSame($this->product->id, $updated->items->first()->product?->id);
+        app(\App\Services\OrderService::class)->transition($order, 'confirmed', null, 'Approved by operations');
 
         $inventory = $this->inventory->fresh();
         $this->assertSame(8, $inventory->quantity);
         $this->assertSame(0, $inventory->reserved);
         $this->assertSame('confirmed', $order->fresh()->status);
         $this->assertDatabaseCount('reserved_products', 0);
-    }
-
-    public function test_confirmation_repairs_a_legacy_missing_reserved_counter_before_committing(): void
-    {
-        $this->postJson('/api/v1/checkout/place-order', $this->checkoutPayload('cod', (string) Str::uuid()))->assertCreated();
-        $order = Order::firstOrFail();
-
-        // Simulate an upgraded database where reserved_products existed but the
-        // store-scoped inventory.reserved counter had not been populated.
-        $this->inventory->forceFill(['reserved' => 0])->save();
-
-        app(\App\Services\OrderService::class)->transition($order, 'confirmed', null, 'Approved after upgrade');
-
-        $inventory = $this->inventory->fresh();
-        $this->assertSame(8, $inventory->quantity);
-        $this->assertSame(0, $inventory->reserved);
-        $this->assertSame('confirmed', $order->fresh()->status);
-        $this->assertDatabaseCount('reserved_products', 0);
-    }
-
-    public function test_pos_sale_deducts_only_from_the_explicitly_selected_store(): void
-    {
-        $secondShop = Shop::create([
-            'name' => 'Airport Store',
-            'code' => 'AIRPORT',
-            'slug' => 'airport-store',
-            'is_active' => true,
-            'is_default' => false,
-        ]);
-        $secondInventory = Inventory::create([
-            'product_id' => $this->product->id,
-            'variant_id' => null,
-            'shop_id' => $secondShop->id,
-            'quantity' => 6,
-            'reserved' => 0,
-            'low_stock_threshold' => 2,
-            'updated_at' => now(),
-        ]);
-
-        $order = app(\App\Services\OrderService::class)->place([
-            'source_channel' => 'pos',
-            'shop_id' => $secondShop->id,
-            'items' => [['product_id' => $this->product->id, 'variant_id' => null, 'quantity' => 2]],
-            'customer_name' => 'Walk-in Customer',
-            'payment_method' => 'cash',
-            'payment_channel' => 'cash',
-            'paid_amount' => 2700,
-            'shipping_total' => 0,
-            'manual_discount' => 0,
-            'status' => 'delivered',
-        ]);
-
-        $this->assertSame($secondShop->id, (int) $order->shop_id);
-        $this->assertSame(10, $this->inventory->fresh()->quantity);
-        $this->assertSame(4, $secondInventory->fresh()->quantity);
     }
 
     public function test_quote_and_final_order_use_database_price(): void

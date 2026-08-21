@@ -19,24 +19,26 @@ export default async function ShopPage({ searchParams }: { searchParams: Promise
   const query = value("q");
 
   return (
-    <main className="bg-white">
-      <section className="shop-masthead">
-        <div className="shop-masthead-pattern" />
-        <div className="container-wide relative z-10 py-14 sm:py-20">
-          <nav className="breadcrumb text-white/55"><Link href="/">Home</Link><ChevronRightIcon size={12}/><span>Shop</span></nav>
-          <p className="eyebrow mt-8 text-[var(--gold-light)]">The complete HajjMart edit</p>
-          <h1 className="mt-3 max-w-4xl font-serif text-5xl leading-[1.04] text-white sm:text-6xl lg:text-7xl">{query ? `Results for “${query}”` : "Essentials, chosen for the sacred journey."}</h1>
-          <p className="mt-5 max-w-2xl text-base leading-7 text-white/62">Build your list with carefully selected pieces for worship, travel, comfort and care.</p>
+    <main className="sunnah-shop-page">
+      <section className="container-wide sunnah-shop-heading">
+        <nav className="breadcrumb"><Link href="/">Home</Link><ChevronRightIcon size={12}/><span>Shop</span></nav>
+        <div className="sunnah-shop-title-row">
+          <div><p className="eyebrow">HajjMart collection</p><h1>{query ? `Results for “${query}”` : "Shop all essentials"}</h1><p>Considered Hajj and Umrah products for worship, travel, comfort and care.</p></div>
+          <strong>{products.length} pieces</strong>
+        </div>
+        <div className="sunnah-shop-category-strip">
+          <Link href="/shop">All</Link>
+          {categories.slice(0, 8).map((category) => <Link key={category.id} href={`/category/${category.slug}`}>{category.name}</Link>)}
         </div>
       </section>
 
-      <section className="container-wide py-10 sm:py-14">
+      <section className="container-wide pb-16 sm:pb-20">
         <Suspense fallback={<div className="h-16" />}><ShopControls categories={categories} count={products.length}/></Suspense>
-        <div className="grid gap-10 lg:grid-cols-[230px_1fr] xl:grid-cols-[260px_1fr]">
+        <div className="grid gap-10 lg:grid-cols-[220px_1fr] xl:grid-cols-[245px_1fr]">
           <aside className="hidden lg:block"><div className="sticky top-40"><Suspense><DesktopFilters categories={categories}/></Suspense></div></aside>
           <div>
             {products.length ? <ProductGrid products={products} priorityCount={4}/> : (
-              <div className="flex min-h-[420px] flex-col items-center justify-center rounded-[2rem] bg-[var(--paper)] px-6 text-center"><SearchIcon size={36} className="text-[var(--gold)]"/><h2 className="mt-5 font-serif text-3xl">No essentials matched that search.</h2><p className="mt-2 max-w-md text-sm leading-6 text-[var(--muted)]">Try a broader product name or remove one of the filters.</p><Link href="/shop" className="button-primary mt-7">Clear filters</Link></div>
+              <div className="flex min-h-[420px] flex-col items-center justify-center border border-black/10 bg-[var(--paper)] px-6 text-center"><SearchIcon size={36} className="text-[var(--gold)]"/><h2 className="mt-5 font-serif text-3xl">No essentials matched that search.</h2><p className="mt-2 max-w-md text-sm leading-6 text-[var(--muted)]">Try a broader product name or remove one of the filters.</p><Link href="/shop" className="button-primary mt-7">Clear filters</Link></div>
             )}
           </div>
         </div>

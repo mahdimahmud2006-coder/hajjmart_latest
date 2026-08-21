@@ -148,86 +148,38 @@ fail() {
     exit 1
 }
 
-COMPOSER_PHAR="$BACKEND_DIR/composer.phar"
-
-backend_vendor_is_healthy() {
-    [ -f "$BACKEND_DIR/vendor/autoload.php" ] && \
-    [ -f "$BACKEND_DIR/vendor/composer/installed.php" ]
-}
-
-ensure_project_composer() {
-    if [ -f "$COMPOSER_PHAR" ] && php "$COMPOSER_PHAR" --version >/dev/null 2>&1; then
-        return
-    fi
-
-    command_exists curl || fail "curl is required to bootstrap project-local Composer."
-
-    local installer="$BACKEND_DIR/.composer-setup.php"
-    local expected actual
-
-    echo "Bootstrapping project-local Composer..."
-    expected="$(curl -fsSL https://composer.github.io/installer.sig)" || fail "Could not fetch Composer installer signature."
-    curl -fsSL https://getcomposer.org/installer -o "$installer" || fail "Could not download Composer installer."
-    actual="$(php -r 'echo hash_file("sha384", $argv[1]);' "$installer")"
-
-    if [ "$expected" != "$actual" ]; then
-        rm -f "$installer"
-        fail "Composer installer signature mismatch."
-    fi
-
-    php "$installer" --quiet --install-dir="$BACKEND_DIR" --filename=composer.phar || {
-        rm -f "$installer"
-        fail "Could not install project-local Composer."
-    }
-    rm -f "$installer"
-}
-
-install_backend_dependencies() {
-    ensure_project_composer
-
-    local build_dir="$BACKEND_DIR/vendor.build.$$"
-    local backup_dir="$BACKEND_DIR/vendor.backup.$$"
-    rm -rf "$build_dir" "$backup_dir"
-
-    echo "Installing backend dependencies into a clean staging vendor directory..."
-    (
-        cd "$BACKEND_DIR"
-        COMPOSER_VENDOR_DIR="$build_dir" \
-        COMPOSER_MAX_PARALLEL_HTTP=1 \
-        COMPOSER_MAX_PARALLEL_PROCESSES=1 \
-        php "$COMPOSER_PHAR" install \
-            --no-interaction \
-            --prefer-dist \
-            --no-scripts \
-            --no-progress
-    ) || {
-        rm -rf "$build_dir"
-        fail "Composer dependency installation failed."
-    }
-
-    [ -f "$build_dir/autoload.php" ] || { rm -rf "$build_dir"; fail "Composer did not generate autoload.php."; }
-    [ -f "$build_dir/composer/installed.php" ] || { rm -rf "$build_dir"; fail "Composer did not generate composer/installed.php."; }
-
-    if [ -d "$BACKEND_DIR/vendor" ]; then
-        mv "$BACKEND_DIR/vendor" "$backup_dir"
-    fi
-    mv "$build_dir" "$BACKEND_DIR/vendor"
-
-    if ! (cd "$BACKEND_DIR" && php "$COMPOSER_PHAR" dump-autoload --optimize --no-interaction); then
-        rm -rf "$BACKEND_DIR/vendor"
-        if [ -d "$backup_dir" ]; then
-            mv "$backup_dir" "$BACKEND_DIR/vendor"
-        fi
-        fail "Composer autoload generation failed; previous vendor directory restored."
-    fi
-
-    rm -rf "$backup_dir"
-    echo "Backend Composer dependencies are healthy."
-}
-
 ensure_environment_files() {
     [ -f "$BACKEND_DIR/.env" ] || cp "$BACKEND_DIR/.env.example" "$BACKEND_DIR/.env"
-    [ -f "$FRONTEND_DIR/.env.local" ] || cp "$FRONTEND_DIR/.env.example" "$FRONTEND_DIR/.env.local"
+
+    if [ ! -f "$FRONTEND_DIR/.env.local" ]; then
+        if [ -f "$FRONTEND_DIR/.env.example" ]; then
+            cp "$FRONTEND_DIR/.env.example" "$FRONTEND_DIR/.env.local"
+        else
+            # Some file managers omit dotfiles while replacing Frontend/. Keep
+            # local development bootable even when .env.example was skipped.
+            cat > "$FRONTEND_DIR/.env.local" <<EOF
+NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:${BACKEND_PORT}/api/v1
+NEXT_PUBLIC_API_URL=http://127.0.0.1:${BACKEND_PORT}/api/v1
+NEXT_PUBLIC_SITE_URL=http://127.0.0.1:${FRONTEND_PORT}
+NEXT_PUBLIC_ENABLE_DEMO_FALLBACK=false
+EOF
+        fi
+        echo "Created Frontend/.env.local for local development."
+    fi
+}
+
+validate_frontend_layout() {
+    [ -d "$FRONTEND_DIR" ] || fail "Frontend directory was not found at $FRONTEND_DIR."
+    [ -f "$FRONTEND_DIR/package.json" ] || fail "Frontend/package.json is missing. Extract or copy the complete Frontend folder."
+    [ -f "$FRONTEND_DIR/src/app/page.tsx" ] || fail "Frontend/src/app/page.tsx is missing. The frontend replacement is incomplete."
+}
+
+frontend_dependencies_ready() {
+    [ -f "$FRONTEND_DIR/node_modules/next/dist/bin/next" ] || return 1
+
+    # Detect a preserved but stale node_modules after package.json changes.
+    # npm ls is local-only and does not contact the registry.
+    (cd "$FRONTEND_DIR" && npm ls --depth=0 >/dev/null 2>&1)
 }
 
 ensure_dependencies() {
@@ -247,14 +199,20 @@ ensure_dependencies() {
         fail "PHP extension pdo_mysql is required for the MySQL backend."
     fi
 
-    if ! backend_vendor_is_healthy; then
-        echo "Backend vendor directory is missing or incomplete."
-        install_backend_dependencies
+    if [ ! -f "$BACKEND_DIR/vendor/autoload.php" ]; then
+        command_exists composer || fail "Composer is required for the first backend install."
+        echo "Installing backend dependencies..."
+        (cd "$BACKEND_DIR" && composer install --no-interaction --prefer-dist)
     fi
 
     # A cancelled npm install can leave node_modules present but unusable.
     # Check for the Next.js executable rather than only checking the directory.
-    if [ ! -x "$FRONTEND_DIR/node_modules/.bin/next" ]; then
+    if ! frontend_dependencies_ready; then
+        if [ -d "$FRONTEND_DIR/node_modules" ]; then
+            echo "Frontend dependencies are incomplete or do not match package.json; reinstalling..."
+        else
+            echo "Frontend/node_modules is absent (expected after a full Frontend replacement)."
+        fi
         echo "Installing frontend dependencies from the public npm registry..."
 
         # Older generated archives may contain an environment-specific registry
@@ -276,8 +234,10 @@ ensure_dependencies() {
             npm install
             --registry=https://registry.npmjs.org/
             --replace-registry-host=never
+            --prefer-offline
             --no-audit
             --no-fund
+            --bin-links=true
             --progress=true
             --loglevel=notice
         )
@@ -286,8 +246,10 @@ ensure_dependencies() {
                 npm ci
                 --registry=https://registry.npmjs.org/
                 --replace-registry-host=never
+                --prefer-offline
                 --no-audit
                 --no-fund
+                --bin-links=true
                 --progress=true
                 --loglevel=notice
             )
@@ -315,7 +277,23 @@ ensure_dependencies() {
                 fail "Frontend dependency installation failed. Check internet/DNS access to registry.npmjs.org, then rerun ./dev1.sh."
             fi
         fi
+
+        # npm can report success even when a host/global npm setting prevents
+        # creation of node_modules/.bin links. The Next package itself is the
+        # source of truth; verify it and repair the local executable link.
+        NEXT_CLI="$FRONTEND_DIR/node_modules/next/dist/bin/next"
+        [ -f "$NEXT_CLI" ] || fail "npm finished but Next.js was not installed at $NEXT_CLI. Remove Frontend/node_modules and rerun ./dev1.sh."
+        mkdir -p "$FRONTEND_DIR/node_modules/.bin"
+        if [ ! -x "$FRONTEND_DIR/node_modules/.bin/next" ]; then
+            echo "Repairing missing Next.js executable link..."
+            ln -sf ../next/dist/bin/next "$FRONTEND_DIR/node_modules/.bin/next"
+        fi
     fi
+
+    # Verify the real Next CLI on every launch. package.json invokes this path
+    # directly, so startup no longer depends on npm's .bin symlink behavior.
+    [ -f "$FRONTEND_DIR/node_modules/next/dist/bin/next" ] || \
+        fail "Next.js CLI is missing after dependency setup. Delete Frontend/node_modules and rerun ./dev1.sh."
 }
 
 port_open() {
@@ -445,23 +423,6 @@ database_has_complete_seed_data() {
     ) >/dev/null 2>&1
 }
 
-seed_incremental_modules() {
-    case "$SEED_DATABASE" in
-        0|false|no|off)
-            return 0
-            ;;
-    esac
-
-    # These seeders are idempotent and carry feature configuration introduced
-    # after an existing development database may already have been populated.
-    # Always refresh them after migrations so new permissions, accounts, fiscal
-    # periods and posting rules appear without requiring migrate:fresh.
-    echo "Refreshing accounting and admin-access configuration..."
-    php artisan db:seed --class=Database\\Seeders\\AdminAccessSeeder --force
-    php artisan db:seed --class=Database\\Seeders\\AccountingSeeder --force
-    php artisan db:seed --class=Database\\Seeders\\AccountingOperationalBackfillSeeder --force
-}
-
 seed_backend_if_needed() {
     case "$SEED_DATABASE" in
         0|false|no|off)
@@ -503,12 +464,10 @@ prepare_backend() {
         echo "Rebuilding the MySQL schema..."
         php artisan migrate:fresh --force
         seed_backend_if_needed
-        seed_incremental_modules
     else
         echo "Applying MySQL migrations..."
         php artisan migrate --force
         seed_backend_if_needed
-        seed_incremental_modules
     fi
 
     # Database-backed cache/session/queue tables now exist, so the full cache
@@ -551,6 +510,7 @@ wait_for_service() {
 }
 
 clear_ports
+validate_frontend_layout
 ensure_environment_files
 ensure_dependencies
 start_mysql

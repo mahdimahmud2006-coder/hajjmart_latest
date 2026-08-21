@@ -32,20 +32,6 @@ export async function adminRequest<T>(path: string, options: AdminRequestOptions
     ...(body !== undefined ? { body } : {}),
   }, options.token);
 
-  // Laravel's ApiResponse flattens LengthAwarePaginator instances into
-  // `data: []` plus a sibling `meta` object. Rehydrate that wire format into
-  // the Paginated<T> shape used throughout the admin UI. Without this, pages
-  // receive a bare array and crash when reading result.data/result.total.
-  if (payload.meta && Array.isArray(payload.data)) {
-    return {
-      data: payload.data,
-      current_page: payload.meta.current_page,
-      per_page: payload.meta.per_page,
-      total: payload.meta.total,
-      last_page: payload.meta.last_page,
-    } as T;
-  }
-
   return payload.data;
 }
 

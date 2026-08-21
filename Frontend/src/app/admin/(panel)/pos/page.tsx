@@ -50,32 +50,13 @@ export default function PosPage() {
   const [queueOpen, setQueueOpen] = useState(false);
   const [queueSales, setQueueSales] = useState<OfflinePosSale[]>([]);
   const [cartHydrated, setCartHydrated] = useState(false);
-  const [sellingStoreId, setSellingStoreId] = useState<number | null>(null);
   const lastCatalogRefresh = useRef(0);
   const subtotal = useMemo(() => cart.reduce((s, l) => s + l.unitPrice * l.quantity, 0), [cart]);
   const total = useMemo(() => Math.max(0, subtotal - discount), [subtotal, discount]);
-  const contextStore = selectedStoreId === "all" ? stores[0]?.id : selectedStoreId;
-  const resolvedStore = sellingStoreId ?? (contextStore ? Number(contextStore) : null);
+  const resolvedStore = selectedStoreId === "all" ? stores[0]?.id : selectedStoreId;
   const [terminalId, setTerminalId] = useState("POS");
 
   useEffect(() => { setTerminalId(getTerminalId()); }, []);
-
-  useEffect(() => {
-    if (!stores.length) return;
-    setSellingStoreId((current) => {
-      if (current && stores.some((store) => Number(store.id) === current)) return current;
-      return Number(contextStore || stores[0].id);
-    });
-  }, [contextStore, stores]);
-
-  function changeSellingStore(nextValue: string) {
-    const next = Number(nextValue);
-    if (!next || next === resolvedStore) return;
-    if (cart.length && !window.confirm("Switch selling store? Your current cart is saved to this store and the selected store's cart will be loaded.")) return;
-    setCheckout(false);
-    setError(null);
-    setSellingStoreId(next);
-  }
 
   const refreshLocalCounts = useCallback(async () => {
     if (!resolvedStore) return;
@@ -362,22 +343,18 @@ export default function PosPage() {
       description="Offline-capable walk-in selling with retail or wholesale pricing. Cash sales are stored locally first and synchronize automatically when the server returns."
       actions={<>
         <button type="button" className={`admin-pos-connectivity ${connection}`} onClick={() => void reconcile(true)}><i/>{statusLabel}</button>
-        <span className="admin-live-indicator"><i/>Register · {resolvedStore ? stores.find((store) => Number(store.id) === Number(resolvedStore))?.name : "Select store"}</span>
+        <span className="admin-live-indicator"><i/>Register · {resolvedStore ? stores.find((store) => store.id === resolvedStore)?.name : "Select store"}</span>
       </>}
     />
     {connection === "offline" && <div className="admin-pos-offline-banner"><strong>Offline mode</strong><span>{catalogCount > 0 ? `${catalogCount} cached products available. Cash sales will remain on this terminal until synchronization.` : "No offline catalogue is cached yet. Connect this register to the server once before relying on offline mode."}</span>{catalogSyncedAt && <small>Catalogue last synchronized {new Date(catalogSyncedAt).toLocaleString()}</small>}</div>}
     {error && <p className="admin-form-error">{error}</p>}
-    <div className="admin-pos-store-selector">
-      <label><span>Selling store</span><select value={resolvedStore || ""} onChange={(event) => changeSellingStore(event.target.value)} disabled={!stores.length || busy}>{stores.map((store) => <option key={store.id} value={store.id}>{store.name}{store.code ? ` · ${store.code}` : ""}</option>)}</select></label>
-      <div><strong>{resolvedStore ? stores.find((store) => Number(store.id) === Number(resolvedStore))?.name : "No store selected"}</strong><small>Product availability, held carts, offline sales, inventory deduction and accounting are all tied to this store.</small></div>
-    </div>
     <div className="admin-pos-local-actions">
       <button type="button" onClick={() => setHeldOpen(true)}>Held sales <b>{heldSales.length}</b></button>
       <button type="button" onClick={() => setQueueOpen(true)}>Offline queue <b>{pendingCount}</b></button>
       <span>Terminal {terminalId.slice(-12)}</span>
     </div>
     <div className="admin-sale-workspace">
-      <ProductPicker cart={cart} onAdd={add} priceMode={priceMode} preferOffline={connection === "offline"} storeId={resolvedStore}/>
+      <ProductPicker cart={cart} onAdd={add} priceMode={priceMode} preferOffline={connection === "offline"}/>
       <div className="admin-sale-summary-column">
         <SaleCart cart={cart} setCart={setCart} discount={discount} setDiscount={setDiscount} title={`${priceMode === "wholesale" ? "Wholesale" : "Retail"} sale`} allowDiscount={can("orders.discount")} priceMode={priceMode} onPriceModeChange={setPriceMode}/>
         <AdminButton className="admin-checkout-button" icon="money" disabled={!cart.length || !resolvedStore} onClick={() => setCheckout(true)}>Take payment · {formatPrice(total)}</AdminButton>

@@ -14,12 +14,12 @@ class CategoryController extends Controller
 
     public function index()
     {
-        return $this->success(Category::with('children')->whereNull('parent_id')->orderBy('sort_order')->orderBy('name')->get(), 'Categories retrieved.');
+        return $this->success(Category::with('children.children')->whereNull('parent_id')->orderBy('sort_order')->orderBy('name')->get(), 'Categories retrieved.');
     }
 
     public function showProducts(string $slug, Request $request)
     {
-        $category = Category::where('slug', $slug)->orWhere('name', $slug)->firstOrFail();
+        $category = Category::with('children.children')->where('slug', $slug)->orWhere('name', $slug)->firstOrFail();
         $products = $category->products()->with('productImages', 'inventory')->paginate((int) $request->get('per_page', 20));
         return $this->success(['category' => $category, 'products' => $products], 'Category products retrieved.');
     }

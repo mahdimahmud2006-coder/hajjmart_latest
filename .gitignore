@@ -1,13 +1,91 @@
+# =========================
+# Environment / Secrets
+# =========================
+
 .env
-Backend/.env
+.env.*
+!**/.env.example
+
+
+# =========================
+# Backend - Laravel
+# =========================
+
 Backend/vendor/
-Backend/storage/logs/*.log
-Frontend/.env.local
+Backend/node_modules/
+
+# Laravel runtime/cache/log files
+Backend/storage/logs/
+Backend/storage/framework/cache/*
+Backend/storage/framework/sessions/*
+Backend/storage/framework/views/
+
+# Keep Laravel placeholder .gitignore files
+!Backend/storage/framework/cache/.gitignore
+!Backend/storage/framework/sessions/.gitignore
+!Backend/storage/framework/views/.gitignore
+
+Backend/bootstrap/cache/*
+!Backend/bootstrap/cache/.gitignore
+
+# Laravel generated/public files
+Backend/public/build/
+Backend/public/hot
+Backend/public/storage
+
+# Laravel keys/cache
+Backend/storage/*.key
+Backend/.phpunit.cache/
+Backend/.phpunit.result.cache
+
+# Potential Composer credentials
+Backend/auth.json
+
+
+# =========================
+# Frontend - Next.js
+# =========================
+
 Frontend/node_modules/
 Frontend/.next/
-*.zip
-.DS_Store
+Frontend/out/
+Frontend/dist/
+Frontend/coverage/
 
-# Local/generated files
-Backend/composer.phar
-Backend/storage/framework/views/
+# TypeScript generated build state
+*.tsbuildinfo
+
+
+# =========================
+# Logs
+# =========================
+
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+
+# =========================
+# Archives
+# =========================
+
+*.zip
+*.tar
+*.tar.gz
+*.7z
+*.rar
+
+
+# =========================
+# OS / Editors
+# =========================
+
+.DS_Store
+Thumbs.db
+
+.idea/
+.vscode/
+*.swp
+*.swo

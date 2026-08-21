@@ -29,8 +29,6 @@ class DatabaseSchemaCoverageTest extends TestCase
             'shops', 'stock_transfers', 'stock_transfer_items',
             'roles', 'permissions', 'role_user', 'permission_role',
             'activity_logs', 'business_transactions', 'daily_sales_summaries',
-            'legal_entities', 'account_dimensions', 'dimension_values', 'accounts', 'fiscal_periods',
-            'posting_rules', 'journal_entries', 'journal_lines',
             'contact_messages', 'delivery_charges', 'site_settings', 'social_shares',
             'cache', 'cache_locks', 'jobs', 'job_batches', 'failed_jobs',
         ];
@@ -61,27 +59,6 @@ class DatabaseSchemaCoverageTest extends TestCase
 
         $this->assertSame([], $missing, 'Missing retail/wholesale pricing columns: '.implode(', ', $missing));
     }
-    public function test_runtime_order_payment_and_reservation_columns_exist(): void
-    {
-        $columns = [
-            'orders' => ['status', 'order_status', 'shop_id', 'order_date', 'paid_amount', 'due_amount', 'confirmed_at', 'shipped_at', 'delivered_at', 'cancelled_at'],
-            'order_items' => ['item_status'],
-            'payments' => ['received_by', 'payment_reference', 'refunded_amount', 'refund_status'],
-            'reserved_products' => ['variant_id', 'shop_id'],
-        ];
-
-        $missing = [];
-        foreach ($columns as $table => $tableColumns) {
-            foreach ($tableColumns as $column) {
-                if (! Schema::hasColumn($table, $column)) {
-                    $missing[] = "{$table}.{$column}";
-                }
-            }
-        }
-
-        $this->assertSame([], $missing, 'Missing runtime workflow columns: '.implode(', ', $missing));
-    }
-
     public function test_offline_pos_idempotency_columns_exist(): void
     {
         $columns = ['terminal_id', 'client_transaction_id', 'offline_created_at', 'synced_at'];

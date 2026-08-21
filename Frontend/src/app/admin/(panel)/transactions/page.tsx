@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useAdmin } from "@/context/admin-context";
 import { useStore } from "@/context/store-context";
@@ -46,12 +45,11 @@ export default function TransactionsPage() {
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { setPage(1); }, [search, type, selectedStoreId, perPage]);
 
-  const rows = useMemo(() => Array.isArray(result.data) ? result.data : [], [result.data]);
-  const totals = useMemo(() => rows.reduce((acc, row) => {
+  const totals = useMemo(() => result.data.reduce((acc, row) => {
     if (!['recorded','reversed'].includes(row.status)) return acc;
     if (row.type === "income") acc.income += Number(row.amount); else acc.expense += Number(row.amount);
     return acc;
-  }, { income: 0, expense: 0 }), [rows]);
+  }, { income: 0, expense: 0 }), [result.data]);
 
   async function reverse(row: AdminTransaction) {
     if (!token || demoMode || !can("transactions.delete")) return;
@@ -82,17 +80,14 @@ export default function TransactionsPage() {
 
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = event.currentTarget;
-    if (!token || demoMode) { notify("Demo transaction recorded locally."); form.reset(); setOpen(false); return; }
-    const body = new FormData(form);
+    if (!token || demoMode) { notify("Demo transaction recorded locally."); setOpen(false); return; }
+    const body = new FormData(event.currentTarget);
     if (!body.get("shop_id") && selectedStoreId !== "all") body.set("shop_id", String(selectedStoreId));
     setBusy(true); setError(null);
     try {
       const created = await adminRequest<AdminTransaction>("/transactions", { method: "POST", token, body });
       notify(created.status === "pending_approval" ? "Large expense submitted for maker-checker approval." : "Transaction recorded with employee, store, reason and timestamp.");
-      form.reset();
-      setOpen(false);
-      await load();
+      setOpen(false); event.currentTarget.reset(); await load();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Transaction could not be recorded.");
     } finally { setBusy(false); }
@@ -110,7 +105,7 @@ export default function TransactionsPage() {
       <div className="admin-toolbar"><SearchField value={search} onChange={setSearch} placeholder="Reason, reference, category or transaction number…"/><div className="admin-toolbar-filters"><AdminSelect value={type} onChange={setType}><option value="all">All transaction types</option><option value="expense">Expenses</option><option value="income">Income</option></AdminSelect></div></div>
       {error && <p className="admin-form-error">{error}</p>}
       {pendingReverse && <InlineConfirm tone="danger" title={`Reverse ${pendingReverse.transaction_number}?`} description="The original record will remain in the audit trail and an opposite transaction will be created." confirmLabel="Reverse transaction" onCancel={() => setPendingReverse(null)} onConfirm={() => void reverse(pendingReverse)} busy={busy}/>}
-      {rows.length ? <><TableShell><thead><tr><th>Transaction</th><th>Date & store</th><th>Reason</th><th>Method</th><th>Attachment</th><th>Status</th><th>Ledger</th><th className="align-right">Amount</th><th></th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td><strong>{row.transaction_number}</strong><small>{row.category || "Uncategorised"}</small></td><td>{formatDate(row.occurred_at, true)}<small>{row.shop?.name || "Default store"}</small></td><td className="admin-transaction-reason"><strong>{row.reason}</strong><small>{row.reference || row.creator?.name || "No reference"}</small></td><td>{row.payment_method}</td><td>{row.attachment_url ? <a className="admin-transaction-attachment" href={row.attachment_url} target="_blank" rel="noreferrer"><AdminIcon name="eye" size={14}/>View proof</a> : <span>—</span>}</td><td><StatusBadge value={row.status}/></td><td>{Number(row.meta?.journal_entry_id || 0) > 0 ? <Link className="admin-text-link" href="/admin/accounting">JE-{String(row.meta?.journal_entry_id).padStart(6, "0")}</Link> : <span>{row.status === "pending_approval" ? "Posts after approval" : "—"}</span>}</td><td className="align-right"><strong>{row.type === "expense" ? "− " : "+ "}{formatPrice(row.amount)}</strong></td><td className="align-right"><div className="admin-row-actions">{row.status === "pending_approval" && can("transactions.approve") && row.creator?.id !== user?.id && <><button type="button" className="admin-icon-button" disabled={busy} aria-label={`Approve ${row.transaction_number}`} onClick={() => void decide(row,"approve")}><AdminIcon name="check" size={15}/></button><button type="button" className="admin-icon-button" disabled={busy} aria-label={`Reject ${row.transaction_number}`} onClick={() => void decide(row,"reject")}><AdminIcon name="close" size={15}/></button></>}{row.status === "recorded" && can("transactions.delete") && <button type="button" className="admin-icon-button" disabled={busy} aria-label={`Reverse ${row.transaction_number}`} onClick={() => setPendingReverse(row)}><AdminIcon name="transfer" size={15}/></button>}</div></td></tr>)}</tbody></TableShell><Pagination currentPage={result.current_page || page} lastPage={result.last_page || 1} total={result.total || 0} perPage={perPage} onPageChange={setPage} onPerPageChange={setPerPage}/></> : !loading && <EmptyState title="No transaction records" description="Record expenses such as maintenance, transport, utilities or store supplies here." icon="money"/>}
+      {result.data.length ? <><TableShell><thead><tr><th>Transaction</th><th>Date & store</th><th>Reason</th><th>Method</th><th>Attachment</th><th>Status</th><th className="align-right">Amount</th><th></th></tr></thead><tbody>{result.data.map((row) => <tr key={row.id}><td><strong>{row.transaction_number}</strong><small>{row.category || "Uncategorised"}</small></td><td>{formatDate(row.occurred_at, true)}<small>{row.shop?.name || "Default store"}</small></td><td className="admin-transaction-reason"><strong>{row.reason}</strong><small>{row.reference || row.creator?.name || "No reference"}</small></td><td>{row.payment_method}</td><td>{row.attachment_url ? <a className="admin-transaction-attachment" href={row.attachment_url} target="_blank" rel="noreferrer"><AdminIcon name="eye" size={14}/>View proof</a> : <span>—</span>}</td><td><StatusBadge value={row.status}/></td><td className="align-right"><strong>{row.type === "expense" ? "− " : "+ "}{formatPrice(row.amount)}</strong></td><td className="align-right"><div className="admin-row-actions">{row.status === "pending_approval" && can("transactions.approve") && row.creator?.id !== user?.id && <><button type="button" className="admin-icon-button" disabled={busy} aria-label={`Approve ${row.transaction_number}`} onClick={() => void decide(row,"approve")}><AdminIcon name="check" size={15}/></button><button type="button" className="admin-icon-button" disabled={busy} aria-label={`Reject ${row.transaction_number}`} onClick={() => void decide(row,"reject")}><AdminIcon name="close" size={15}/></button></>}{row.status === "recorded" && can("transactions.delete") && <button type="button" className="admin-icon-button" disabled={busy} aria-label={`Reverse ${row.transaction_number}`} onClick={() => setPendingReverse(row)}><AdminIcon name="transfer" size={15}/></button>}</div></td></tr>)}</tbody></TableShell><Pagination currentPage={result.current_page || page} lastPage={result.last_page || 1} total={result.total || 0} perPage={perPage} onPageChange={setPage} onPerPageChange={setPerPage}/></> : !loading && <EmptyState title="No transaction records" description="Record expenses such as maintenance, transport, utilities or store supplies here." icon="money"/>}
     </Panel>
     <Modal open={open} onClose={() => !busy && setOpen(false)} title="Record a business transaction" subtitle="Example: spent ৳2,000 for store maintenance." size="large"><form className="admin-stack" onSubmit={create} encType="multipart/form-data">
       <FormGrid><Field label="Type" required><select name="type" defaultValue="expense" required><option value="expense">Expense</option><option value="income">Other income</option></select></Field><Field label="Store" required><select name="shop_id" defaultValue={selectedStoreId === "all" ? stores[0]?.id : selectedStoreId} required>{stores.map((store) => <option value={store.id} key={store.id}>{store.name}</option>)}</select></Field></FormGrid>

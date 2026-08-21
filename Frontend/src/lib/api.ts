@@ -48,10 +48,10 @@ export async function getProducts(params: Record<string, string | number | boole
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined && value !== "") search.set(key, String(value));
   });
-  const products = await request<Product[]>(`/products${search.size ? `?${search}` : ""}`, {
+  const result = await request<Product[] | { data?: Product[] }>(`/products${search.size ? `?${search}` : ""}`, {
     fallback: demoProducts,
   });
-  return products;
+  return Array.isArray(result) ? result : result?.data || [];
 }
 
 export async function getProduct(slug: string): Promise<Product | null> {

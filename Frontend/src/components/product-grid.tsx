@@ -36,7 +36,7 @@ export function ProductGrid({ products, className = "", priorityCount = 0 }: { p
   return (
     <div className={`product-results-grid ${changing ? "is-changing" : ""} ${entering ? "is-entering" : ""} grid grid-cols-2 gap-x-3 gap-y-9 sm:gap-x-5 md:grid-cols-3 lg:grid-cols-4 xl:gap-x-7 ${className}`}>
       {products.map((product, index) => (
-        <Reveal key={product.id} delay={(index % 4) * 60}>
+        <Reveal key={product.id} delay={(index % 4) * 90}>
           <ProductCard product={product} priority={index < priorityCount} />
         </Reveal>
       ))}

@@ -123,10 +123,23 @@ grep -q 'পাসওয়ার্ড নিশ্চিত করুন' Fron
 grep -q "Passwords don&apos;t match" Frontend/src/components/auth-form.tsx
 grep -q 'account-page-bg' Frontend/src/app/account/page.tsx
 grep -q 'Account ambient background — logged-in account only' Frontend/src/app/globals.css
-test -f Frontend/public/images/decor/account-hero-lanterns.jpg
-grep -q "url('/images/decor/account-hero-lanterns.jpg')" Frontend/src/app/globals.css
+test -f Frontend/public/images/decor/account-hero-sunset-mosque.jpg
+grep -q "url('/images/decor/account-hero-sunset-mosque.jpg')" Frontend/src/app/globals.css
 grep -q 'test_customer_registration_rejects_mismatched_password_confirmation' Backend/tests/Feature/HajjMartApiTest.php
 grep -q 'Customer account dashboard — Aug 16 login/workflow implementation' Frontend/src/app/globals.css
+test -f Frontend/src/components/product-rail.tsx
+test -f Frontend/src/components/quick-link-tiles.tsx
+test -f Frontend/src/components/editorial-rail.tsx
+test -f Frontend/src/components/newsletter-capture.tsx
+test -f Frontend/src/components/support-bubble.tsx
+test -f Frontend/src/lib/guides.ts
+test -f Frontend/src/app/guides/page.tsx
+test -f 'Frontend/src/app/guides/[slug]/page.tsx'
+grep -q 'Most carried by pilgrims' Frontend/src/components/product-rail.tsx
+grep -q 'Complete your order' Frontend/src/components/cart-drawer.tsx
+grep -q 'children.children' Backend/app/Http/Controllers/Api/V1/CategoryController.php
+grep -q 'Pilgrim journal' Frontend/src/components/site-header.tsx
+grep -q 'sunnah-footer-columns' Frontend/src/components/site-footer.tsx
 grep -q "serviceWorker.register" Frontend/src/components/admin/pos-service-worker.tsx
 node --check Frontend/public/sw-pos.js >/dev/null
 test -f Frontend/public/pos.webmanifest

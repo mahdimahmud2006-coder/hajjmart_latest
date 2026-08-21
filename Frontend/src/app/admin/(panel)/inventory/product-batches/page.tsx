@@ -113,7 +113,7 @@ export default function ProductBatchesPage() {
 
     return [...matches].sort((left, right) => {
       if (batchSort === "newest") {
-        const receivedDifference = new Date(right.received_at).getTime() - new Date(left.received_at).getTime();
+        const receivedDifference = new Date(right.received_at ?? 0).getTime() - new Date(left.received_at ?? 0).getTime();
         return receivedDifference || right.id - left.id;
       }
 
@@ -126,7 +126,7 @@ export default function ProductBatchesPage() {
       if (priceDifference !== 0) return priceDifference;
 
       // Stable, useful tie-breaker: show the newest receipt first when prices match.
-      const receivedDifference = new Date(right.received_at).getTime() - new Date(left.received_at).getTime();
+      const receivedDifference = new Date(right.received_at ?? 0).getTime() - new Date(left.received_at ?? 0).getTime();
       return receivedDifference || right.id - left.id;
     });
   }, [batches, search, batchSort]);

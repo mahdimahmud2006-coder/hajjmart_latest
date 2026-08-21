@@ -52,8 +52,12 @@ export function getProductImages(product: Product): string[] {
   return [...new Set(values)];
 }
 
-export function getProductImage(product: Product): string {
-  return getProductImages(product)[0] || "/images/products/ihram-package.svg";
+export function getProductImage(product: Product): string;
+export function getProductImage(product: Product, index: number): string | null;
+export function getProductImage(product: Product, index = 0): string | null {
+  const image = getProductImages(product)[index];
+  if (image) return image;
+  return index === 0 ? "/images/products/ihram-package.svg" : null;
 }
 
 export function getCategoryImage(category: Category): string | null {

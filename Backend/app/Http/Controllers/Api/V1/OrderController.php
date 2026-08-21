@@ -14,7 +14,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use RuntimeException;
-use Throwable;
 
 class OrderController extends Controller
 {
@@ -260,16 +259,9 @@ class OrderController extends Controller
             'note' => ['nullable', 'string'],
             'force' => ['nullable', 'boolean'],
         ]);
-        try {
-            $updated = $data['status'] === 'cancelled'
-                ? $this->orders->cancel($order, $request->user()->id, $data['note'] ?? 'Cancelled from admin order workflow')
-                : $this->orders->transition($order, $data['status'], $request->user()->id, $data['note'] ?? null, (bool) ($data['force'] ?? false));
-        } catch (RuntimeException $exception) {
-            return $this->error($exception->getMessage(), 422);
-        } catch (Throwable $exception) {
-            report($exception);
-            return $this->error('Order workflow could not be updated. The operation was rolled back safely.', 500);
-        }
+        $updated = $data['status'] === 'cancelled'
+            ? $this->orders->cancel($order, $request->user()->id, $data['note'] ?? 'Cancelled from admin order workflow')
+            : $this->orders->transition($order, $data['status'], $request->user()->id, $data['note'] ?? null, (bool) ($data['force'] ?? false));
 
         return $this->success($updated, 'Order status updated.');
     }

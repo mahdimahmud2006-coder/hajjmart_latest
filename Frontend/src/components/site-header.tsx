@@ -13,7 +13,6 @@ import { BagIcon, ChevronDownIcon, CloseIcon, HeartIcon, MenuIcon, SearchIcon, U
 
 const RECENT_SEARCH_KEY = "hajjmart-recent-searches-v1";
 
-
 export function SiteHeader({ categories }: { categories: Category[] }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -24,16 +23,25 @@ export function SiteHeader({ categories }: { categories: Category[] }) {
   const [searchResults, setSearchResults] = useState<Product[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
+  const [scrolled, setScrolled] = useState(false);
   const closeMobile = useCallback(() => setMobileOpen(false), []);
   const closeSearch = useCallback(() => setSearchOpen(false), []);
-  const mobilePanelRef = useOverlayPrimitive(mobileOpen, closeMobile);
-  const searchPanelRef = useOverlayPrimitive(searchOpen, closeSearch);
+  const mobilePanelRef = useOverlayPrimitive<HTMLElement>(mobileOpen, closeMobile);
+  const searchPanelRef = useOverlayPrimitive<HTMLDivElement>(searchOpen, closeSearch);
 
   useEffect(() => {
-    window.queueMicrotask(() => {
+    const onScroll = () => setScrolled(window.scrollY > 48);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
       setMobileOpen(false);
       setSearchOpen(false);
     });
+    return () => window.cancelAnimationFrame(frame);
   }, [pathname]);
 
   useEffect(() => {
@@ -85,91 +93,110 @@ export function SiteHeader({ categories }: { categories: Category[] }) {
     goToSearch(query);
   }
 
-  const primaryCategories = categories.slice(0, 7);
+  const navCategories = categories.slice(0, 6);
+  const mobileCategories = categories.slice(0, 10);
 
   return (
     <>
-      <div className="announcement-bar">
-        <div className="container-wide flex items-center justify-between gap-4">
-          <p><span className="hidden sm:inline">Free delivery inside Dhaka on orders over ৳3,000</span><span className="sm:hidden">Free delivery over ৳3,000</span></p>
-          <div className="hidden items-center gap-5 md:flex">
-            <Link href="/about">Our story</Link>
-            <Link href="/contact">Store locations</Link>
-            <Link href="/see-progress">See order progress</Link>
-            <a href="tel:+8801720601515">01720 601515</a>
-          </div>
+      <div className="sunnah-announcement">
+        <div className="container-wide sunnah-announcement-inner">
+          <span>Nationwide delivery across Bangladesh</span>
+          <strong>Prepared with care for Hajj &amp; Umrah</strong>
+          <Link href="/see-progress">See order progress</Link>
         </div>
       </div>
-      <header className="site-header">
-        <div className="container-wide flex h-[78px] items-center justify-between gap-4 lg:h-[92px]">
-          <button className="icon-button lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Open menu"><MenuIcon size={23}/></button>
-          <Link href="/" className="shrink-0" aria-label="HajjMart home">
+
+      <header className={`site-header sunnah-header ${scrolled ? "is-scrolled" : ""}`}>
+        <div className="container-wide sunnah-header-main">
+          <div className="sunnah-header-left">
+            <button className="icon-button lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Open menu"><MenuIcon size={22}/></button>
+            <Link href="/shop" className="sunnah-header-text-link hidden lg:inline-flex">Shop all</Link>
+            <Link href="/guides" className="sunnah-header-text-link hidden xl:inline-flex">Pilgrim journal</Link>
+          </div>
+
+          <Link href="/" className="sunnah-brand" aria-label="HajjMart home">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/images/brand/hajjmart-logo.svg" alt="HajjMart" className="h-12 w-auto lg:h-14" />
+            <img src="/images/brand/hajjmart-logo.svg" alt="HajjMart" />
+            <span>Est. in Bangladesh</span>
           </Link>
 
-          <nav className="hidden flex-1 items-center justify-center gap-7 lg:flex" aria-label="Primary navigation">
-            <Link href="/shop" className={pathname === "/shop" ? "nav-link active" : "nav-link"}>Shop all</Link>
-            <div className="group relative py-8">
-              <button className="nav-link inline-flex items-center gap-1">Collections <ChevronDownIcon size={14}/></button>
-              <div className="mega-menu invisible absolute left-1/2 top-full w-[700px] -translate-x-1/2 translate-y-2 opacity-0 transition duration-200 group-hover:visible group-hover:translate-y-0 group-hover:opacity-100">
-                <div className="grid grid-cols-3 gap-3 p-4">
-                  {primaryCategories.map((category, index) => (
-                    <Link href={`/category/${category.slug}`} key={category.id} className="mega-link">
-                      <span className="mega-index">0{index + 1}</span>
-                      <span><strong>{category.name}</strong><small>{category.description || "Explore the collection"}</small></span>
+          <div className="sunnah-header-utils">
+            <button className="icon-button" onClick={() => setSearchOpen(true)} aria-label="Search"><SearchIcon size={20}/></button>
+            <Link href="/account" className="icon-button hidden sm:grid" aria-label={user ? `Account for ${user.name}` : "Account"}><UserIcon size={20}/></Link>
+            <Link href="/account#wishlist" className="icon-button relative hidden sm:grid" aria-label="Wishlist"><HeartIcon size={20}/>{wishlist.length > 0 ? <span key={wishlist.length} className="count-badge">{wishlist.length}</span> : null}</Link>
+            <button id="cart-icon-anchor" className="icon-button relative" onClick={() => setCartOpen(true)} aria-label={`Shopping bag with ${cartCount} items`}><BagIcon size={20}/>{cartCount > 0 ? <span key={cartCount} className="count-badge">{cartCount}</span> : null}</button>
+          </div>
+        </div>
+
+      </header>
+
+      <div className="sunnah-category-nav-wrap hidden lg:block">
+        <nav className="container-wide sunnah-category-nav" aria-label="Shop departments">
+            {navCategories.map((category) => (
+              <div key={category.id} className="sunnah-nav-group">
+                <Link href={`/category/${category.slug}`} className="sunnah-category-link">{category.name}<ChevronDownIcon size={12}/></Link>
+                <div className="sunnah-mega-menu">
+                  <div className="container-wide sunnah-mega-inner">
+                    <div className="sunnah-mega-intro">
+                      <span className="eyebrow">Department</span>
+                      <h2>{category.name}</h2>
+                      <p>{category.description || `Everything selected for ${category.name.toLowerCase()} preparation.`}</p>
+                      <Link href={`/category/${category.slug}`}>View all {category.name} →</Link>
+                    </div>
+                    <div className="sunnah-mega-columns">
+                      {(category.children || []).slice(0, 5).map((child) => (
+                        <section key={child.id}>
+                          <Link href={`/category/${child.slug}`} className="sunnah-mega-heading">{child.name}</Link>
+                          <div className="sunnah-mega-links">
+                            {(child.children || []).slice(0, 7).map((grandchild) => <Link key={grandchild.id} href={`/category/${grandchild.slug}`}>{grandchild.name}</Link>)}
+                            {!child.children?.length ? <Link href={`/category/${child.slug}`}>View collection</Link> : null}
+                          </div>
+                        </section>
+                      ))}
+                      {!category.children?.length ? (
+                        <section>
+                          <span className="sunnah-mega-heading">Explore</span>
+                          <div className="sunnah-mega-links"><Link href={`/category/${category.slug}`}>Browse collection</Link><Link href="/shop?sort=best_selling">Best sellers</Link><Link href="/guides">Preparation guides</Link></div>
+                        </section>
+                      ) : null}
+                    </div>
+                    <Link href="/shop?sort=best_selling" className="sunnah-mega-feature">
+                      <span>HajjMart edit</span>
+                      <strong>Most carried by pilgrims</strong>
+                      <em>Shop the edit →</em>
                     </Link>
-                  ))}
-                  <Link href="/shop" className="mega-feature">
-                    <span className="eyebrow text-white/70">The complete edit</span>
-                    <strong>Prepared for every step.</strong>
-                    <span>View all essentials →</span>
-                  </Link>
+                  </div>
                 </div>
               </div>
-            </div>
-            <Link href="/category/ihram-packages" className="nav-link">Ihram & packages</Link>
-            <Link href="/category/travel-essentials" className="nav-link">Travel</Link>
-            <Link href="/faq" className="nav-link">Pilgrim guide</Link>
-          </nav>
-
-          <div className="flex items-center gap-1 sm:gap-2">
-            <button className="icon-button" onClick={() => setSearchOpen(true)} aria-label="Search"><SearchIcon size={21}/></button>
-            <Link href="/account" className="icon-button hidden sm:grid" aria-label={user ? `Account for ${user.name}` : "Account"}><UserIcon size={21}/></Link>
-            <Link href="/account#wishlist" className="icon-button relative" aria-label="Wishlist"><HeartIcon size={21}/>{wishlist.length > 0 ? <span key={wishlist.length} className="count-badge">{wishlist.length}</span> : null}</Link>
-            <button className="icon-button relative" onClick={() => setCartOpen(true)} aria-label={`Shopping bag with ${cartCount} items`}><BagIcon size={21}/>{cartCount > 0 ? <span key={cartCount} className="count-badge">{cartCount}</span> : null}</button>
-          </div>
-        </div>
-        <div className="hidden border-t border-black/[.055] lg:block">
-          <div className="container-wide flex h-11 items-center justify-center gap-9 overflow-hidden">
-            {primaryCategories.map((category) => <Link key={category.id} href={`/category/${category.slug}`} className="subnav-link">{category.name}</Link>)}
-          </div>
-        </div>
-      </header>
+            ))}
+            <Link href="/shop?sort=best_selling" className="sunnah-category-link">Best sellers</Link>
+            <Link href="/guides" className="sunnah-category-link">Guides</Link>
+        </nav>
+      </div>
 
       <div className={`mobile-sheet ${mobileOpen ? "is-open" : ""}`} aria-hidden={!mobileOpen}>
         <button className="mobile-sheet-backdrop" onClick={closeMobile} aria-label="Close menu" />
-        <aside ref={mobilePanelRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Mobile navigation" className="mobile-sheet-panel">
-          <div className="flex items-center justify-between border-b border-black/10 px-5 py-4">
+        <aside ref={mobilePanelRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Mobile navigation" className="mobile-sheet-panel sunnah-mobile-panel">
+          <div className="sunnah-mobile-top flex items-center justify-between px-5 py-4">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/images/brand/hajjmart-logo.svg" alt="HajjMart" className="h-11 w-auto" />
             <button className="icon-button" onClick={closeMobile} aria-label="Close menu"><CloseIcon /></button>
           </div>
-          <div className="overflow-y-auto px-5 py-5">
-            <p className="eyebrow mb-3">Shop</p>
-            <Link href="/shop" className="mobile-nav-primary">All products</Link>
-            {primaryCategories.map((category) => <Link key={category.id} href={`/category/${category.slug}`} className="mobile-nav-primary">{category.name}</Link>)}
-            <div className="my-6 h-px bg-black/10" />
+          <div className="sunnah-mobile-scroll overflow-y-auto px-5 py-5">
+            <p className="eyebrow mb-3">Shop departments</p>
+            <Link href="/shop" className="mobile-nav-primary">Shop all</Link>
+            {mobileCategories.map((category) => <div key={category.id} className="mobile-category-group"><Link href={`/category/${category.slug}`} className="mobile-nav-primary">{category.name}</Link>{category.children?.length ? <div className="mobile-category-children">{category.children.slice(0, 6).map((child) => <Link key={child.id} href={`/category/${child.slug}`}>{child.name}</Link>)}</div> : null}</div>)}
+            <div className="sunnah-mobile-divider my-6 h-px" />
             <p className="eyebrow mb-3">HajjMart</p>
+            <Link href="/guides" className="mobile-nav-secondary">Pilgrim journal</Link>
             <Link href="/about" className="mobile-nav-secondary">Our story</Link>
-            <Link href="/faq" className="mobile-nav-secondary">Pilgrim guide & FAQs</Link>
-            <Link href="/contact" className="mobile-nav-secondary">Contact & stores</Link>
-            <Link href="/see-progress" className="mobile-nav-secondary">See order progress</Link>
+            <Link href="/faq" className="mobile-nav-secondary">FAQs</Link>
+            <Link href="/see-progress" className="mobile-nav-secondary">Track order</Link>
             <Link href="/account#wishlist" className="mobile-nav-secondary flex items-center justify-between"><span>Saved items</span>{wishlist.length ? <b>{wishlist.length}</b> : null}</Link>
             <Link href="/account" className="mobile-nav-secondary">{user ? `Hello, ${user.name}` : "Login / register"}</Link>
           </div>
-          <div className="mt-auto bg-[var(--forest)] px-6 py-6 text-white">
-            <p className="text-xs uppercase tracking-[.22em] text-white/55">Need a human?</p>
+          <div className="sunnah-mobile-care mt-auto px-6 py-6 text-white">
+            <p className="text-xs uppercase tracking-[.22em] text-white/55">HajjMart care</p>
             <a href="tel:+8801720601515" className="mt-2 block font-serif text-2xl">01720 601515</a>
             <p className="mt-1 text-sm text-white/65">Every day, 10:00 AM–9:00 PM</p>
           </div>
@@ -179,7 +206,7 @@ export function SiteHeader({ categories }: { categories: Category[] }) {
       <div className={`search-overlay ${searchOpen ? "is-open" : ""}`} aria-hidden={!searchOpen}>
         <button className="absolute right-5 top-5 z-20 grid h-12 w-12 place-items-center rounded-full border border-white/20 text-white hover:bg-white/10" onClick={closeSearch} aria-label="Close search"><CloseIcon size={24}/></button>
         <div ref={searchPanelRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Search products" className="container-narrow relative z-10 flex h-full flex-col justify-center outline-none">
-          <p className="eyebrow text-[var(--gold-light)]">Find your essential</p>
+          <p className="eyebrow text-[var(--gold-light)]">Search HajjMart</p>
           <form onSubmit={submitSearch} className="mt-5 border-b border-white/35 pb-4">
             <div className="flex items-center gap-4">
               <SearchIcon size={30} className="text-white/55" />

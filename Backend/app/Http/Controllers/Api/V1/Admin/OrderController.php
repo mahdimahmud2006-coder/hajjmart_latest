@@ -14,7 +14,6 @@ use App\Support\ApiResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
-use RuntimeException;
 use Throwable;
 
 class OrderController extends Controller
@@ -134,54 +133,35 @@ class OrderController extends Controller
     {
         $data = $request->validate([
             'amount' => ['required', 'numeric', 'min:0.01'],
-            'payment_method' => ['required', Rule::in(['cash', 'bkash', 'nagad', 'card', 'bank', 'online', 'cod'])],
+            'payment_method' => ['required', 'string', 'max:50'],
             'payment_reference' => ['nullable', 'string', 'max:150'],
             'paid_at' => ['nullable', 'date'],
         ]);
 
-        try {
-            $order = DB::transaction(function () use ($data, $order, $request): Order {
-                $locked = Order::query()->lockForUpdate()->findOrFail($order->id);
-                $remaining = round(max(0, (float) $locked->grand_total - (float) $locked->paid_amount), 2);
-                $amount = round(min((float) $data['amount'], $remaining), 2);
-                if ($amount <= 0) {
-                    throw new RuntimeException('This order has no due amount.');
-                }
+        $order = DB::transaction(function () use ($data, $order, $request): Order {
+            $remaining = max(0, (float) $order->grand_total - (float) $order->paid_amount);
+            $amount = min((float) $data['amount'], $remaining);
+            abort_if($amount <= 0, 422, 'This order has no due amount.');
 
-                Payment::create([
-                    'order_id' => $locked->id,
-                    'payment_method' => $data['payment_method'],
-                    'amount' => $amount,
-                    'currency' => $locked->currency ?: 'BDT',
-                    'status' => 'paid',
-                    'paid_at' => $data['paid_at'] ?? now(),
-                    'received_by' => $request->user()->id,
-                    'payment_reference' => $data['payment_reference'] ?? null,
-                ]);
+            Payment::create([
+                'order_id' => $order->id,
+                'payment_method' => $data['payment_method'],
+                'amount' => $amount,
+                'currency' => $order->currency ?: 'BDT',
+                'status' => 'paid',
+                'paid_at' => $data['paid_at'] ?? now(),
+                'received_by' => $request->user()->id,
+                'payment_reference' => $data['payment_reference'] ?? null,
+            ]);
 
-                $paid = round(min((float) $locked->grand_total, (float) $locked->paid_amount + $amount), 2);
-                $due = round(max(0, (float) $locked->grand_total - $paid), 2);
-                $locked->update([
-                    'paid_amount' => $paid,
-                    'due_amount' => $due,
-                    'payment_status' => $due <= 0 ? 'paid' : 'partial',
-                ]);
+            $paid = round((float) $order->paid_amount + $amount, 2);
+            $due = round(max(0, (float) $order->grand_total - $paid), 2);
+            $order->update(['paid_amount' => $paid, 'due_amount' => $due, 'payment_status' => $due <= 0 ? 'paid' : 'partial']);
+            return $order->fresh(['payments.receiver']);
+        });
 
-                return $locked->fresh([
-                    'shop:id,name,code', 'creator:id,name', 'assignee:id,name', 'customer:id,name,email,phone',
-                    'items.product:id,name,sku,slug,image_src', 'items.variant:id,sku', 'payments.receiver', 'returnRequests',
-                ]);
-            });
-        } catch (RuntimeException $exception) {
-            return $this->error($exception->getMessage(), 422);
-        } catch (Throwable $exception) {
-            report($exception);
-            return $this->error('Payment could not be recorded. The payment transaction was rolled back safely.', 500);
-        }
-
-        // The operational payment must not be reported as failed just because an
-        // accounting rule needs repair. Paid POS orders are idempotently backfilled
-        // by AccountingOperationalBackfillSeeder on the next launcher run.
+        // Keep paid POS orders synchronized with the accounting ledger.
+        // Accounting failures must not invalidate an otherwise successful payment.
         if ($order->source_channel === 'pos' && $order->payment_status === 'paid') {
             try {
                 $this->accounting->postCompletedPosSale($order);
@@ -190,12 +170,7 @@ class OrderController extends Controller
             }
         }
 
-        try {
-            $this->activities->record('orders', 'payment', "Collected payment for {$order->order_number}", $order, [], $data, request: $request);
-        } catch (Throwable $exception) {
-            report($exception);
-        }
-
+        $this->activities->record('orders', 'payment', "Collected payment for {$order->order_number}", $order, [], $data, request: $request);
         return $this->success($order, 'Payment collected.');
     }
 

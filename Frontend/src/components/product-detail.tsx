@@ -85,7 +85,7 @@ export function ProductDetail({ product }: { product: Product }) {
         <p className="eyebrow">{categoryName(product)}</p>
         <h1 className="mt-3 font-serif text-4xl leading-[1.06] text-[var(--ink)] sm:text-5xl">{product.name}</h1>
         <div className="mt-4 flex flex-wrap items-center gap-4">
-          {Number(product.average_rating || 0) > 0 ? <span className="flex items-center gap-1.5 text-sm"><span className="flex gap-.5 text-[var(--gold)]">{Array.from({ length: 5 }).map((_, index) => <StarIcon key={index} size={14} fill={index < Math.round(Number(product.average_rating)) ? "currentColor" : "none"}/>)}</span><span className="text-[var(--muted)]">{Number(product.average_rating).toFixed(1)} ({product.review_count || 0})</span></span> : null}
+          {Number(product.average_rating || 0) > 0 ? <span className="flex items-center gap-1.5 text-sm"><span className="rating-stars flex gap-.5 text-[var(--gold)]">{Array.from({ length: 5 }).map((_, index) => <StarIcon key={index} size={14} fill={index < Math.round(Number(product.average_rating)) ? "currentColor" : "none"}/>)}</span><span className="text-[var(--muted)]">{Number(product.average_rating).toFixed(1)} ({product.review_count || 0})</span></span> : null}
           <span className={`stock-label ${stock > 0 ? "in" : "out"}`}><span className="h-1.5 w-1.5 rounded-full bg-current" />{stock > 0 ? `${stock < 10 ? `Only ${stock} left` : "Ready to dispatch"}` : "Currently unavailable"}</span>
         </div>
         <div className="mt-6 flex items-baseline gap-3"><strong className="font-serif text-3xl text-[var(--forest)]">{formatPrice(price)}</strong>{regular ? <span className="text-base text-[var(--muted)] line-through">{formatPrice(regular)}</span> : null}</div>

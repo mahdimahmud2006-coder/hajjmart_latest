@@ -1,58 +1,152 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
+import {
+  Activity,
+  AlertTriangle,
+  ArrowLeftRight,
+  ArrowRight,
+  BarChart3,
+  Bell,
+  Box,
+  Calendar,
+  Check,
+  CheckCircle2,
+  ChevronRight,
+  CircleDollarSign,
+  ClipboardList,
+  Download,
+  Eye,
+  Filter,
+  Info,
+  Languages,
+  Layers,
+  LayoutDashboard,
+  LogOut,
+  Menu,
+  MessageCircle,
+  Monitor,
+  MoreHorizontal,
+  Package,
+  Pencil,
+  Plus,
+  Printer,
+  RotateCcw,
+  Search,
+  Settings,
+  ShieldCheck,
+  ShoppingBag,
+  Store,
+  Tag,
+  Trash2,
+  User,
+  Users,
+  X,
+  XCircle,
+  Star,
+  ArrowUp,
+  ArrowDown,
+  type LucideIcon,
+} from "lucide-react";
 import { useOverlayPrimitive } from "@/components/overlay-primitive";
+import { useAdminLanguage } from "@/context/admin-language-context";
 import { formatPrice } from "@/lib/utils";
 
 export type AdminIconName =
   | "dashboard" | "orders" | "pos" | "social" | "returns" | "products" | "inventory"
-  | "promotions" | "stores" | "employees" | "roles" | "activity"
+  | "promotions" | "stores" | "employees" | "customers" | "shield" | "activity"
   | "reports" | "settings" | "search" | "menu" | "bell" | "chevron" | "plus" | "close"
   | "arrow" | "download" | "filter" | "more" | "check" | "money" | "bag" | "box"
-  | "warning" | "users" | "calendar" | "edit" | "trash" | "eye" | "transfer" | "logout";
+  | "warning" | "users" | "calendar" | "edit" | "print" | "trash" | "eye" | "transfer" | "logout"
+  | "language" | "info" | "error" | "star" | "arrow-up" | "arrow-down";
 
-const paths: Record<AdminIconName, React.ReactNode> = {
-  dashboard: <><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="5" rx="2"/><rect x="14" y="12" width="7" height="9" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/></>,
-  orders: <><path d="M6 3h12l1 18-7-3-7 3L6 3Z"/><path d="M9 8h6M9 12h6"/></>,
-  pos: <><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M7 21h10M9 17v4M15 17v4M7 8h10M7 12h4"/></>,
-  social: <><path d="M21 12a8.5 8.5 0 0 1-12.7 7.4L3 21l1.6-5.1A8.5 8.5 0 1 1 21 12Z"/><path d="M8 12h.01M12 12h.01M16 12h.01"/></>,
-  returns: <><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 6 6v1"/><path d="m15 18 2 2 4-4"/></>,
-  products: <><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4.5 7.5 7.5 4 7.5-4M12 11.5V21"/></>,
-  inventory: <><path d="M3 7.5 12 3l9 4.5-9 4.5-9-4.5Z"/><path d="m3 12 9 4.5 9-4.5M3 16.5 12 21l9-4.5"/></>,
-  promotions: <><path d="M20 12 12 20l-8-8V4h8l8 8Z"/><circle cx="9" cy="9" r="1.2"/><path d="m13 8-5 6"/></>,
-  stores: <><path d="M4 10h16v11H4zM3 10l2-6h14l2 6"/><path d="M8 14h3v7M15 14h2"/></>,
-  employees: <><circle cx="9" cy="8" r="4"/><path d="M3 21a6 6 0 0 1 12 0M16 8a3 3 0 0 1 3 3M17 15a5 5 0 0 1 4 5"/></>,
-  roles: <><path d="M12 3 4 6v5c0 5 3.4 8.4 8 10 4.6-1.6 8-5 8-10V6l-8-3Z"/><path d="m9 12 2 2 4-5"/></>,
-  activity: <><path d="M3 12h4l2-6 4 12 2-6h6"/></>,
-  reports: <><path d="M5 21V10M12 21V3M19 21v-7"/></>,
-  settings: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21H10v-.1A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3V10h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3H14v.1A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 .6 1 1.7 1.7 0 0 0 1.1.4h.1V14h-.1A1.7 1.7 0 0 0 19.4 15Z"/></>,
-  search: <><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></>,
-  menu: <><path d="M4 7h16M4 12h16M4 17h16"/></>, bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></>,
-  chevron: <path d="m9 18 6-6-6-6"/>, plus: <path d="M12 5v14M5 12h14"/>, close: <path d="m6 6 12 12M18 6 6 18"/>, arrow: <path d="M5 12h14m-5-5 5 5-5 5"/>,
-  download: <><path d="M12 3v12m-4-4 4 4 4-4"/><path d="M5 21h14"/></>, filter: <><path d="M4 5h16M7 12h10M10 19h4"/></>, more: <><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></>,
-  check: <path d="m5 12 4 4L19 6"/>, money: <><circle cx="12" cy="12" r="9"/><path d="M16 8.5c-.8-.8-2-1.3-4-1.3-2.2 0-3.5 1-3.5 2.5 0 3.8 7.5 1.6 7.5 5.3 0 1.5-1.4 2.7-3.8 2.7-1.7 0-3.2-.5-4.2-1.5M12 5v14"/></>,
-  bag: <><path d="M5 8h14l-1 13H6L5 8Z"/><path d="M9 9V6a3 3 0 0 1 6 0v3"/></>, box: <><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4.5 7.5 7.5 4 7.5-4"/></>, warning: <><path d="M12 3 2 21h20L12 3Z"/><path d="M12 9v5M12 18h.01"/></>, users: <><circle cx="8" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M2 20a6 6 0 0 1 12 0M13 19a5 5 0 0 1 9 0"/></>, calendar: <><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/></>, edit: <><path d="M4 20h4L19 9l-4-4L4 16v4Z"/><path d="m13.5 6.5 4 4"/></>, trash: <><path d="M4 7h16M9 7V4h6v3M7 7l1 14h8l1-14"/><path d="M10 11v6M14 11v6"/></>, eye: <><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></>, transfer: <><path d="M4 7h13m-3-3 3 3-3 3M20 17H7m3 3-3-3 3-3"/></>, logout: <><path d="M10 5H5v14h5M14 8l4 4-4 4M18 12H9"/></>,
+const icons: Record<AdminIconName, LucideIcon> = {
+  dashboard: LayoutDashboard,
+  orders: ClipboardList,
+  pos: Monitor,
+  social: MessageCircle,
+  returns: RotateCcw,
+  products: Package,
+  inventory: Layers,
+  promotions: Tag,
+  stores: Store,
+  employees: Users,
+  customers: User,
+  shield: ShieldCheck,
+  activity: Activity,
+  reports: BarChart3,
+  settings: Settings,
+  search: Search,
+  menu: Menu,
+  bell: Bell,
+  chevron: ChevronRight,
+  plus: Plus,
+  close: X,
+  arrow: ArrowRight,
+  download: Download,
+  filter: Filter,
+  more: MoreHorizontal,
+  check: Check,
+  money: CircleDollarSign,
+  bag: ShoppingBag,
+  box: Box,
+  warning: AlertTriangle,
+  users: Users,
+  calendar: Calendar,
+  edit: Pencil,
+  print: Printer,
+  trash: Trash2,
+  eye: Eye,
+  transfer: ArrowLeftRight,
+  logout: LogOut,
+  language: Languages,
+  info: Info,
+  error: XCircle,
+  star: Star,
+  "arrow-up": ArrowUp,
+  "arrow-down": ArrowDown,
 };
 
-export function AdminIcon({ name, size = 18, className = "" }: { name: AdminIconName; size?: number; className?: string }) {
-  return <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
+export function AdminIcon({ name, size = 20, className = "" }: { name: AdminIconName; size?: number; className?: string }) {
+  const Icon = icons[name];
+  return <Icon className={className} width={size} height={size} strokeWidth={1.8} aria-hidden="true" />;
+}
+
+type StatusTone = "success" | "warning" | "error" | "info" | "neutral";
+
+function resolveStatusTone(value: string): StatusTone {
+  const normalized = value.toLowerCase().replaceAll("_", " ");
+  if (/(paid|completed|active|healthy|received|delivered|approved|confirmed)/.test(normalized)) return "success";
+  if (/(pending|partial|processing|low|draft|requested|packing)/.test(normalized)) return "warning";
+  if (/(cancel|reject|inactive|out|failed|refunded|returned)/.test(normalized)) return "error";
+  if (/(website|social|pos|info)/.test(normalized)) return "info";
+  return "neutral";
+}
+
+export function StatusChip({ value, tone, channel }: { value: string; tone?: StatusTone; channel?: "website" | "social" | "pos" }) {
+  const normalized = value.toLowerCase().replaceAll("_", " ");
+  const resolved = tone || (channel === "pos" ? "success" : channel ? "info" : resolveStatusTone(value));
+  const icon: AdminIconName = channel === "website" ? "bag" : channel === "social" ? "social" : channel === "pos" ? "pos" : resolved === "success" ? "check" : resolved === "warning" ? "warning" : resolved === "error" ? "error" : resolved === "info" ? "info" : "box";
+  return <span className={`admin-status ${resolved}`}><AdminIcon name={icon} size={16}/><span>{normalized}</span></span>;
 }
 
 export function StatusBadge({ value, tone }: { value: string; tone?: "green" | "gold" | "red" | "blue" | "slate" }) {
-  const normalized = value.toLowerCase().replaceAll("_", " ");
-  const resolved = tone || (/(paid|completed|active|healthy|received|delivered|approved|confirmed)/.test(normalized) ? "green" : /(pending|partial|processing|low|draft|requested|packing)/.test(normalized) ? "gold" : /(cancel|reject|inactive|out|failed|refunded|returned)/.test(normalized) ? "red" : "slate");
-  return <span className={`admin-status ${resolved}`}><span />{normalized}</span>;
+  const mapped: StatusTone | undefined = tone === "green" ? "success" : tone === "gold" ? "warning" : tone === "red" ? "error" : tone === "blue" ? "info" : tone === "slate" ? "neutral" : undefined;
+  const normalized = value.toLowerCase();
+  const channel = normalized.includes("website") ? "website" : normalized.includes("social") ? "social" : normalized === "pos" ? "pos" : undefined;
+  return <StatusChip value={value} tone={mapped} channel={channel}/>;
 }
 
 export function PageHeader({ eyebrow, title, description, actions }: { eyebrow?: string; title: string; description?: string; actions?: React.ReactNode }) {
   return <header className="admin-page-header">
-    <div><p className="admin-eyebrow">{eyebrow || "HajjMart operations"}</p><h1>{title}</h1>{description && <p>{description}</p>}</div>
+    <div>{eyebrow && <p className="admin-eyebrow">{eyebrow}</p>}<h1>{title}</h1>{description && <p>{description}</p>}</div>
     {actions && <div className="admin-page-actions">{actions}</div>}
   </header>;
 }
 
 export function AdminButton({ children, icon, variant = "primary", className = "", ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { icon?: AdminIconName; variant?: "primary" | "secondary" | "ghost" | "danger" }) {
-  return <button className={`admin-button ${variant} ${className}`} {...props}>{icon && <AdminIcon name={icon} size={16}/>}<span>{children}</span></button>;
+  return <button className={`admin-button ${variant} ${className}`} {...props}>{icon && <AdminIcon name={icon} size={20}/>}<span>{children}</span></button>;
 }
 
 function AnimatedStatNumber({ value }: { value: number }) {
@@ -62,7 +156,7 @@ function AnimatedStatNumber({ value }: { value: number }) {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) { setShown(value); previous.current = value; return; }
     const from = previous.current;
     const started = performance.now();
-    const duration = 450;
+    const duration = 200;
     let frame = 0;
     const tick = (now: number) => {
       const progress = Math.min(1, (now - started) / duration);
@@ -91,92 +185,117 @@ export function Panel({ title, description, action, children, className = "" }: 
   </section>;
 }
 
-export function SearchField({ value, onChange, placeholder = "Search…" }: { value: string; onChange: (value: string) => void; placeholder?: string }) {
-  return <label className="admin-search"><AdminIcon name="search" size={16}/><input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder}/></label>;
+export function TextField({ label, error, hint, required, className = "", ...props }: React.InputHTMLAttributes<HTMLInputElement> & { label: string; error?: string; hint?: string; required?: boolean }) {
+  return <label className={`admin-field ${className}`}><span>{label}{required && <b aria-hidden="true"> *</b>}</span><input {...props} required={Boolean(required)} aria-invalid={Boolean(error)} aria-describedby={error ? `${props.id || props.name}-error` : undefined}/>{error && <small id={`${props.id || props.name}-error`} className="admin-field-error">{error}</small>}{!error && hint && <small>{hint}</small>}</label>;
+}
+
+export function SearchField({ value, onChange, placeholder }: { value: string; onChange: (value: string) => void; placeholder?: string }) {
+  const { t } = useAdminLanguage();
+  return <label className="admin-search"><AdminIcon name="search" size={20}/><input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder || t("shared.search")}/></label>;
 }
 
 export function AdminSelect<T extends string | number>({ value, onChange, children, label }: { value: T; onChange: (value: T) => void; children: React.ReactNode; label?: string }) {
-  return <label className="admin-select-wrap">{label && <span>{label}</span>}<select value={value} onChange={(event) => onChange((typeof value === "number" ? Number(event.target.value) : event.target.value) as T)}>{children}</select><AdminIcon name="chevron" size={13}/></label>;
+  return <label className="admin-select-wrap">{label && <span>{label}</span>}<select value={value} onChange={(event) => onChange((typeof value === "number" ? Number(event.target.value) : event.target.value) as T)}>{children}</select><AdminIcon name="chevron" size={16}/></label>;
 }
 
 export function TableShell({ children, className = "", bulkAction }: { children: React.ReactNode; className?: string; bulkAction?: React.ReactNode }) {
   return <div className={`admin-table-shell ${className}`}>{bulkAction}<div className="admin-table-scroll"><table className="admin-table">{children}</table></div></div>;
 }
 
-export function BulkActionBar({ selected, children, onClear, label = "selected" }: { selected: number; children: React.ReactNode; onClear?: () => void; label?: string }) {
+export function DataList({ desktop, mobile, className = "" }: { desktop: ReactNode; mobile: ReactNode; className?: string }) {
+  return <div className={`admin-data-list ${className}`}><div className="admin-data-list-desktop">{desktop}</div><div className="admin-data-list-mobile">{mobile}</div></div>;
+}
+
+export function BulkActionBar({ selected, children, onClear, label }: { selected: number; children: React.ReactNode; onClear?: () => void; label?: string }) {
+  const { t } = useAdminLanguage();
   if (selected < 1) return null;
-  return <div className="admin-bulk-action-bar" role="status"><strong>{selected} {label}</strong><div>{children}</div>{onClear && <button type="button" onClick={onClear}>Clear selection</button>}</div>;
+  return <div className="admin-bulk-action-bar" role="status"><strong>{selected} {label || t("shared.selected")}</strong><div>{children}</div>{onClear && <button type="button" onClick={onClear}>{t("shared.clearSelection")}</button>}</div>;
 }
 
-export function EmptyState({ title, description, icon = "box" }: { title: string; description: string; icon?: AdminIconName }) {
-  return <div className="admin-empty"><span><AdminIcon name={icon} size={26}/></span><h3>{title}</h3><p>{description}</p></div>;
+export function EmptyState({ title, description, icon = "box", action }: { title: string; description: string; icon?: AdminIconName; action?: React.ReactNode }) {
+  return <div className="admin-empty"><span><AdminIcon name={icon} size={32}/></span><h3>{title}</h3><p>{description}</p>{action && <div className="admin-empty-action">{action}</div>}</div>;
 }
 
-export function Drawer({ open, onClose, title, subtitle, children, wide = false }: { open: boolean; onClose: () => void; title: string; subtitle?: string; children: React.ReactNode; wide?: boolean }) {
+type SheetProps = { open: boolean; onClose: () => void; title: string; subtitle?: string; children: React.ReactNode; wide?: boolean };
+
+export function Sheet({ open, onClose, title, subtitle, children, wide = false }: SheetProps) {
+  const { t } = useAdminLanguage();
   const panelRef = useOverlayPrimitive(open, onClose);
-  return <div className={`admin-drawer ${open ? "open" : ""}`} aria-hidden={!open}>
-    <button className="admin-drawer-backdrop" onClick={onClose} aria-label="Close panel"/>
+  if (!open) return null;
+  return <div className="admin-drawer open">
+    <button className="admin-drawer-backdrop" onClick={onClose} aria-label={t("shared.close")}/>
     <aside ref={panelRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={title} className={`admin-drawer-panel ${wide ? "wide" : ""}`}>
-      <div className="admin-drawer-head"><div><p className="admin-eyebrow">HajjMart workflow</p><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div><button className="admin-icon-button" onClick={onClose}><AdminIcon name="close"/></button></div>
+      <div className="admin-drawer-head"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div><button type="button" className="admin-icon-button" onClick={onClose} aria-label={t("shared.close")}><AdminIcon name="close"/></button></div>
       <div className="admin-drawer-body">{children}</div>
     </aside>
   </div>;
 }
 
-
-export function Modal({ open, onClose, title, subtitle, children, size = "large" }: { open: boolean; onClose: () => void; title: string; subtitle?: string; children: React.ReactNode; size?: "medium" | "large" | "xl" }) {
+export function Dialog({ open, onClose, title, description, actionLabel, cancelLabel, onAction, busy = false }: { open: boolean; onClose: () => void; title: string; description: string; actionLabel: string; cancelLabel?: string; onAction: () => void; busy?: boolean }) {
+  const { t } = useAdminLanguage();
   const panelRef = useOverlayPrimitive(open, onClose);
   if (!open) return null;
-  return <div className="admin-modal">
-    <button className="admin-modal-backdrop" onClick={onClose} aria-label="Close modal"/>
-    <section ref={panelRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={title} className={`admin-modal-panel ${size}`}>
-      <div className="admin-modal-head"><div><p className="admin-eyebrow">HajjMart workflow</p><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div><button type="button" className="admin-icon-button" onClick={onClose}><AdminIcon name="close"/></button></div>
-      <div className="admin-modal-body">{children}</div>
+  return <div className="admin-dialog" role="presentation">
+    <button className="admin-dialog-backdrop" onClick={onClose} aria-label={t("shared.close")}/>
+    <section ref={panelRef} tabIndex={-1} role="alertdialog" aria-modal="true" aria-labelledby="admin-dialog-title" aria-describedby="admin-dialog-description" className="admin-dialog-panel">
+      <h2 id="admin-dialog-title">{title}</h2><p id="admin-dialog-description">{description}</p>
+      <div className="admin-dialog-actions"><AdminButton variant="ghost" onClick={onClose} disabled={busy}>{cancelLabel || t("shared.goBack")}</AdminButton><AdminButton variant="danger" onClick={onAction} disabled={busy}>{busy ? t("shared.working") : actionLabel}</AdminButton></div>
     </section>
   </div>;
 }
 
+type ToastTone = "success" | "error" | "info" | "neutral";
+type ToastOptions = { tone?: ToastTone; actionLabel?: string; onAction?: () => void };
+type ToastItem = { id: number; message: string; tone: ToastTone; actionLabel?: string; onAction?: () => void };
+type ToastContextValue = { showToast: (message: string, options?: ToastOptions) => void };
+const AdminToastContext = createContext<ToastContextValue | null>(null);
+
+export function Toast({ item, onDismiss }: { item: ToastItem; onDismiss: () => void }) {
+  const { t } = useAdminLanguage();
+  useEffect(() => { const timer = window.setTimeout(onDismiss, 4500); return () => window.clearTimeout(timer); }, [onDismiss]);
+  const icon: AdminIconName = item.tone === "success" ? "check" : item.tone === "error" ? "error" : item.tone === "info" ? "info" : "box";
+  return <div className={`admin-toast ${item.tone}`} role="status"><AdminIcon name={icon}/><span>{item.message}</span>{item.actionLabel && item.onAction && <button type="button" onClick={() => { item.onAction?.(); onDismiss(); }}>{item.actionLabel}</button>}<button type="button" className="admin-toast-close" onClick={onDismiss} aria-label={t("shared.dismiss")}><AdminIcon name="close" size={18}/></button></div>;
+}
+
+export function AdminToastProvider({ children }: { children: React.ReactNode }) {
+  const [items, setItems] = useState<ToastItem[]>([]);
+  const nextId = useRef(1);
+  const showToast = useCallback((message: string, options?: ToastOptions) => {
+    setItems((current) => [...current, { id: nextId.current++, message, tone: options?.tone || "neutral", actionLabel: options?.actionLabel, onAction: options?.onAction }]);
+  }, []);
+  const remove = useCallback((id: number) => setItems((current) => current.filter((item) => item.id !== id)), []);
+  const value = useMemo(() => ({ showToast }), [showToast]);
+  return <AdminToastContext.Provider value={value}>{children}<div className="admin-toast-viewport" aria-live="polite">{items.slice(0, 2).map((item) => <Toast key={item.id} item={item} onDismiss={() => remove(item.id)}/>)}</div></AdminToastContext.Provider>;
+}
+
+export function useAdminToast() {
+  const context = useContext(AdminToastContext);
+  if (!context) throw new Error("useAdminToast must be used inside AdminToastProvider");
+  return context;
+}
+
 export function Pagination({ currentPage, lastPage, total, perPage, onPageChange, onPerPageChange, perPageOptions = [20, 50, 100, 250] }: { currentPage: number; lastPage: number; total: number; perPage: number; onPageChange: (page: number) => void; onPerPageChange?: (perPage: number) => void; perPageOptions?: number[] }) {
+  const { t } = useAdminLanguage();
   const start = total === 0 ? 0 : (currentPage - 1) * perPage + 1;
   const end = Math.min(total, currentPage * perPage);
   const pages = Array.from(new Set([1, currentPage - 1, currentPage, currentPage + 1, lastPage].filter((page) => page >= 1 && page <= Math.max(1, lastPage))));
   return <div className="admin-pagination">
-    <div className="admin-pagination-summary">Showing <strong>{start}</strong>–<strong>{end}</strong> of <strong>{total}</strong></div>
+    <div className="admin-pagination-summary">{t("shared.showing")} <strong>{start}</strong>–<strong>{end}</strong> {t("shared.of")} <strong>{total}</strong></div>
     <div className="admin-pagination-controls">
-      {onPerPageChange && <label><span>Rows</span><select value={perPage} onChange={(event) => onPerPageChange(Number(event.target.value))}>{perPageOptions.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>}
-      <button type="button" disabled={currentPage <= 1} onClick={() => onPageChange(currentPage - 1)} aria-label="Previous page"><AdminIcon name="chevron" className="admin-chevron-left"/></button>
+      {onPerPageChange && <label><span>{t("shared.rows")}</span><select value={perPage} onChange={(event) => onPerPageChange(Number(event.target.value))}>{perPageOptions.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>}
+      <button type="button" disabled={currentPage <= 1} onClick={() => onPageChange(currentPage - 1)} aria-label={t("shared.previousPage")}><AdminIcon name="chevron" className="admin-chevron-left"/></button>
       {pages.map((page, index) => <span key={page} className="admin-page-slot">{index > 0 && page - pages[index - 1] > 1 && <i>…</i>}<button type="button" className={page === currentPage ? "active" : ""} onClick={() => onPageChange(page)}>{page}</button></span>)}
-      <button type="button" disabled={currentPage >= lastPage} onClick={() => onPageChange(currentPage + 1)} aria-label="Next page"><AdminIcon name="chevron"/></button>
+      <button type="button" disabled={currentPage >= lastPage} onClick={() => onPageChange(currentPage + 1)} aria-label={t("shared.nextPage")}><AdminIcon name="chevron"/></button>
     </div>
   </div>;
 }
 
-export function Field({ label, hint, children, required }: { label: string; hint?: string; children: React.ReactNode; required?: boolean }) {
-  return <label className="admin-field"><span>{label}{required && <b> *</b>}</span>{children}{hint && <small>{hint}</small>}</label>;
+export function Field({ label, hint, error, children, required }: { label: string; hint?: string; error?: string; children: React.ReactNode; required?: boolean }) {
+  return <label className="admin-field"><span>{label}{required && <b aria-hidden="true"> *</b>}</span>{children}{error ? <small className="admin-field-error">{error}</small> : hint && <small>{hint}</small>}</label>;
 }
 
-export function FormGrid({ children, columns = 2 }: { children: React.ReactNode; columns?: 1 | 2 | 3 }) {
+export function FormGrid({ children, columns = 1 }: { children: React.ReactNode; columns?: 1 | 2 | 3 }) {
   return <div className={`admin-form-grid cols-${columns}`}>{children}</div>;
-}
-
-export function ConfirmBar({ title, description, action, onCancel, actionLabel = "Confirm", busy }: { title: string; description: string; action: () => void; onCancel: () => void; actionLabel?: string; busy?: boolean }) {
-  return <div className="admin-confirm"><div><strong>{title}</strong><p>{description}</p></div><div><AdminButton variant="ghost" onClick={onCancel}>Cancel</AdminButton><AdminButton onClick={action} disabled={busy}>{busy ? "Working…" : actionLabel}</AdminButton></div></div>;
-}
-
-export function MiniBars({ values, labels, onSelect, selectedIndex }: { values: number[]; labels?: string[]; onSelect?: (index: number) => void; selectedIndex?: number | null }) {
-  const max = Math.max(...values, 1);
-  return <div className="admin-mini-bars">{values.map((value, index) => <div key={`${value}-${index}`} className={`admin-mini-bar-column ${selectedIndex === index ? "selected" : ""} ${onSelect ? "clickable" : ""}`} tabIndex={0} role={onSelect ? "button" : undefined} aria-pressed={onSelect ? selectedIndex === index : undefined} aria-label={`${labels?.[index] || "Period"}: ${formatPrice(value)}`} onClick={onSelect ? () => onSelect(index) : undefined} onKeyDown={onSelect ? (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(index); } } : undefined}><span style={{ height: `${Math.max(8, (value / max) * 100)}%` }}/><em className="admin-chart-tooltip"><b>{labels?.[index] || "Period"}</b><span>{formatPrice(value)}</span></em><small>{labels?.[index] || ""}</small></div>)}</div>;
-}
-
-export function Donut({ values, labels, onSelect, selectedIndex }: { values: number[]; labels: string[]; onSelect?: (index: number) => void; selectedIndex?: number | null }) {
-  const total = values.reduce((sum, value) => sum + value, 0) || 1;
-  let cursor = 0;
-  const id = useId().replaceAll(":", "");
-  const stops = values.map((value, index) => {
-    const start = cursor; cursor += value / total * 100;
-    return `var(--admin-chart-${index + 1}) ${start}% ${cursor}%`;
-  }).join(",");
-  return <div className="admin-donut-wrap"><div id={id} className="admin-donut" style={{ background: `conic-gradient(${stops})` }}><span>{total}</span><small>orders</small></div><div className="admin-donut-legend">{labels.map((label, index) => <div key={label} tabIndex={0} role={onSelect ? "button" : undefined} aria-pressed={onSelect ? selectedIndex === index : undefined} className={`${selectedIndex === index ? "selected" : ""} ${onSelect ? "clickable" : ""}`} title={`${label}: ${values[index]} orders`} onClick={onSelect ? () => onSelect(index) : undefined} onKeyDown={onSelect ? (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(index); } } : undefined}><span style={{ background: `var(--admin-chart-${index + 1})` }}/><p>{label}<b>{Math.round(values[index] / total * 100)}%</b></p><em className="admin-chart-tooltip"><b>{label}</b><span>{values[index]} orders · {Math.round(values[index] / total * 100)}%</span></em></div>)}</div></div>;
 }
 
 export function formatDate(value?: string | null, includeTime = false) {

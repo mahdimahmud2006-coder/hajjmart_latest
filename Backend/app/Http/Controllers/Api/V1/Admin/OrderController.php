@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\Api\V1\Admin;
 
-use App\Domains\Accounting\Services\OperationalPostingService;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Models\Payment;
@@ -25,14 +24,13 @@ class OrderController extends Controller
         private OrderService $orders,
         private ReturnService $returns,
         private ActivityLogService $activities,
-        private OperationalPostingService $accounting,
     ) {}
 
     public function index(Request $request)
     {
         $orders = Order::query()
             ->with([
-                'shop:id,name,code', 'creator:id,name', 'assignee:id,name', 'customer:id,name,email,phone',
+                'shop:id,name,code', 'creator:id,name', 'assignee:id,name', 'packer:id,name', 'customer:id,name,email,phone',
                 'items.product:id,name,sku,slug,image_src', 'items.variant:id,sku', 'payments', 'returnRequests:id,order_id,rr_number,type,status,refund_total,exchange_due_total',
             ])
             ->when($request->q, function ($q, $search): void {
@@ -45,22 +43,45 @@ class OrderController extends Controller
                 });
             })
             ->when($request->shop_id, fn ($q, $shopId) => $q->where('shop_id', $shopId))
-            ->when($request->source_channel, fn ($q, $source) => $q->where('source_channel', $source))
-            ->when($request->status, fn ($q, $status) => $q->where('status', $status))
+            ->when($request->source_channel, function ($q, $source): void {
+                $source === 'website'
+                    ? $q->whereIn('source_channel', ['website', 'ecommerce'])
+                    : $q->where('source_channel', $source);
+            })
+            ->when($request->status_group, function ($q, $group): void {
+                $groups = [
+                    'pending' => ['pending'],
+                    'confirmed' => ['confirmed'],
+                    'shipped' => ['shipped'],
+                    'delivered' => ['delivered'],
+                    'returned' => ['returned'],
+                ];
+                if (isset($groups[$group])) {
+                    $q->whereIn(DB::raw("LOWER(COALESCE(NULLIF(status, ''), order_status, ''))"), $groups[$group]);
+                }
+            })
+            ->when($request->status && ! $request->status_group, fn ($q, $status) => $q->where('status', $status))
             ->when($request->payment_status, fn ($q, $status) => $q->where('payment_status', $status))
+            ->when($request->printed_status, function ($q, $printed): void {
+                if ($printed === 'printed') {
+                    $q->whereNotNull('invoice_printed_at');
+                } elseif ($printed === 'not_printed') {
+                    $q->whereNull('invoice_printed_at');
+                }
+            })
             ->when($request->district, fn ($q, $district) => $q->where('checkout_district', $district))
             ->when($request->from, fn ($q, $from) => $q->whereDate(DB::raw('COALESCE(order_date, created_at)'), '>=', $from))
             ->when($request->to, fn ($q, $to) => $q->whereDate(DB::raw('COALESCE(order_date, created_at)'), '<=', $to))
             ->orderByDesc(DB::raw('COALESCE(order_date, created_at)'))
             ->paginate(max(1, min(250, (int) $request->get('per_page', 50))));
 
-        return $this->success($orders, 'Unified orders retrieved.');
+        return $this->success($orders, 'Orders retrieved.');
     }
 
     public function show(Order $order)
     {
         return $this->success($order->load([
-            'shop', 'creator', 'assignee', 'customer', 'items.product', 'items.variant', 'payments.receiver',
+            'shop', 'creator', 'assignee', 'packer', 'customer', 'items.product', 'items.variant', 'payments.receiver',
             'statusHistory', 'returnRequests.items.orderItem.product', 'couponApplications',
         ]), 'Order retrieved.');
     }
@@ -81,10 +102,14 @@ class OrderController extends Controller
             'email' => ['nullable', 'email', 'max:150'],
             'full_address' => ['nullable', 'string', 'max:1000'],
             'district' => ['nullable', 'string', 'max:100'],
-            'payment_method' => ['required', Rule::in(['cash', 'cod', 'card', 'bkash', 'nagad', 'bank', 'online'])],
+            'payment_method' => ['required', Rule::in(['cash', 'cod', 'card', 'bkash', 'nagad', 'bank', 'online', 'split'])],
             'payment_channel' => ['nullable', 'string', 'max:50'],
             'paid_amount' => ['nullable', 'numeric', 'min:0'],
             'payment_reference' => ['nullable', 'string', 'max:150'],
+            'split_payments' => ['nullable', 'array'],
+            'split_payments.*.method' => ['required_with:split_payments', 'string'],
+            'split_payments.*.amount' => ['required_with:split_payments', 'numeric', 'min:0'],
+            'split_payments.*.reference' => ['nullable', 'string'],
             'shipping_total' => ['nullable', 'numeric', 'min:0'],
             'manual_discount' => ['nullable', 'numeric', 'min:0'],
             'coupon_code' => ['nullable', 'string', 'max:100'],
@@ -97,15 +122,29 @@ class OrderController extends Controller
             'assigned_to' => ['nullable', 'integer', 'exists:users,id'],
             'customer_note' => ['nullable', 'string', 'max:2000'],
             'admin_note' => ['nullable', 'string', 'max:2000'],
+            'terminal_id' => ['nullable', 'string', 'max:120'],
+            'client_transaction_id' => ['nullable', 'uuid'],
+            'offline_created_at' => ['nullable', 'date'],
         ]);
 
-        if ((float) ($data['manual_discount'] ?? 0) > 0 && ! $request->user()->hasPermission('orders.discount')) {
-            abort(403, 'You do not have permission to apply manual order discounts.');
-        }
 
         $source = $data['source_channel'] === 'ecommerce' ? 'website' : $data['source_channel'];
-        $paymentMethod = in_array($data['payment_method'], ['online', 'card', 'bkash', 'nagad', 'bank'], true) ? 'online' : 'cod';
+        $paymentMethod = $data['payment_method'] === 'split' ? 'split' : (in_array($data['payment_method'], ['online', 'card', 'bkash', 'nagad', 'bank'], true) ? 'online' : 'cod');
         $shopId = (int) ($data['shop_id'] ?? $request->user()->shop_id ?? Shop::defaultStore()->id);
+
+        if ($source === 'social_commerce' && blank($data['customer_name'] ?? null) && blank($data['mobile_number'] ?? null)) {
+            return $this->error('Enter a mobile number or customer name before saving the order.', 422);
+        }
+
+        if (! empty($data['client_transaction_id'])) {
+            $existing = Order::query()
+                ->where('shop_id', $shopId)
+                ->where('client_transaction_id', $data['client_transaction_id'])
+                ->first();
+            if ($existing) {
+                return $this->success($existing->load(['items.product', 'items.variant', 'payments']), 'Order already processed.');
+            }
+        }
 
         $payload = array_merge($data, [
             'source_channel' => $source,
@@ -123,9 +162,30 @@ class OrderController extends Controller
             'shipping_total' => $source === 'pos' ? 0 : ($data['shipping_total'] ?? config('hajjmart.default_delivery_charge', 80)),
             'terms_accepted' => true,
             'delivery_method' => 'home_delivery',
+            'terminal_id' => $data['terminal_id'] ?? null,
+            'client_transaction_id' => $data['client_transaction_id'] ?? null,
+            'offline_created_at' => $data['offline_created_at'] ?? null,
+            'synced_at' => ! empty($data['client_transaction_id']) ? now() : null,
         ]);
 
-        $order = $this->orders->place($payload, $data['customer_id'] ?? null);
+        try {
+            $order = $this->orders->place($payload, $data['customer_id'] ?? null);
+        } catch (Throwable $exception) {
+            if ($source === 'social_commerce' && ! empty($data['terminal_id']) && ! empty($data['client_transaction_id'])) {
+                $existing = Order::query()
+                    ->where('source_channel', 'social_commerce')
+                    ->where('shop_id', $shopId)
+                    ->where('terminal_id', $data['terminal_id'])
+                    ->where('client_transaction_id', $data['client_transaction_id'])
+                    ->first();
+                if ($existing) {
+                    return $this->success($existing->load(['items.product', 'items.variant', 'payments']), 'Social order already synchronized.');
+                }
+            }
+
+            throw $exception;
+        }
+
         $this->activities->record('orders', 'created', "Created " . strtoupper(str_replace('_', ' ', $source)) . " order {$order->order_number}", $order, [], $order->toArray(), $request->user()->id, $shopId, $request);
         return $this->success($order, 'Manual order created.', 201);
     }
@@ -159,12 +219,13 @@ class OrderController extends Controller
                     'payment_reference' => $data['payment_reference'] ?? null,
                 ]);
 
-                $paid = round(min((float) $locked->grand_total, (float) $locked->paid_amount + $amount), 2);
-                $due = round(max(0, (float) $locked->grand_total - $paid), 2);
+                $netTotal = round(max(0, (float) $locked->grand_total - (float) $locked->refund_total), 2);
+                $paid = round((float) $locked->paid_amount + $amount, 2);
+                $due = round(max(0, $netTotal - $paid), 2);
                 $locked->update([
                     'paid_amount' => $paid,
                     'due_amount' => $due,
-                    'payment_status' => $due <= 0 ? 'paid' : 'partial',
+                    'payment_status' => PaymentStatus::forOrder($paid, $netTotal),
                 ]);
 
                 return $locked->fresh([
@@ -177,17 +238,6 @@ class OrderController extends Controller
         } catch (Throwable $exception) {
             report($exception);
             return $this->error('Payment could not be recorded. The payment transaction was rolled back safely.', 500);
-        }
-
-        // The operational payment must not be reported as failed just because an
-        // accounting rule needs repair. Paid POS orders are idempotently backfilled
-        // by AccountingOperationalBackfillSeeder on the next launcher run.
-        if ($order->source_channel === 'pos' && $order->payment_status === 'paid') {
-            try {
-                $this->accounting->postCompletedPosSale($order);
-            } catch (Throwable $exception) {
-                report($exception);
-            }
         }
 
         try {
@@ -212,10 +262,31 @@ class OrderController extends Controller
             'items.*.exchange_variant_id' => ['nullable', 'integer', 'exists:product_variants,id'],
             'items.*.reason' => ['nullable', 'string', 'max:1000'],
             'items.*.condition_note' => ['nullable', 'string', 'max:1000'],
+            'payment_method' => ['nullable', 'string'],
+            'paid_amount' => ['nullable', 'numeric', 'min:0'],
+            'payment_reference' => ['nullable', 'string', 'max:255'],
         ]);
         $return = $this->returns->request($order, $data, $order->customer_id, $request->user()->id);
         $return->update(['shop_id' => $order->shop_id, 'created_by' => $request->user()->id]);
         $this->activities->record('returns', 'created', "Created {$data['type']} request for {$order->order_number}", $return, [], $return->toArray(), request: $request);
         return $this->success($return->fresh(['items.orderItem.product']), 'Return/exchange request created.', 201);
+    }
+
+    public function markPrinted(Request $request)
+    {
+        $data = $request->validate([
+            'order_ids' => ['required', 'array', 'min:1'],
+            'order_ids.*' => ['required', 'integer', 'exists:orders,id'],
+        ]);
+
+        $now = now();
+        Order::query()
+            ->whereIn('id', $data['order_ids'])
+            ->update(['invoice_printed_at' => $now]);
+
+        return $this->success([
+            'updated_ids' => $data['order_ids'],
+            'invoice_printed_at' => $now->toIso8601String(),
+        ], 'Invoices marked as printed.');
     }
 }

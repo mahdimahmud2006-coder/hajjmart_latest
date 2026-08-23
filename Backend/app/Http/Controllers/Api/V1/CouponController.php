@@ -8,7 +8,6 @@ use App\Services\InventoryService;
 use App\Services\PromotionService;
 use App\Support\ApiResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 class CouponController extends Controller
@@ -51,6 +50,10 @@ class CouponController extends Controller
             ->when($request->visibility, fn ($q, $visibility) => $q->where('visibility', $visibility))
             ->when($request->promotion_type, fn ($q, $type) => $q->where('promotion_type', $type))
             ->when($request->active !== null, fn ($q) => $q->where('is_active', filter_var(request('active'), FILTER_VALIDATE_BOOLEAN)))
+            ->when(trim((string) $request->get('q', '')) !== '', function ($q) use ($request): void {
+                $term = trim((string) $request->get('q'));
+                $q->where(fn ($inner) => $inner->where('title', 'like', "%{$term}%")->orWhere('code', 'like', "%{$term}%"));
+            })
             ->latest()
             ->paginate((int) $request->get('per_page', 20));
 
@@ -60,16 +63,14 @@ class CouponController extends Controller
     public function store(Request $request)
     {
         $data = $this->validatedCoupon($request);
-        $data['code'] = strtoupper($data['code'] ?? Str::random(8));
+        $data = $this->normalizePromotion($data, null);
         return $this->success(Coupon::create($data), 'Coupon/promotion created.', 201);
     }
 
     public function update(Request $request, Coupon $coupon)
     {
         $data = $this->validatedCoupon($request, $coupon->id, true);
-        if (isset($data['code'])) {
-            $data['code'] = strtoupper($data['code']);
-        }
+        $data = $this->normalizePromotion($data, $coupon);
         $coupon->update($data);
         return $this->success($coupon->fresh(), 'Coupon/promotion updated.');
     }
@@ -80,11 +81,35 @@ class CouponController extends Controller
         return $this->success(null, 'Coupon/promotion deleted.');
     }
 
+    private function normalizePromotion(array $data, ?Coupon $coupon): array
+    {
+        $type = $data['promotion_type'] ?? $coupon?->promotion_type ?? 'coupon';
+        if ($type === 'public_sale') {
+            $data['code'] = null;
+            $data['visibility'] = 'public';
+            if (! array_key_exists('auto_apply', $data)) {
+                $data['auto_apply'] = true;
+            }
+        } elseif (array_key_exists('code', $data) && $data['code'] !== null) {
+            $data['code'] = strtoupper(trim((string) $data['code']));
+            $data['visibility'] = $data['visibility'] ?? 'private';
+            $data['auto_apply'] = $data['auto_apply'] ?? false;
+        }
+
+        if (($data['type'] ?? $coupon?->type) === 'free_shipping') {
+            $data['value'] = 0;
+            $data['discount_scope'] = 'shipping';
+        }
+
+        return $data;
+    }
+
     private function validatedCoupon(Request $request, ?int $ignoreId = null, bool $partial = false): array
     {
         $required = $partial ? 'sometimes' : 'required';
+        $type = (string) ($request->input('promotion_type') ?: ($partial && $ignoreId ? Coupon::whereKey($ignoreId)->value('promotion_type') : 'coupon'));
         return $request->validate([
-            'code' => ['nullable', 'string', 'max:100', Rule::unique('coupons', 'code')->ignore($ignoreId)],
+            'code' => [Rule::requiredIf($type !== 'public_sale'), 'nullable', 'string', 'max:100', Rule::unique('coupons', 'code')->ignore($ignoreId)],
             'title' => ['nullable', 'string', 'max:150'],
             'description' => ['nullable', 'string', 'max:2000'],
             'type' => [$required, Rule::in(['fixed', 'percent', 'free_shipping'])],

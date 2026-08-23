@@ -23,7 +23,7 @@ class ExpirePendingOrders implements ShouldQueue
     {
         Order::query()
             ->where('status', OrderStatus::PENDING->value)
-            ->where('payment_status', PaymentStatus::PENDING->value)
+            ->where('payment_status', PaymentStatus::DUE->value)
             ->where('payment_method', '!=', 'cod')
             ->where('created_at', '<', now()->subMinutes(15))
             ->chunkById(100, function ($pendingOrders) use ($orders): void {
@@ -32,14 +32,14 @@ class ExpirePendingOrders implements ShouldQueue
                         $locked = Order::whereKey($order->id)->lockForUpdate()->first();
                         if (! $locked
                             || $locked->status !== OrderStatus::PENDING->value
-                            || $locked->payment_status !== PaymentStatus::PENDING->value) {
+                            || $locked->payment_status !== PaymentStatus::DUE->value) {
                             return;
                         }
 
                         $locked->payments()
-                            ->where('status', PaymentStatus::PENDING->value)
-                            ->update(['status' => PaymentStatus::FAILED->value]);
-                        $locked->update(['payment_status' => PaymentStatus::FAILED->value]);
+                            ->where('status', 'pending')
+                            ->update(['status' => 'failed']);
+                        $locked->update(['payment_status' => PaymentStatus::DUE->value]);
                         $orders->cancel($locked, null, 'Online payment expired before completion');
                     });
                 }

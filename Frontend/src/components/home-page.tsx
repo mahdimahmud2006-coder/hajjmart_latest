@@ -22,8 +22,7 @@ export function HomePage({ sections, categories, products }: { sections: Homepag
   const bannerSections = sections.filter((section) => section.kind !== "hero" && section.kind !== "announcement");
   const categoryBanner = bannerSections.find((section) => section.kind === "category_banner") || bannerSections[0];
   const editorial = bannerSections.find((section) => section.kind === "editorial_banner") || bannerSections[1];
-  const featured = products.filter((product) => product.is_featured).slice(0, 8);
-  const primaryProducts = featured.length >= 4 ? featured : products.slice(0, 8);
+  const primaryProducts = products.slice(0, 8);
   const newProducts = products.slice().reverse().slice(0, 4);
 
   return (

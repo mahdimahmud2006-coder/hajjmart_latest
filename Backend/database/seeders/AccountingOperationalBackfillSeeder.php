@@ -7,12 +7,17 @@ use App\Domains\Accounting\Services\OperationalPostingService;
 use App\Models\BusinessTransaction;
 use App\Models\Order;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\Schema;
 use Throwable;
 
 class AccountingOperationalBackfillSeeder extends Seeder
 {
     public function run(): void
     {
+        if (! Schema::hasTable('legal_entities') || ! Schema::hasTable('journal_entries')) {
+            return;
+        }
+
         $posting = app(OperationalPostingService::class);
         $transactionPosted = 0;
         $transactionLinked = 0;

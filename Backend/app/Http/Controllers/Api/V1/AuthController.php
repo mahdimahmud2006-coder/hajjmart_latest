@@ -24,7 +24,8 @@ class AuthController extends Controller
             'phone' => ['nullable', 'string', 'max:30'],
             'password' => ['required', 'string', 'min:8', 'confirmed'],
         ]);
-        $data['role'] = 'customer';
+        $data['is_employee'] = false;
+        $data['is_admin'] = false;
         $user = User::create($data);
         return $this->success(['user' => $user, 'token' => $user->createToken('customer')->plainTextToken], 'Registered successfully.', 201);
     }
@@ -40,17 +41,17 @@ class AuthController extends Controller
             return $this->error('This account is inactive.', 403);
         }
         $user->forceFill(['last_login_at' => now()])->save();
-        $user->load('roles.permissions', 'shop');
-        return $this->success(['user' => $user, 'token' => $user->createToken($user->role ?: 'api')->plainTextToken], 'Logged in successfully.');
+        $user->load('shop');
+        return $this->success(['user' => $user, 'token' => $user->createToken($user->is_employee ? 'employee' : 'customer')->plainTextToken], 'Logged in successfully.');
     }
 
 
     public function refresh(Request $request)
     {
         $user = $request->user();
-        $name = $user->role ?: 'api';
+        $name = $user->is_employee ? 'employee' : 'customer';
         $request->user()?->currentAccessToken()?->delete();
-        $user->load('roles.permissions', 'shop');
+        $user->load('shop');
         return $this->success([
             'user' => $user,
             'token' => $user->createToken($name)->plainTextToken,
@@ -60,7 +61,10 @@ class AuthController extends Controller
     public function forgotPassword(Request $request)
     {
         $request->validate(['email' => ['required', 'email']]);
-        Password::sendResetLink(['email' => $request->email]);
+        $user = User::where('email', $request->email)->first();
+        if (! $user?->is_employee) {
+            Password::sendResetLink(['email' => $request->email]);
+        }
         return $this->success(null, 'If an account exists for that email, a password reset link has been sent.');
     }
 
@@ -71,6 +75,10 @@ class AuthController extends Controller
             'email' => ['required', 'email'],
             'password' => ['required', 'string', 'min:8', 'confirmed'],
         ]);
+
+        if (User::where('email', $data['email'])->where('is_employee', true)->exists()) {
+            return $this->error('Employee passwords are changed by a HajjMart administrator.', 422);
+        }
 
         $status = Password::reset(
             $data,
@@ -98,7 +106,7 @@ class AuthController extends Controller
 
     public function profile(Request $request)
     {
-        return $this->success($request->user()->load('addresses', 'roles.permissions', 'shop'), 'Profile retrieved.');
+        return $this->success($request->user()->load('addresses', 'shop'), 'Profile retrieved.');
     }
 
     public function updateProfile(Request $request)

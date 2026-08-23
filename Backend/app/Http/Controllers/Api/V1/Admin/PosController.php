@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1\Admin;
 
+use App\Exceptions\InventoryConflictException;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Models\Product;
@@ -77,7 +78,7 @@ class PosController extends Controller
             'sales.*.items.*.unit_price' => ['required', 'numeric', 'min:0'],
             'sales.*.customer_name' => ['nullable', 'string', 'max:150'],
             'sales.*.mobile_number' => ['nullable', 'string', 'max:30'],
-            'sales.*.payment_method' => ['required', Rule::in(['cash'])],
+            'sales.*.payment_method' => ['required', Rule::in(['cash', 'bkash', 'nagad', 'card'])],
             'sales.*.paid_amount' => ['nullable', 'numeric', 'min:0'],
             'sales.*.payment_reference' => ['nullable', 'string', 'max:150'],
             'sales.*.manual_discount' => ['nullable', 'numeric', 'min:0'],
@@ -100,14 +101,6 @@ class PosController extends Controller
                 continue;
             }
 
-            if ((float) ($sale['manual_discount'] ?? 0) > 0 && ! $request->user()->hasPermission('orders.discount')) {
-                $results[] = [
-                    'client_transaction_id' => $clientId,
-                    'status' => 'rejected',
-                    'message' => 'This employee is not authorised to apply manual discounts.',
-                ];
-                continue;
-            }
 
             try {
                 $this->assertOfflinePricesStillValid($sale);
@@ -122,8 +115,9 @@ class PosController extends Controller
                     'checkout_mobile_number' => $sale['mobile_number'] ?? null,
                     'checkout_full_address' => 'Store counter sale',
                     'checkout_district' => 'Dhaka',
-                    'payment_method' => 'cod',
-                    'payment_channel' => 'cash',
+                    'payment_method' => $sale['payment_method'] === 'cash' ? 'cod' : 'online',
+                    'payment_channel' => $sale['payment_method'],
+                    'gateway' => $sale['payment_method'] === 'cash' ? null : $sale['payment_method'],
                     'shipping_total' => 0,
                     'terms_accepted' => true,
                     'delivery_method' => 'home_delivery',
@@ -160,16 +154,24 @@ class PosController extends Controller
                     continue;
                 }
 
-                $message = $exception->getMessage();
-                $isStockConflict = str_contains(strtolower($message), 'stock')
-                    || str_contains(strtolower($message), 'available')
-                    || str_contains(strtolower($message), 'inventory');
+                $technicalMessage = $exception->getMessage();
+                $normalizedMessage = strtolower($technicalMessage);
+                $isStockConflict = str_contains($normalizedMessage, 'stock')
+                    || str_contains($normalizedMessage, 'available')
+                    || str_contains($normalizedMessage, 'inventory');
+                $isPriceConflict = str_contains($normalizedMessage, 'price conflict');
+                $message = $isStockConflict
+                    ? 'Stock changed before this saved sale could synchronize. Open Fix Sale, review the items, then charge again.'
+                    : ($isPriceConflict
+                        ? 'A product price changed before this saved sale could synchronize. Open Fix Sale and review the current price.'
+                        : 'This saved sale could not be synchronized. Review it and try again.');
 
                 report($exception);
                 $results[] = [
                     'client_transaction_id' => $clientId,
-                    'status' => $isStockConflict ? 'conflict' : 'failed',
+                    'status' => ($isStockConflict || $isPriceConflict) ? 'conflict' : 'failed',
                     'message' => $message,
+                    'reason_code' => $exception instanceof InventoryConflictException ? $exception->reasonCode : null,
                 ];
             }
         }

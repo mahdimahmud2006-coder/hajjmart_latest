@@ -23,7 +23,7 @@ class HajjMartApiTest extends TestCase
 
     public function test_admin_can_access_reports(): void
     {
-        $admin = User::factory()->create(['role' => 'admin', 'is_active' => true]);
+        $admin = User::factory()->create(['is_employee' => true, 'is_admin' => true, 'is_active' => true]);
 
         $this->actingAs($admin, 'sanctum')
             ->getJson('/api/v1/admin/reports/sales')

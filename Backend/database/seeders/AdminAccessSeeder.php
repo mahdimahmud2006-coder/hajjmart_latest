@@ -7,12 +7,17 @@ use App\Models\Role;
 use App\Models\Shop;
 use App\Models\User;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 class AdminAccessSeeder extends Seeder
 {
     public function run(): void
     {
+        if (! Schema::hasTable('roles') || ! Schema::hasTable('permissions')) {
+            return;
+        }
+
         Role::query()
             ->whereIn('name', ['admin', 'customer', 'moderator', 'vendor'])
             ->whereDoesntHave('users')

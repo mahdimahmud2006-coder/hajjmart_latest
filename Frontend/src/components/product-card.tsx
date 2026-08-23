@@ -46,7 +46,6 @@ export function ProductCard({ product, priority = false }: { product: Product; p
         </Link>
         <div className="absolute left-3 top-3 flex flex-col gap-1.5">
           {discount > 0 ? <span className="product-badge sale">−{discount}%</span> : null}
-          {product.is_featured ? <span className="product-badge">Curated</span> : null}
           {stock === 0 ? <span className="product-badge dark">Sold out</span> : null}
         </div>
         <button className={`wishlist-button ${wished ? "is-active" : ""}`} aria-label={wished ? "Remove from wishlist" : "Add to wishlist"} onClick={() => toggleWishlist(product.id)}><HeartIcon size={18} fill={wished ? "currentColor" : "none"}/></button>

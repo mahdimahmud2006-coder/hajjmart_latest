@@ -15,10 +15,10 @@ The API is MySQL-backed. The migration set creates storage for every stateful en
 | Notifications | `notifications` |
 | Inventory and direct batches | `inventory`, `product_batches`, `stock_movements` |
 | Returns and refunds | `return_requests`, `return_request_items`, `return_status_histories`, `payments` |
-| Stores, employees, roles | `shops`, `users`, `roles`, `permissions`, `role_user`, `permission_role` |
-| Transactions and activity | `business_transactions`, `activity_logs` |
+| Stores and employees | `shops`, `users` (`is_employee`, `is_admin`) |
+| Activity | `activity_logs` |
 | Stock transfers | `stock_transfers`, `stock_transfer_items`, `inventory`, `stock_movements` |
-| Reports and dashboard | Aggregate reads across orders, payments, inventory, products, returns, promotions, transactions, and `daily_sales_summaries` |
+| Reports and dashboard | Aggregate reads across orders, payments, inventory, products, returns, promotions, and `daily_sales_summaries` |
 | Contact and delivery settings | `contact_messages`, `delivery_charges`, `site_settings` |
 | Queue and cache workers | `jobs`, `job_batches`, `failed_jobs`, `cache`, `cache_locks` |
 

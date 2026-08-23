@@ -14,7 +14,15 @@ class ActivityLogController extends Controller
     public function __invoke(Request $request)
     {
         $logs = ActivityLog::with(['user:id,name,email', 'shop:id,name,code'])
-            ->when($request->q, fn ($q, $search) => $q->where(fn ($sub) => $sub->where('description', 'like', "%{$search}%")->orWhere('action', 'like', "%{$search}%")))
+            ->when($request->q, function ($q, $search): void {
+                $q->where(function ($sub) use ($search): void {
+                    $sub->where('description', 'like', "%{$search}%")
+                        ->orWhere('action', 'like', "%{$search}%")
+                        ->orWhere('module', 'like', "%{$search}%")
+                        ->orWhere('subject_id', 'like', "%{$search}%")
+                        ->orWhereHas('user', fn ($user) => $user->where('name', 'like', "%{$search}%")->orWhere('email', 'like', "%{$search}%"));
+                });
+            })
             ->when($request->module, fn ($q, $module) => $q->where('module', $module))
             ->when($request->action, fn ($q, $action) => $q->where('action', $action))
             ->when($request->user_id, fn ($q, $userId) => $q->where('user_id', $userId))

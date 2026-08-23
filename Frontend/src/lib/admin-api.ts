@@ -15,6 +15,7 @@ export type AdminRequestOptions<T> = {
   body?: unknown;
   token?: string | null;
   signal?: AbortSignal;
+  headers?: HeadersInit;
 };
 
 export async function adminRequest<T>(path: string, options: AdminRequestOptions<T> = {}): Promise<T> {
@@ -30,6 +31,7 @@ export async function adminRequest<T>(path: string, options: AdminRequestOptions
     cache: "no-store",
     signal: options.signal,
     ...(body !== undefined ? { body } : {}),
+    ...(options.headers ? { headers: options.headers } : {}),
   }, options.token);
 
   // Laravel's ApiResponse flattens LengthAwarePaginator instances into
@@ -75,3 +77,21 @@ export function pageRows<T>(value: Paginated<T> | T[] | { data?: T[] } | null | 
 }
 
 export type AdminMutationResult<T> = ApiResponse<T>;
+
+export async function markOrdersPrintedApi(token: string | null, orderIds: number[]): Promise<{ updated_ids: number[]; invoice_printed_at: string }> {
+  if (!orderIds.length) return { updated_ids: [], invoice_printed_at: new Date().toISOString() };
+  return adminRequest<{ updated_ids: number[]; invoice_printed_at: string }>("/orders/mark-printed", {
+    method: "POST",
+    token,
+    body: { order_ids: orderIds },
+  });
+}
+
+export async function purgeBatchStockApi(token: string | null, batchId: number, quantity: number, reason?: string): Promise<unknown> {
+  return adminRequest(`/inventory/batches/${batchId}/purge`, {
+    method: "POST",
+    token,
+    body: { quantity, reason: reason || null },
+  });
+}
+

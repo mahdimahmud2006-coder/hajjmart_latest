@@ -17,13 +17,10 @@ class DatabaseSeeder extends Seeder
         $this->call([
             UserSeeder::class,
             ShopSeeder::class,
-            AdminAccessSeeder::class,
-            AccountingSeeder::class,
             RiskControlSeeder::class,
             HajjMartSettingsSeeder::class,
             HajjMartProductSeeder::class,
             HajjMartRealisticDatabaseSeeder::class,
-            AccountingOperationalBackfillSeeder::class,
         ]);
 
         // Backfill only orders that were inserted directly by data seeders.

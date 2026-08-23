@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Exceptions\InventoryConflictException;
 use App\Http\Controllers\Controller;
 use App\Models\CustomerCartItem;
 use App\Models\Inventory;
@@ -103,7 +104,13 @@ class CartController extends Controller
             'delivery_charge' => ['nullable', 'numeric', 'min:0'],
         ]);
 
-        return $this->success($this->orders->validateCart($data['items'], $data, $request->user()?->id), 'Cart is valid.');
+        try {
+            $validated = $this->orders->validateCart($data['items'], $data, $request->user()?->id);
+        } catch (InventoryConflictException $exception) {
+            return $this->error($exception->getMessage(), 409, [], $exception->reasonCode);
+        }
+
+        return $this->success($validated, 'Cart is valid.');
     }
 
     private function cartItems(int $userId): array

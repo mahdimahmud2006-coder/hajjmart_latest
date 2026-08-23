@@ -1,12 +1,11 @@
 import type {
   ActivityLog,
+  AdminCustomer,
   AdminDashboard,
   AdminOrder,
-  AdminPermission,
   AdminProduct,
   AdminPromotion,
   AdminReturn,
-  AdminRole,
   AdminStore,
   AdminUser,
   InventoryRow,
@@ -52,17 +51,59 @@ function orderItem(id: number, product: AdminProduct, quantity: number, price = 
 }
 
 export const demoOrders: AdminOrder[] = [
-  { id: 101, order_number: "HM-260720-0101", source_channel: "ecommerce", status: "confirmed", payment_status: "paid", payment_method: "bkash", checkout_name: "Farhan Kabir", checkout_mobile_number: "01712-445566", checkout_full_address: "Uttara, Dhaka", checkout_district: "Dhaka", grand_total: 6900, paid_amount: 6900, due_amount: 0, shipping_total: 120, discount_total: 520, order_date: "2026-07-20T11:20:00", priority: "normal", delivery_status: "ready_to_dispatch", shop: demoStores[0], creator: { id: 1, name: "Online Store" }, assignee: { id: 4, name: "Rafiq Islam" }, items: [orderItem(1, demoProductsAdmin[1], 1), orderItem(2, demoProductsAdmin[0], 1)], payments: [{ id: 1, amount: 6900, payment_method: "bkash", status: "completed", paid_at: "2026-07-20T11:22:00", refunded_amount: 0 }] },
-  { id: 102, order_number: "HM-260720-0102", source_channel: "pos", status: "completed", payment_status: "paid", payment_method: "cash", checkout_name: "Walk-in customer", checkout_mobile_number: "", grand_total: 1550, paid_amount: 1550, due_amount: 0, discount_total: 0, order_date: "2026-07-20T12:08:00", priority: "normal", delivery_status: "delivered", shop: demoStores[0], creator: { id: 5, name: "Sadia Akter" }, items: [orderItem(3, demoProductsAdmin[2], 1), orderItem(4, demoProductsAdmin[3], 1)], payments: [{ id: 2, amount: 1550, payment_method: "cash", status: "completed", paid_at: "2026-07-20T12:08:00", refunded_amount: 0, receiver: { id: 5, name: "Sadia Akter" } }] },
-  { id: 103, order_number: "HM-260720-0103", source_channel: "social_commerce", source_reference: "FB-38921", status: "processing", payment_status: "partial", payment_method: "cash_on_delivery", checkout_name: "Sumaiya Islam", checkout_mobile_number: "01855-661122", checkout_full_address: "Agrabad, Chattogram", checkout_district: "Chattogram", grand_total: 2800, paid_amount: 500, due_amount: 2300, shipping_total: 150, discount_total: 0, order_date: "2026-07-20T13:15:00", priority: "high", delivery_status: "packing", shop: demoStores[1], creator: { id: 6, name: "Ayesha Rahman" }, assignee: { id: 7, name: "Imran Hossain" }, items: [orderItem(5, demoProductsAdmin[4], 2), orderItem(6, demoProductsAdmin[7], 1)], payments: [{ id: 3, amount: 500, payment_method: "bkash", status: "completed", paid_at: "2026-07-20T13:18:00", refunded_amount: 0, receiver: { id: 6, name: "Ayesha Rahman" } }] },
-  { id: 104, order_number: "HM-260719-0094", source_channel: "ecommerce", status: "delivered", payment_status: "paid", payment_method: "sslcommerz", checkout_name: "Mushfiqur Rahman", checkout_mobile_number: "01611-991122", checkout_full_address: "Zindabazar, Sylhet", checkout_district: "Sylhet", grand_total: 2550, paid_amount: 2550, due_amount: 0, shipping_total: 150, discount_total: 150, order_date: "2026-07-19T18:42:00", priority: "normal", delivery_status: "delivered", shop: demoStores[0], creator: { id: 1, name: "Online Store" }, items: [orderItem(7, demoProductsAdmin[5], 2), orderItem(8, demoProductsAdmin[3], 1)], payments: [{ id: 4, amount: 2550, payment_method: "sslcommerz", status: "completed", paid_at: "2026-07-19T18:43:00", refunded_amount: 0 }] },
-  { id: 105, order_number: "HM-260718-0087", source_channel: "pos", status: "returned", payment_status: "partially_refunded", payment_method: "card", checkout_name: "Anika Tasnim", checkout_mobile_number: "01911-882211", grand_total: 1800, paid_amount: 1800, due_amount: 0, order_date: "2026-07-18T16:30:00", priority: "normal", delivery_status: "returned", shop: demoStores[0], creator: { id: 5, name: "Sadia Akter" }, items: [orderItem(9, demoProductsAdmin[0], 1)], payments: [{ id: 5, amount: 1800, payment_method: "card", status: "completed", paid_at: "2026-07-18T16:30:00", refunded_amount: 600, receiver: { id: 5, name: "Sadia Akter" } }] },
+  { id: 101, order_number: "HM-260720-0101", source_channel: "ecommerce", status: "confirmed", payment_status: "paid", payment_method: "bkash", checkout_name: "Farhan Kabir", checkout_mobile_number: "01712-445566", checkout_full_address: "Uttara, Dhaka", checkout_district: "Dhaka", grand_total: 6900, paid_amount: 6900, due_amount: 0, shipping_total: 120, discount_total: 520, order_date: "2026-07-20T11:20:00", invoice_printed_at: "2026-07-20T11:25:00", priority: "normal", delivery_status: "ready_to_dispatch", shop: demoStores[0], creator: { id: 1, name: "Online Store" }, assignee: { id: 4, name: "Rafiq Islam" }, items: [orderItem(1, demoProductsAdmin[1], 1), orderItem(2, demoProductsAdmin[0], 1)], payments: [{ id: 1, amount: 6900, payment_method: "bkash", status: "completed", paid_at: "2026-07-20T11:22:00", refunded_amount: 0 }] },
+  { id: 102, order_number: "HM-260720-0102", source_channel: "pos", status: "completed", payment_status: "paid", payment_method: "cash", checkout_name: "Walk-in customer", checkout_mobile_number: "", grand_total: 1550, paid_amount: 1550, due_amount: 0, discount_total: 0, order_date: "2026-07-20T12:08:00", invoice_printed_at: "2026-07-20T12:08:05", priority: "normal", delivery_status: "delivered", shop: demoStores[0], creator: { id: 5, name: "Sadia Akter" }, items: [orderItem(3, demoProductsAdmin[2], 1), orderItem(4, demoProductsAdmin[3], 1)], payments: [{ id: 2, amount: 1550, payment_method: "cash", status: "completed", paid_at: "2026-07-20T12:08:00", refunded_amount: 0, receiver: { id: 5, name: "Sadia Akter" } }] },
+  { id: 103, order_number: "HM-260720-0103", source_channel: "social_commerce", source_reference: "FB-38921", status: "processing", payment_status: "partial", payment_method: "cash_on_delivery", checkout_name: "Sumaiya Islam", checkout_mobile_number: "01855-661122", checkout_full_address: "Agrabad, Chattogram", checkout_district: "Chattogram", grand_total: 2800, paid_amount: 500, due_amount: 2300, shipping_total: 150, discount_total: 0, order_date: "2026-07-20T13:15:00", invoice_printed_at: null, priority: "high", delivery_status: "packing", shop: demoStores[1], creator: { id: 6, name: "Ayesha Rahman" }, assignee: { id: 7, name: "Imran Hossain" }, items: [orderItem(5, demoProductsAdmin[4], 2), orderItem(6, demoProductsAdmin[7], 1)], payments: [{ id: 3, amount: 500, payment_method: "bkash", status: "completed", paid_at: "2026-07-20T13:18:00", refunded_amount: 0, receiver: { id: 6, name: "Ayesha Rahman" } }] },
+  { id: 104, order_number: "HM-260719-0094", source_channel: "ecommerce", status: "delivered", payment_status: "paid", payment_method: "sslcommerz", checkout_name: "Mushfiqur Rahman", checkout_mobile_number: "01611-991122", checkout_full_address: "Zindabazar, Sylhet", checkout_district: "Sylhet", grand_total: 2550, paid_amount: 2550, due_amount: 0, shipping_total: 150, discount_total: 150, order_date: "2026-07-19T18:42:00", invoice_printed_at: null, priority: "normal", delivery_status: "delivered", shop: demoStores[0], creator: { id: 1, name: "Online Store" }, items: [orderItem(7, demoProductsAdmin[5], 2), orderItem(8, demoProductsAdmin[3], 1)], payments: [{ id: 4, amount: 2550, payment_method: "sslcommerz", status: "completed", paid_at: "2026-07-19T18:43:00", refunded_amount: 0 }] },
+  { id: 105, order_number: "HM-260718-0087", source_channel: "pos", status: "returned", payment_status: "partially_refunded", payment_method: "card", checkout_name: "Anika Tasnim", checkout_mobile_number: "01911-882211", grand_total: 1800, paid_amount: 1800, due_amount: 0, order_date: "2026-07-18T16:30:00", invoice_printed_at: "2026-07-18T16:30:10", priority: "normal", delivery_status: "returned", shop: demoStores[0], creator: { id: 5, name: "Sadia Akter" }, items: [orderItem(9, demoProductsAdmin[0], 1)], payments: [{ id: 5, amount: 1800, payment_method: "card", status: "completed", paid_at: "2026-07-18T16:30:00", refunded_amount: 600, receiver: { id: 5, name: "Sadia Akter" } }] },
 ];
 
+
+function demoPhone(value?: string | null) {
+  const digits = String(value || "").replace(/\D/g, "");
+  return digits.startsWith("8801") ? `0${digits.slice(3)}` : digits;
+}
+
+export const demoCustomers: AdminCustomer[] = demoOrders
+  .filter((order) => demoPhone(order.checkout_mobile_number))
+  .reduce<AdminCustomer[]>((customers, order) => {
+    const phone = demoPhone(order.checkout_mobile_number);
+    const key = `phone:${phone}`;
+    const existing = customers.find((customer) => customer.customer_key === key);
+    const channel = order.source_channel === "ecommerce" ? "website" : order.source_channel;
+    if (existing) {
+      existing.order_count += order.status === "cancelled" ? 0 : 1;
+      existing.lifetime_sales = Number(existing.lifetime_sales) + (order.status === "cancelled" ? 0 : Number(order.grand_total || 0));
+      existing.outstanding_due = Number(existing.outstanding_due) + (order.status === "cancelled" ? 0 : Number(order.due_amount || 0));
+      if (!existing.channels.includes(channel)) existing.channels.push(channel);
+      return customers;
+    }
+    customers.push({
+      customer_key: key,
+      name: order.checkout_name || "Customer",
+      phone,
+      email: order.checkout_email || null,
+      last_district: order.checkout_district || null,
+      last_address: order.checkout_full_address || null,
+      order_count: order.status === "cancelled" ? 0 : 1,
+      lifetime_sales: order.status === "cancelled" ? 0 : Number(order.grand_total || 0),
+      outstanding_due: order.status === "cancelled" ? 0 : Number(order.due_amount || 0),
+      total_refunds: Number(order.payments?.reduce((sum, payment) => sum + Number(payment.refunded_amount || 0), 0) || 0),
+      last_order_at: order.order_date || order.created_at || null,
+      last_payment_method: order.payment_method || null,
+      channels: [channel],
+      recent_addresses: order.checkout_full_address || order.checkout_district ? [{ district: order.checkout_district || null, address: order.checkout_full_address || null }] : [],
+      recent_orders: [{ id: order.id, order_number: order.order_number, source_channel: channel, status: order.status, payment_status: order.payment_status, grand_total: order.grand_total, due_amount: order.due_amount, order_date: order.order_date || order.created_at, shop: order.shop }],
+      return_count: order.status === "returned" ? 1 : 0,
+    });
+    return customers;
+  }, [])
+  .sort((a, b) => String(b.last_order_at || "").localeCompare(String(a.last_order_at || "")));
+
 export const demoPromotions: AdminPromotion[] = [
-  { id: 1, code: "JOURNEY5", title: "Sacred Journey Sale", description: "Public five percent discount on qualifying Umrah essentials.", type: "percent", value: 5, visibility: "public", promotion_type: "public_sale", discount_scope: "order", is_active: true, auto_apply: true, stackable: false, starts_at: "2026-07-01", expires_at: "2026-08-15", used_count: 234, usage_limit: 1200, min_order_amount: 1000 },
+  { id: 1, code: null, title: "Sacred Journey Sale", description: "Public five percent discount on qualifying Umrah essentials.", type: "percent", value: 5, visibility: "public", promotion_type: "public_sale", discount_scope: "order", is_active: true, auto_apply: true, stackable: false, starts_at: "2026-07-01", expires_at: "2026-08-15", used_count: 234, usage_limit: 1200, min_order_amount: 1000 },
   { id: 2, code: "PILGRIM500", title: "Private Pilgrim Coupon", description: "Private coupon shared by support agents for package orders.", type: "fixed", value: 500, visibility: "private", promotion_type: "private_coupon", discount_scope: "order", is_active: true, auto_apply: false, stackable: false, starts_at: "2026-07-10", expires_at: "2026-07-31", used_count: 38, usage_limit: 100, min_order_amount: 5000 },
-  { id: 3, code: "FREEDHAKA", title: "Dhaka Free Delivery", description: "Public free delivery campaign for selected districts.", type: "free_shipping", value: 0, visibility: "public", promotion_type: "public_sale", discount_scope: "shipping", is_active: true, auto_apply: true, stackable: true, starts_at: "2026-07-18", expires_at: "2026-07-25", used_count: 119, usage_limit: 300, min_order_amount: 1500 },
+  { id: 3, code: null, title: "Dhaka Free Delivery", description: "Public free delivery campaign for selected districts.", type: "free_shipping", value: 0, visibility: "public", promotion_type: "public_sale", discount_scope: "shipping", is_active: true, auto_apply: true, stackable: true, starts_at: "2026-07-18", expires_at: "2026-07-25", used_count: 119, usage_limit: 300, min_order_amount: 1500 },
   { id: 4, code: "WELCOME10", title: "First Order Welcome", description: "Private code reserved for approved first-time customers.", type: "percent", value: 10, visibility: "private", promotion_type: "private_coupon", discount_scope: "order", is_active: false, auto_apply: false, stackable: false, starts_at: "2026-06-01", expires_at: "2026-06-30", used_count: 82, usage_limit: 100, min_order_amount: 2000 },
 ];
 
@@ -72,34 +113,13 @@ export const demoReturns: AdminReturn[] = [
   { id: 3, rr_number: "RR-260719-0017", type: "return", status: "requested", reason: "Product arrived damaged in courier handling.", refund_total: 950, exchange_due_total: 0, created_at: "2026-07-19T18:25:00", order: demoOrders[3], items: [{ id: 3, quantity: 1, refundable_amount: 950, order_item: demoOrders[3].items[0] }] },
 ];
 
-export const demoPermissions: AdminPermission[] = [
-  [1, "dashboard.view", "Dashboard"],
-  [2, "orders.view", "Orders"], [3, "orders.create", "Orders"], [4, "orders.update", "Orders"], [5, "orders.payment", "Orders"],
-  [6, "products.view", "Products"], [7, "products.create", "Products"], [8, "products.update", "Products"],
-  [9, "inventory.view", "Inventory"], [10, "inventory.batch.create", "Inventory"], [11, "inventory.adjust", "Inventory"], [12, "inventory.transfer", "Inventory"], [13, "inventory.history", "Inventory"],
-  [14, "promotions.view", "Promotions"], [15, "promotions.manage", "Promotions"],
-  [16, "returns.view", "Returns"], [17, "returns.approve", "Returns"], [18, "refunds.process", "Returns"],
-  [19, "stores.view", "Stores"], [20, "stores.manage", "Stores"],
-  [21, "employees.view", "People"], [22, "employees.manage", "People"], [23, "roles.view", "People"], [24, "roles.manage", "People"],
-  [25, "reports.view", "Reports"], [26, "activity.view", "System"], [27, "settings.manage", "System"],
-].map(([id, name, group]) => ({ id: Number(id), name: String(name), group: String(group), label: String(name).split(".").map((part) => part[0].toUpperCase() + part.slice(1)).join(" ") }));
-
-const permission = (...names: string[]) => demoPermissions.filter((item) => names.includes(item.name));
-export const demoRoles: AdminRole[] = [
-  { id: 1, name: "Super Admin", slug: "super_admin", description: "Full access across every store, workflow and configuration.", is_system: true, is_active: true, permissions: demoPermissions, users_count: 1 },
-  { id: 2, name: "Store Manager", slug: "store_manager", description: "Runs daily store operations, people, stock and order fulfilment.", is_system: true, is_active: true, permissions: permission("dashboard.view", "orders.view", "orders.create", "orders.update", "orders.payment", "products.view", "inventory.view", "inventory.batch.create", "inventory.adjust", "inventory.transfer", "inventory.history", "promotions.view", "returns.view", "returns.approve", "stores.view", "employees.view", "reports.view", "activity.view"), users_count: 2 },
-  { id: 3, name: "POS Operator", slug: "pos_operator", description: "Creates walk-in sales, receives payment and reviews own store stock.", is_system: true, is_active: true, permissions: permission("dashboard.view", "orders.view", "orders.create", "orders.payment", "products.view", "inventory.view", "returns.view"), users_count: 3 },
-  { id: 4, name: "Social Commerce", slug: "social_commerce", description: "Creates Facebook/phone orders and manages customer communication.", is_system: true, is_active: true, permissions: permission("dashboard.view", "orders.view", "orders.create", "orders.update", "orders.payment", "products.view", "inventory.view", "promotions.view", "returns.view"), users_count: 2 },
-  { id: 5, name: "Inventory Manager", slug: "inventory_manager", description: "Owns stock accuracy, receiving, adjustment and store transfers.", is_system: true, is_active: true, permissions: permission("dashboard.view", "products.view", "products.create", "products.update", "inventory.view", "inventory.batch.create", "inventory.adjust", "inventory.transfer", "inventory.history", "activity.view"), users_count: 1 },
-];
-
 export const demoEmployees: AdminUser[] = [
-  { id: 1, name: "Mueed Ibne Sami", email: "admin@hajjmart.com.bd", phone: "01700-000001", role: "super_admin", employee_code: "HM-001", designation: "Administrator", employment_type: "Full-time", is_active: true, shop_id: 1, shop: demoStores[0], roles: [demoRoles[0]], role_names: ["Super Admin"], permission_names: demoPermissions.map((item) => item.name) },
-  { id: 2, name: "Mahmud Hasan", email: "mahmud@hajjmart.com.bd", phone: "01700-000002", role: "manager", employee_code: "HM-004", designation: "Store Manager", employment_type: "Full-time", is_active: true, shop_id: 1, shop: demoStores[0], roles: [demoRoles[1]], role_names: ["Store Manager"], permission_names: demoRoles[1].permissions.map((item) => item.name) },
-  { id: 3, name: "Nusrat Jahan", email: "nusrat@hajjmart.com.bd", phone: "01700-000003", role: "manager", employee_code: "HM-007", designation: "Store Manager", employment_type: "Full-time", is_active: true, shop_id: 2, shop: demoStores[1], roles: [demoRoles[1]], role_names: ["Store Manager"], permission_names: demoRoles[1].permissions.map((item) => item.name) },
-  { id: 5, name: "Sadia Akter", email: "sadia@hajjmart.com.bd", phone: "01700-000005", role: "employee", employee_code: "HM-011", designation: "POS Executive", employment_type: "Full-time", is_active: true, shop_id: 1, shop: demoStores[0], roles: [demoRoles[2]], role_names: ["POS Operator"], permission_names: demoRoles[2].permissions.map((item) => item.name) },
-  { id: 6, name: "Ayesha Rahman", email: "ayesha@hajjmart.com.bd", phone: "01700-000006", role: "employee", employee_code: "HM-014", designation: "Social Commerce Executive", employment_type: "Full-time", is_active: true, shop_id: 2, shop: demoStores[1], roles: [demoRoles[3]], role_names: ["Social Commerce"], permission_names: demoRoles[3].permissions.map((item) => item.name) },
-  { id: 7, name: "Imran Hossain", email: "imran@hajjmart.com.bd", phone: "01700-000007", role: "employee", employee_code: "HM-015", designation: "Fulfilment Associate", employment_type: "Full-time", is_active: false, shop_id: 2, shop: demoStores[1], roles: [demoRoles[4]], role_names: ["Inventory Manager"], permission_names: demoRoles[4].permissions.map((item) => item.name) },
+  { id: 1, name: "Mueed Ibne Sami", email: "admin@hajjmart.com.bd", phone: "01700-000001", employee_code: "HM-001", designation: "Administrator", is_employee: true, is_admin: true, is_active: true, shop_id: 1, shop: demoStores[0] },
+  { id: 2, name: "Mahmud Hasan", email: "mahmud@hajjmart.com.bd", phone: "01700-000002", employee_code: "HM-004", designation: "Store Operations", is_employee: true, is_admin: false, is_active: true, shop_id: 1, shop: demoStores[0] },
+  { id: 3, name: "Nusrat Jahan", email: "nusrat@hajjmart.com.bd", phone: "01700-000003", employee_code: "HM-007", designation: "Store Operations", is_employee: true, is_admin: false, is_active: true, shop_id: 2, shop: demoStores[1] },
+  { id: 5, name: "Sadia Akter", email: "sadia@hajjmart.com.bd", phone: "01700-000005", employee_code: "HM-011", designation: "POS Executive", is_employee: true, is_admin: false, is_active: true, shop_id: 1, shop: demoStores[0] },
+  { id: 6, name: "Ayesha Rahman", email: "ayesha@hajjmart.com.bd", phone: "01700-000006", employee_code: "HM-014", designation: "Social Commerce Executive", is_employee: true, is_admin: false, is_active: true, shop_id: 2, shop: demoStores[1] },
+  { id: 7, name: "Imran Hossain", email: "imran@hajjmart.com.bd", phone: "01700-000007", employee_code: "HM-015", designation: "Fulfilment Associate", is_employee: true, is_admin: false, is_active: false, shop_id: 2, shop: demoStores[1] },
 ];
 
 export const demoActivity: ActivityLog[] = [
@@ -112,22 +132,29 @@ export const demoActivity: ActivityLog[] = [
 ];
 
 export const demoDashboard: AdminDashboard = {
-  metrics: { today_sales: 124850, today_orders: 46, pending_orders: 19, due_amount: 38750, low_stock_products: 14, stock_value: 1287450, inventory_units: 2598, available_inventory_units: 2571, direct_batches_today: 4, units_received_today: 125, returns_open: 6, active_promotions: 3 },
-  daily_sales: [
-    { date: "2026-07-14", label: "14 Jul", orders: 32, sales: 84120 },
-    { date: "2026-07-15", label: "15 Jul", orders: 38, sales: 96500 },
-    { date: "2026-07-16", label: "16 Jul", orders: 41, sales: 112400 },
-    { date: "2026-07-17", label: "17 Jul", orders: 29, sales: 77350 },
-    { date: "2026-07-18", label: "18 Jul", orders: 44, sales: 118900 },
-    { date: "2026-07-19", label: "19 Jul", orders: 52, sales: 139620 },
-    { date: "2026-07-20", label: "20 Jul", orders: 46, sales: 124850 },
+  metrics: { sales_today: 124850, orders_today: 46, customer_due: 38750, low_stock_count: 14 },
+  channel_today: [
+    { source: "website", orders: 21, sales: 61200 },
+    { source: "social_commerce", orders: 14, sales: 39850 },
+    { source: "pos", orders: 11, sales: 23800 },
   ],
-  source_mix: [
-    { source: "E-commerce", orders: 161, sales: 487300 },
-    { source: "Social commerce", orders: 92, sales: 264800 },
-    { source: "POS", orders: 76, sales: 179450 },
+  attention: [
+    { type: "pending_orders", urgency: 1, count: 4 },
+    { type: "out_of_stock", urgency: 1, product_id: demoProductsAdmin[2]?.id, product_name: demoProductsAdmin[2]?.name || "Ihram Premium XL", sku: demoProductsAdmin[2]?.sku || "HM-IHR-XL", available: 0 },
+    { type: "confirmed_orders", urgency: 2, count: 3 },
+    { type: "low_stock", urgency: 3, product_id: demoProductsAdmin[0]?.id, product_name: demoProductsAdmin[0]?.name || "Hajj Belt", sku: demoProductsAdmin[0]?.sku || "HM-BELT", available: 2 },
   ],
-  low_stock: demoInventory.filter((row) => row.stock_health !== "healthy"),
-  recent_orders: demoOrders,
+  recent_orders: demoOrders.slice(0, 5).map((order) => ({
+    id: order.id,
+    order_number: order.order_number,
+    checkout_name: order.checkout_name,
+    checkout_mobile_number: order.checkout_mobile_number,
+    source_channel: order.source_channel,
+    status: order.status,
+    grand_total: order.grand_total,
+    order_date: order.order_date,
+    created_at: order.created_at,
+  })),
+  onboarding: { has_product: true, has_stock: true, has_order: true, employee_count: 6 },
   generated_at: "2026-07-20T15:30:00",
 };

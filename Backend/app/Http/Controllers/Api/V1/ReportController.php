@@ -23,5 +23,4 @@ class ReportController extends Controller
     public function inventory(Request $request) { return $this->success($this->reports->inventory($request->all()), 'Inventory report.'); }
     public function returns(Request $request) { return $this->success($this->reports->returns($request->all()), 'Returns report.'); }
     public function promotions(Request $request) { return $this->success($this->reports->promotions($request->all()), 'Promotion/coupon performance report.'); }
-    public function transactions(Request $request) { return $this->success($this->reports->transactions($request->all()), 'Business transaction report.'); }
 }

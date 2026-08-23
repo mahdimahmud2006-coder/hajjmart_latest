@@ -95,12 +95,15 @@ class ProductBatch extends Model
         ?int $actorId = null,
         ?string $reference = null,
         ?string $note = null,
+        ?float $costPrice = null,
+        ?float $retailPrice = null,
+        ?float $wholesalePrice = null,
     ): self {
         $product = Product::query()->findOrFail($productId);
         $variant = $variantId ? ProductVariant::query()->find($variantId) : null;
-        $costPrice = (float) ($variant?->cost_price ?? $product->cost_price ?? 0);
-        $retailPrice = (float) ($variant?->retail_price ?? $variant?->sale_price ?? $variant?->price ?? $product->retail_price ?? $product->selling_price ?? 0);
-        $wholesalePrice = (float) ($variant?->wholesale_price ?? $product->wholesale_price ?? $retailPrice);
+        $costPrice = round($costPrice ?? (float) ($variant?->cost_price ?? $product->cost_price ?? 0), 2);
+        $retailPrice = round($retailPrice ?? (float) ($variant?->retail_price ?? $variant?->sale_price ?? $variant?->price ?? $product->retail_price ?? $product->selling_price ?? 0), 2);
+        $wholesalePrice = round($wholesalePrice ?? (float) ($variant?->wholesale_price ?? $product->wholesale_price ?? $retailPrice), 2);
 
         $batch = self::query()->create([
             'product_id' => $productId,
@@ -155,8 +158,14 @@ class ProductBatch extends Model
                 $batch->save();
             }
 
-            // Existing installations may have inventory that predates direct batches.
-            // Do not block a valid sale; only consume the tracked batch quantity available.
+            // Existing installations may still contain inventory that predates direct batches.
+            // Preserve a valid sale/transfer while using the current master cost only for that legacy remainder.
+            if ($remaining > 0) {
+                $product = Product::query()->find($productId);
+                $variant = $variantId ? ProductVariant::query()->find($variantId) : null;
+                $totalCost += $remaining * (float) ($variant?->cost_price ?? $product?->cost_price ?? 0);
+            }
+
             Product::query()->find($productId)?->updateTotalCount();
             if ($variantId) {
                 $remainingVariantStock = (int) self::query()

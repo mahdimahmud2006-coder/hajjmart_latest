@@ -8,6 +8,7 @@ class ReservedProduct extends Model
 {
     protected $fillable = [
         'order_id',
+        'order_item_id',
         'product_id',
         'variation_id',
         'variant_id',
@@ -15,7 +16,42 @@ class ReservedProduct extends Model
         'qty',
         'price',
         'total',
+        'status',
+        'reservation_class',
+        'source_channel',
+        'reserved_at',
+        'committed_at',
+        'released_at',
+        'release_reason',
+        'metadata',
     ];
+
+    protected $casts = [
+        'reserved_at' => 'datetime',
+        'committed_at' => 'datetime',
+        'released_at' => 'datetime',
+        'metadata' => 'array',
+    ];
+
+    public function scopeActive($query)
+    {
+        return $query->where('status', 'active');
+    }
+
+    public function scopeProtected($query)
+    {
+        return $query->where('reservation_class', 'protected');
+    }
+
+    public function scopePreemptible($query)
+    {
+        return $query->where('reservation_class', 'preemptible');
+    }
+
+    public function orderItem()
+    {
+        return $this->belongsTo(OrderItem::class);
+    }
 
     public function product()
     {

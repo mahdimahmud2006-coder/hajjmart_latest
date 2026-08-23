@@ -102,7 +102,7 @@ class ReviewQuestionController extends Controller
         return $this->success(ProductAnswer::create([
             'question_id' => $question->id,
             'user_id' => $request->user()?->id,
-            'is_admin' => $request->user()?->role === 'admin',
+            'is_admin' => (bool) $request->user()?->is_admin,
             'answer' => $data['answer'],
             'created_at' => now(),
         ]), 'Answer submitted.', 201);

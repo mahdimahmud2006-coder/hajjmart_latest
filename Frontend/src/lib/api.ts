@@ -78,7 +78,7 @@ export async function getCategoryProducts(slug: string): Promise<{ category: Cat
   });
 }
 
-export type ApiClientError = Error & { status?: number; errors?: unknown };
+export type ApiClientError = Error & { status?: number; errors?: unknown; code?: string };
 
 export async function clientApi<T>(
   path: string,
@@ -109,6 +109,7 @@ export async function clientApi<T>(
     const error = new Error(payload.message || "Something went wrong.") as ApiClientError;
     error.status = response.status;
     error.errors = (payload as unknown as { errors?: unknown }).errors;
+    error.code = (payload as unknown as { code?: string }).code;
     throw error;
   }
   return payload;

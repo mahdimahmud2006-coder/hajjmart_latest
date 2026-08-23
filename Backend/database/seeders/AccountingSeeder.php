@@ -13,11 +13,16 @@ use App\Models\Order;
 use App\Models\Shop;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Schema;
 
 class AccountingSeeder extends Seeder
 {
     public function run(): void
     {
+        if (! Schema::hasTable('legal_entities')) {
+            return;
+        }
+
         $entity = LegalEntity::updateOrCreate(
             ['code' => 'HAJJMART'],
             [

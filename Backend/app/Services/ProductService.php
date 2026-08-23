@@ -7,6 +7,9 @@ use App\Models\Product;
 use App\Models\ProductImage;
 use App\Models\ProductTag;
 use App\Models\ProductVariant;
+use App\Models\OrderItem;
+use App\Models\ProductBatch;
+use App\Models\Inventory;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -21,20 +24,31 @@ class ProductService
             'inventory' => fn ($q) => $q->when($shopId, fn ($inventory) => $inventory->where('shop_id', $shopId)),
             'productVariants' => fn ($q) => $q->where('is_active', true),
             'productVariants.inventory' => fn ($q) => $q->when($shopId, fn ($inventory) => $inventory->where('shop_id', $shopId)),
+            'productVariants.inventories' => fn ($q) => $q->when($shopId, fn ($inventory) => $inventory->where('shop_id', $shopId)),
         ];
 
         $query = Product::query()
             ->with($relations)
             ->when(! array_key_exists('include_inactive', $filters), fn ($q) => $q->where('is_active', true));
 
+        if ($ids = $filters['ids'] ?? null) {
+            $productIds = collect(explode(',', (string) $ids))->map(fn ($id) => (int) trim($id))->filter()->unique()->values()->all();
+            if ($productIds !== []) {
+                $query->whereIn('products.id', $productIds);
+            }
+        }
+
         if ($search = $filters['q'] ?? $filters['search'] ?? null) {
             $query->where(function ($q) use ($search): void {
                 $q->where('name', 'like', "%{$search}%")
                   ->orWhere('sku', 'like', "%{$search}%")
+                  ->orWhere('barcode', 'like', "%{$search}%")
                   ->orWhere('description', 'like', "%{$search}%")
                   ->orWhere('short_description', 'like', "%{$search}%")
                   ->orWhere('brand', 'like', "%{$search}%")
-                  ->orWhereHas('productVariants', fn ($variant) => $variant->where('sku', 'like', "%{$search}%"));
+                  ->orWhereHas('productVariants', fn ($variant) => $variant
+                      ->where('sku', 'like', "%{$search}%")
+                      ->orWhere('barcode', 'like', "%{$search}%"));
             });
         }
 
@@ -116,7 +130,7 @@ class ProductService
     {
         return Product::with([
             'primaryCategory', 'categories', 'productImages', 'productVariants.attributeValues.attribute',
-            'productVariants.inventory', 'inventory', 'tags',
+            'productVariants.inventory', 'productVariants.inventories', 'inventory', 'tags',
         ])->where('slug', $slugOrId)
           ->orWhere('sku', $slugOrId)
           ->orWhere('id', is_numeric($slugOrId) ? (int) $slugOrId : 0)
@@ -153,13 +167,13 @@ class ProductService
             'name' => $data['name'] ?? null,
             'slug' => $slug,
             'sku' => $data['sku'] ?? null,
-            'barcode' => $data['barcode'] ?? null,
-            'product_type' => $data['product_type'] ?? 'simple',
+            'barcode' => ! empty($data['barcode']) ? $data['barcode'] : ($creating ? $this->generateUniqueBarcode() : null),
+            'product_type' => $data['product_type'] ?? ($creating ? 'simple' : null),
             'product_type_source' => $data['product_type_source'] ?? null,
             'sku_source' => $data['sku_source'] ?? null,
             'product_id_source' => $data['product_id_source'] ?? null,
             'default_variation_sku' => $data['default_variation_sku'] ?? null,
-            'currency' => $data['currency'] ?? 'BDT',
+            'currency' => $data['currency'] ?? ($creating ? 'BDT' : null),
             'price_text' => $data['price_text'] ?? null,
             'selling_price' => $retailPrice,
             'retail_price' => $retailPrice,
@@ -199,12 +213,17 @@ class ProductService
             'brand' => $data['brand'] ?? null,
             'brands' => $data['brands'] ?? null,
             'discovery_sources' => $data['discovery_sources'] ?? null,
-            'visible_in_shop' => $data['visible_in_shop'] ?? true,
+            'visible_in_shop' => $data['visible_in_shop'] ?? ($creating ? true : null),
+            'sell_on_website' => true,
+            'sell_on_social' => true,
+            'sell_on_pos' => true,
             'raw_payload' => $data,
             'scraped_at' => $data['scraped_at'] ?? null,
-            'is_active' => $data['is_active'] ?? true,
-            'is_featured' => $data['is_featured'] ?? false,
-            'has_variations' => ($data['product_type'] ?? null) === 'variable' || ! empty($data['variations']),
+            'is_active' => $data['is_active'] ?? ($creating ? true : null),
+            'is_featured' => $data['is_featured'] ?? ($creating ? false : null),
+            'has_variations' => array_key_exists('product_type', $data) || array_key_exists('variations', $data)
+                ? (($data['product_type'] ?? null) === 'variable' || ! empty($data['variations']))
+                : ($creating ? false : null),
         ];
 
         if (! $creating) {
@@ -216,19 +235,17 @@ class ProductService
 
     private function syncRelations(Product $product, array $data): void
     {
-        if (! empty($data['categories'])) {
+        if (array_key_exists('categories', $data)) {
             $categoryIds = [];
-            foreach ($data['categories'] as $name) {
+            foreach (($data['categories'] ?? []) as $name) {
                 $category = Category::firstOrCreate(
                     ['slug' => Str::slug($name)],
                     ['name' => $name, 'is_active' => true]
                 );
                 $categoryIds[] = $category->id;
             }
-            $product->categories()->syncWithoutDetaching($categoryIds);
-            if (! $product->category_id && ! empty($categoryIds)) {
-                $product->update(['category_id' => $categoryIds[0]]);
-            }
+            $product->categories()->sync($categoryIds);
+            $product->update(['category_id' => $categoryIds[0] ?? null]);
         }
 
         if (! empty($data['tags'])) {
@@ -254,38 +271,81 @@ class ProductService
                     'sha256' => $image['sha256'] ?? null,
                     'source_aliases' => $image['source_aliases'] ?? [],
                     'sort_order' => $index,
-                    'is_primary' => $index === 0,
+                    'is_primary' => $image['is_primary'] ?? $index === 0,
                     'created_at' => now(),
                 ]);
             }
         }
 
         if (array_key_exists('variations', $data)) {
-            $product->productVariants()->delete();
+            $keptIds = [];
             foreach (($data['variations'] ?? []) as $variant) {
-                ProductVariant::create([
-                    'product_id' => $product->id,
+                $retailPrice = isset($variant['retail_price']) && $variant['retail_price'] !== null ? round((float) $variant['retail_price'], 2) : (isset($variant['price']) && $variant['price'] !== null ? round((float) $variant['price'], 2) : null);
+                $wholesalePrice = isset($variant['wholesale_price']) && $variant['wholesale_price'] !== null ? round((float) $variant['wholesale_price'], 2) : $retailPrice;
+                $costPrice = isset($variant['cost_price']) && $variant['cost_price'] !== null ? round((float) $variant['cost_price'], 2) : null;
+
+                $payload = [
                     'source_variation_id' => $variant['variation_id'] ?? null,
                     'sku' => $variant['sku'] ?? null,
-                    'price' => $variant['retail_price'] ?? $variant['selling_price'] ?? null,
-                    'sale_price' => $variant['retail_price'] ?? $variant['selling_price'] ?? null,
-                    'retail_price' => $variant['retail_price'] ?? $variant['selling_price'] ?? null,
-                    'wholesale_price' => $variant['wholesale_price'] ?? $variant['retail_price'] ?? $variant['selling_price'] ?? null,
-                    'regular_price' => $variant['regular_price'] ?? null,
+                    'barcode' => ! empty($variant['barcode']) ? $variant['barcode'] : $this->generateUniqueBarcode(),
+                    'price' => $retailPrice,
+                    'sale_price' => $retailPrice,
+                    'retail_price' => $retailPrice,
+                    'wholesale_price' => $wholesalePrice,
+                    'cost_price' => $costPrice,
                     'attributes_json' => $variant['attributes'] ?? [],
                     'attribute_labels' => $variant['attribute_labels'] ?? [],
                     'attribute_values' => $variant['attribute_values'] ?? [],
                     'variation_description' => $variant['variation_description'] ?? null,
                     'weight' => $variant['weight'] ?? null,
                     'dimensions_json' => $variant['dimensions'] ?? null,
-                    'in_stock' => $variant['in_stock'] ?? false,
-                    'purchasable' => $variant['purchasable'] ?? false,
-                    'available_for_purchase' => $variant['available_for_purchase'] ?? false,
-                    'image_json' => $variant['image'] ?? null,
                     'is_active' => true,
+                ];
+
+                if (! empty($variant['id'])) {
+                    $existing = $product->productVariants()->whereKey((int) $variant['id'])->firstOrFail();
+                    $existing->update($payload);
+                    $keptIds[] = $existing->id;
+                    continue;
+                }
+
+                $created = $product->productVariants()->create($payload + [
+                    'in_stock' => false,
+                    'purchasable' => false,
+                    'available_for_purchase' => false,
                 ]);
+                $keptIds[] = $created->id;
+            }
+
+            $removed = $product->productVariants()->when($keptIds !== [], fn ($q) => $q->whereNotIn('id', $keptIds))->get();
+            foreach ($removed as $variant) {
+                $hasHistory = OrderItem::query()->where('variant_id', $variant->id)->exists()
+                    || ProductBatch::query()->where('variant_id', $variant->id)->exists()
+                    || Inventory::query()->where('variant_id', $variant->id)->exists();
+
+                if ($hasHistory) {
+                    $variant->update([
+                        'is_active' => false,
+                        'in_stock' => false,
+                        'purchasable' => false,
+                        'available_for_purchase' => false,
+                    ]);
+                } else {
+                    $variant->delete();
+                }
             }
         }
 
+    }
+
+    public function generateUniqueBarcode(): string
+    {
+        do {
+            $barcode = '21' . str_pad((string) random_int(0, 9999999999), 10, '0', STR_PAD_LEFT);
+            $productExists = Product::where('barcode', $barcode)->exists();
+            $variantExists = ProductVariant::where('barcode', $barcode)->exists();
+        } while ($productExists || $variantExists);
+
+        return $barcode;
     }
 }

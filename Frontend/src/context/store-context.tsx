@@ -186,12 +186,20 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         setCart(accountCart);
       }
       setAccountStateReady(true);
-    }).catch(() => {
+    }).catch((error: unknown) => {
       if (sequence !== accountLoadSequence.current) return;
-      setAccountStateReady(true);
-      notify("Your account could not be synchronized. Device data is still available.", "error");
+      const status = (error as { status?: number })?.status;
+      if (status === 401) {
+        setToken(null);
+        setUser(null);
+        setSessionIssuedAt(0);
+        setAccountStateReady(false);
+        localStorage.removeItem(AUTH_KEY);
+        return;
+      }
+      setAccountStateReady(false);
     });
-  }, [hydrated, token, notify, syncCloudCart]);
+  }, [hydrated, token, syncCloudCart]);
 
   useEffect(() => {
     if (!token || !accountStateReady || mergePrompt) return;
@@ -202,10 +210,20 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (cartSignature(serverCart) !== cartSignature(cart) || JSON.stringify(serverCart) !== JSON.stringify(cart)) {
           setCart(serverCart);
         }
-      }).catch(() => notify("Your bag is saved on this device; account sync will retry after the next change.", "error"));
+      }).catch((error: unknown) => {
+        if (sequence !== cloudSyncSequence.current) return;
+        const status = (error as { status?: number })?.status;
+        if (status === 401) {
+          setToken(null);
+          setUser(null);
+          setSessionIssuedAt(0);
+          setAccountStateReady(false);
+          localStorage.removeItem(AUTH_KEY);
+        }
+      });
     }, 450);
     return () => window.clearTimeout(timer);
-  }, [cart, token, accountStateReady, mergePrompt, syncCloudCart, notify]);
+  }, [cart, token, accountStateReady, mergePrompt, syncCloudCart]);
 
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {

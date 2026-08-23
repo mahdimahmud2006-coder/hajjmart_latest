@@ -28,7 +28,6 @@ type AdminContextValue = {
   signIn: (email: string, password: string) => Promise<void>;
   continueDemo: () => void;
   signOut: () => void;
-  can: (permission?: string) => boolean;
   refreshSession: () => Promise<void>;
 };
 
@@ -142,13 +141,13 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
       });
     } catch (reason) {
       if (requestId !== sessionRequest.current) return;
-      if ((reason as ApiClientError).status === 401) {
+      if ([401, 403].includes((reason as ApiClientError).status || 0)) {
         clearSession(true);
         return;
       }
       // Keep the last successfully synchronized store list during an outage so
       // an authenticated POS terminal can continue against its IndexedDB cache.
-      // A 401 still clears the session above.
+      // Authentication or employee-access failures clear the session above.
     } finally {
       if (requestId === sessionRequest.current) setSessionReady(true);
     }
@@ -202,6 +201,7 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
     const result = await adminLogin(email, password);
     const nextUser = asAdminUser(result.user);
     if (!nextUser) throw new Error("The API returned an invalid employee profile.");
+    if (!nextUser.is_employee) throw new Error("This account is not a HajjMart employee account.");
     setStores([]);
     setSessionReady(false);
     persist(result.token, nextUser, false);
@@ -229,23 +229,14 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem(STORE_KEY, String(safeId));
   }, [stores]);
 
-  const can = useCallback((permission?: string) => {
-    if (!permission || demoMode) return true;
-    if (!user) return false;
-    const roleSlugs = [...(user.role_names || []), user.role || "", ...(user.roles || []).map((role) => role.slug)]
-      .map((value) => value.toLowerCase().replaceAll(" ", "_"));
-    if (roleSlugs.some((role) => role === "admin" || role === "super_admin")) return true;
-    return Boolean(user.permission_names?.includes(permission));
-  }, [demoMode, user]);
-
   const selectedStore = selectedStoreId === "all"
     ? null
     : stores.find((store) => store.id === selectedStoreId) || null;
 
   const value = useMemo<AdminContextValue>(() => ({
     token, user, stores, selectedStoreId, selectedStore, hydrated, sessionReady, demoMode, sidebarOpen,
-    setSidebarOpen, setSelectedStoreId, signIn, continueDemo, signOut, can, refreshSession,
-  }), [token, user, stores, selectedStoreId, selectedStore, hydrated, sessionReady, demoMode, sidebarOpen, setSelectedStoreId, signIn, continueDemo, signOut, can, refreshSession]);
+    setSidebarOpen, setSelectedStoreId, signIn, continueDemo, signOut, refreshSession,
+  }), [token, user, stores, selectedStoreId, selectedStore, hydrated, sessionReady, demoMode, sidebarOpen, setSelectedStoreId, signIn, continueDemo, signOut, refreshSession]);
 
   return <AdminContext.Provider value={value}>{children}</AdminContext.Provider>;
 }

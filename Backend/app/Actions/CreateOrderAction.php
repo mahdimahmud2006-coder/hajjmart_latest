@@ -132,17 +132,9 @@ class CreateOrderAction
                 );
             }
 
-            // Handle COD: sell inventory immediately, no reservation needed
+            // Preserve the legacy COD status behavior, but confirmation/payment
+            // no longer means physical stock has left the store.
             if ($paymentMethod === 'COD') {
-                foreach ($processedProducts as $item) {
-                    $product = Product::findOrFail($item['id']);
-                    $result  = $product->sellProduct($item['qty'], $item['variation_id'] ?? null);
-
-                    if (!$result['success']) {
-                        throw new Exception("Insufficient stock for product: {$item['name']}.");
-                    }
-                }
-
                 $order->update([
                     'status' => 'confirmed',
                     'order_status'   => 'Confirmed',
@@ -150,6 +142,8 @@ class CreateOrderAction
                     'confirmed_at' => now(),
                 ]);
             }
+
+            ReserveInventoryAction::run($order->fresh());
 
             return $order;
         });

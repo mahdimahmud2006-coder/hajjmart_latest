@@ -44,7 +44,7 @@ class Variation extends Model
 
     public function getReservedQty(): int
     {
-        return (int) $this->reservedProducts()->sum('qty');
+        return (int) $this->reservedProducts()->active()->sum('qty');
     }
 
     public function getAvailableStock(): int

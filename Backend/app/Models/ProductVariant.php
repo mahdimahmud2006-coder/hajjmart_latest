@@ -34,6 +34,8 @@ class ProductVariant extends Model
         'is_active' => 'boolean',
     ];
 
+    protected $appends = ['available_stock'];
+
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
@@ -52,5 +54,25 @@ class ProductVariant extends Model
     public function inventory(): HasOne
     {
         return $this->hasOne(Inventory::class, 'variant_id');
+    }
+
+    public function inventories(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(Inventory::class, 'variant_id');
+    }
+
+    public function getAvailableStockAttribute(): int
+    {
+        if ($this->relationLoaded('inventories') && $this->inventories->isNotEmpty()) {
+            return (int) $this->inventories->sum(fn ($row) => max(0, (int) $row->quantity - (int) $row->reserved));
+        }
+        if ($this->relationLoaded('inventory') && $this->inventory) {
+            return max(0, (int) $this->inventory->quantity - (int) $this->inventory->reserved);
+        }
+        $inv = (int) Inventory::query()->where('variant_id', $this->id)->sum(\Illuminate\Support\Facades\DB::raw('GREATEST(0, quantity - reserved)'));
+        if ($inv > 0) {
+            return $inv;
+        }
+        return (int) ProductBatch::query()->where('variant_id', $this->id)->sum('count');
     }
 }

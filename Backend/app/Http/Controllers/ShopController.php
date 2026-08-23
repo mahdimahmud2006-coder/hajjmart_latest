@@ -8,7 +8,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Validation\Rule;
 use App\Services\ProductFeedService;
 use App\Actions\CreateOrderAction;
-use App\Actions\ReserveInventoryAction;
 use App\Services\StripePaymentService;
 use Exception;
 use Illuminate\Support\Facades\Log;
@@ -87,17 +86,12 @@ class ShopController extends Controller
                 $validated['orderData']['address']
             );
 
-            // Step 2: Reserve Inventory (Online only — COD is committed immediately in CreateOrderAction)
-            if ($order->payment_method === 'Online') {
-                ReserveInventoryAction::run($order);
-            }
-
             $response = [
                 'success' => true,
                 'order' => $order->load('stripeIdRecord'),
             ];
 
-            // Step 3: Handle Payment Method
+            // Step 2: Handle Payment Method
             if ($order->payment_method === 'Online') {
                 $stripeService = app(StripePaymentService::class);
                 $session = $stripeService->createCheckoutSession($order);

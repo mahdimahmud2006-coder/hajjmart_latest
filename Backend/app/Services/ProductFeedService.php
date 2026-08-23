@@ -31,6 +31,7 @@ class ProductFeedService
     private function baseQuery(): Builder
     {
         return Product::query()
+            ->where('is_active', true)
             ->whereHas('productBatches', function ($query) {
                 $query->where('count', '>', 0);
             })

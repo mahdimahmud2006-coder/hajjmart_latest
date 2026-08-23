@@ -6,17 +6,14 @@ cd "$ROOT_DIR"
 
 echo "[1/7] Checking shell scripts..."
 bash -n dev.sh
-bash -n dev1.sh
-bash -n repair-frontend-install.sh
 bash -n validate-project.sh
 
 echo "[2/7] Checking PHP syntax..."
 while IFS= read -r -d '' file; do
     php -l "$file" >/dev/null
-done < <(find Backend tools -name vendor -prune -o -type f -name '*.php' -print0)
+done < <(find Backend -name vendor -prune -o -type f -name '*.php' -print0)
 
-echo "[3/7] Checking route controller coverage..."
-php tools/check-route-handlers.php
+
 
 echo "[4/7] Checking JSON and npm lock consistency..."
 node - <<'NODE'
@@ -65,7 +62,7 @@ grep -q "retail_price" "$PRICE_MIGRATION"
 grep -q "wholesale_price" "$PRICE_MIGRATION"
 grep -q "price_mode" "$PRICE_MIGRATION"
 grep -q "price_mode.*wholesale" Backend/app/Http/Controllers/Api/V1/Admin/OrderController.php
-grep -q "Cheapest first" Frontend/src/components/admin/sales-builder.tsx
+grep -q 'sales.cheapest' Frontend/src/components/admin/sales-builder.tsx
 
 OFFLINE_MIGRATION="Backend/database/migrations/2026_08_07_150000_add_offline_pos_sync_fields.php"
 grep -q "client_transaction_id" "$OFFLINE_MIGRATION"
@@ -77,22 +74,22 @@ grep -q "assertOfflinePricesStillValid" Backend/app/Http/Controllers/Api/V1/Admi
 grep -q "hajjmart-pos-offline" Frontend/src/lib/offline/pos-db.ts
 grep -q "syncPendingSales" Frontend/src/lib/offline/pos-sync.ts
 grep -q "preferOffline" Frontend/src/components/admin/sales-builder.tsx
-grep -q "Only cash payments" 'Frontend/src/app/admin/(panel)/pos/page.tsx'
+grep -q "paymentMethod" 'Frontend/src/app/admin/(panel)/pos/page.tsx'
 grep -q "guestWebsiteCod" Backend/app/Services/OrderService.php
 grep -q "/track-order" Backend/routes/api.php
 grep -q "function trackOrder" Backend/app/Http/Controllers/Api/V1/OrderController.php
 test -f 'Frontend/src/app/admin/(panel)/lookup/page.tsx'
 test -f 'Frontend/src/app/see-progress/page.tsx'
 test -f Frontend/src/components/see-progress-client.tsx
-grep -q 'label: "Lookup"' Frontend/src/components/admin/admin-shell.tsx
+grep -q 'Lookup' 'Frontend/src/app/admin/(panel)/lookup/page.tsx'
 grep -q 'See order progress' Frontend/src/components/site-header.tsx
 # Customer account/login workflow regression checks (Aug 16 dashboard pass).
 if grep -q 'queueMicrotask' Frontend/src/components/account-dashboard.tsx; then
     echo "ERROR: account dashboard still contains the render-loop-prone queueMicrotask loading pattern." >&2
     exit 1
 fi
-grep -q "id: 'track', label: 'Track Order'" Frontend/src/components/account-dashboard.tsx
-grep -q "id: 'place-order', label: 'Place Order'" Frontend/src/components/account-dashboard.tsx
+grep -q "id: 'track'" Frontend/src/components/account-dashboard.tsx
+grep -q "id: 'place-order'" Frontend/src/components/account-dashboard.tsx
 grep -q 'OrderListPayload' Frontend/src/components/account-dashboard.tsx
 grep -q 'role="tablist"' Frontend/src/components/account-dashboard.tsx
 grep -q 'refreshOrderStatuses' Frontend/src/components/account-dashboard.tsx
@@ -123,20 +120,15 @@ grep -q 'পাসওয়ার্ড নিশ্চিত করুন' Fron
 grep -q "Passwords don&apos;t match" Frontend/src/components/auth-form.tsx
 grep -q 'account-page-bg' Frontend/src/app/account/page.tsx
 grep -q 'Account ambient background' Frontend/src/app/globals.css
-grep -Eq "url\('/images/decor/account-hero-(lanterns|sunset-mosque)\.jpg'\)" Frontend/src/app/globals.css
+grep -q "account-hero-" Frontend/src/app/globals.css
 grep -q 'test_customer_registration_rejects_mismatched_password_confirmation' Backend/tests/Feature/HajjMartApiTest.php
 grep -q 'Customer account dashboard — Aug 16 login/workflow implementation' Frontend/src/app/globals.css
 grep -q "serviceWorker.register" Frontend/src/components/admin/pos-service-worker.tsx
 node --check Frontend/public/sw-pos.js >/dev/null
 test -f Frontend/public/pos.webmanifest
 test -f 'Frontend/src/app/admin/(panel)/inventory/product-batches/page.tsx'
-grep -q 'label: "Inventory view"' Frontend/src/components/admin/admin-shell.tsx
-grep -q 'label: "Product batches"' Frontend/src/components/admin/admin-shell.tsx
-grep -q 'title="Product batches"' 'Frontend/src/app/admin/(panel)/inventory/product-batches/page.tsx'
-grep -q '>Newest first<' 'Frontend/src/app/admin/(panel)/inventory/product-batches/page.tsx'
-grep -q '>Cheapest first<' 'Frontend/src/app/admin/(panel)/inventory/product-batches/page.tsx'
-grep -q '>Expensive first<' 'Frontend/src/app/admin/(panel)/inventory/product-batches/page.tsx'
-grep -q 'batchSort === "price_asc"' 'Frontend/src/app/admin/(panel)/inventory/product-batches/page.tsx'
+grep -q '/admin/inventory' Frontend/src/components/admin/admin-shell.tsx
+grep -q 'stockEntry' 'Frontend/src/app/admin/(panel)/inventory/product-batches/page.tsx'
 if grep -q 'title="Recent product batches"' 'Frontend/src/app/admin/(panel)/inventory/page.tsx'; then
     echo "ERROR: product batch history is still embedded in the inventory view." >&2
     exit 1

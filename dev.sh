@@ -233,7 +233,7 @@ ensure_dependencies() {
         install_backend_dependencies
     fi
 
-    if [ ! -x "$FRONTEND_DIR/node_modules/.bin/next" ]; then
+    if [ ! -x "$FRONTEND_DIR/node_modules/.bin/next" ] || [ ! -d "$FRONTEND_DIR/node_modules/lucide-react" ]; then
         echo "Installing frontend dependencies from npm registry..."
 
         if [ -f "$FRONTEND_DIR/package-lock.json" ] && \

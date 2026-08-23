@@ -22,7 +22,6 @@ class HajjMartRealisticDatabaseSeeder extends Seeder
     private array $products = [];
     private array $variantsByProduct = [];
     private array $orders = [];
-    private string $employeePasswordHash;
     private string $customerPasswordHash;
 
     public function run(): void
@@ -34,7 +33,6 @@ class HajjMartRealisticDatabaseSeeder extends Seeder
 
         $this->data = json_decode(file_get_contents($path), true, 512, JSON_THROW_ON_ERROR)['datasets'] ?? [];
         $this->anchor = CarbonImmutable::now(config('app.timezone', 'Asia/Dhaka'));
-        $this->employeePasswordHash = Hash::make('ChangeMe123!');
         $this->customerPasswordHash = Hash::make('Customer123!');
 
         DB::disableQueryLog();
@@ -44,13 +42,12 @@ class HajjMartRealisticDatabaseSeeder extends Seeder
         DB::transaction(function (): void {
             $stages = [
                 'Stores' => fn () => $this->seedStores(),
-                'Employees' => fn () => $this->seedEmployees(),
+                'Admin attribution' => fn () => $this->seedEmployees(),
                 'Customers and addresses' => fn () => $this->seedCustomers(),
                 'Coupons and promotions' => fn () => $this->seedCoupons(),
                 'Product catalogue' => fn () => $this->loadProducts(),
                 'Store inventory and batches' => fn () => $this->seedCompleteInventory(),
                 'Homepage and contact messages' => fn () => $this->seedHomepageAndMessages(),
-                'Business transactions' => fn () => $this->seedTransactions(),
                 'Orders, items and payments' => fn () => $this->seedOrders(),
                 'Returns and exchanges' => fn () => $this->seedReturns(),
                 'Stock transfers' => fn () => $this->seedStockTransfers(),
@@ -73,7 +70,7 @@ class HajjMartRealisticDatabaseSeeder extends Seeder
 
         $this->command?->info('HajjMart realistic 30-day database seed completed.');
         $this->command?->line('Products use the original hajjmart_products.json catalogue and local storage image paths.');
-        $this->command?->line('Orders: '.DB::table('orders')->count().' | Inventory rows: '.DB::table('inventory')->count().' | Customers: '.DB::table('users')->where('role', 'customer')->count());
+        $this->command?->line('Orders: '.DB::table('orders')->count().' | Inventory rows: '.DB::table('inventory')->count().' | Customers: '.DB::table('users')->where('is_employee', false)->count());
     }
 
     private function seedStores(): void
@@ -98,7 +95,7 @@ class HajjMartRealisticDatabaseSeeder extends Seeder
         $adminId = DB::table('users')->where('email', 'admin@hajjmart.local')->value('id');
         if ($adminId) {
             DB::table('users')->where('id', $adminId)->update($this->filter('users', [
-                'shop_id' => $this->shops['MAIN'], 'role' => 'admin', 'is_active' => true,
+                'shop_id' => $this->shops['MAIN'], 'is_employee' => true, 'is_admin' => true, 'is_active' => true,
                 'designation' => 'System Administrator', 'employee_code' => 'HM-ADMIN', 'updated_at' => $this->anchor,
             ]));
         }
@@ -106,25 +103,12 @@ class HajjMartRealisticDatabaseSeeder extends Seeder
 
     private function seedEmployees(): void
     {
-        $roleIds = DB::table('roles')->pluck('id', 'slug')->map(fn ($v) => (int) $v)->all();
-        $adminId = (int) (DB::table('users')->where('email', 'admin@hajjmart.local')->value('id') ?: 1);
-
-        foreach ($this->data['employees'] ?? [] as $row) {
-            $id = $this->upsert('users', ['email' => $row['email']], [
-                'name' => $row['name'], 'email' => $row['email'], 'phone' => $row['phone'],
-                'password' => $this->employeePasswordHash, 'role' => 'employee', 'is_active' => (bool) $row['is_active'],
-                'employee_code' => $row['employee_code'], 'designation' => $row['designation'],
-                'employment_type' => $row['employment_type'], 'shop_id' => $this->shops[$row['store_code']] ?? $this->shops['MAIN'],
-                'joined_at' => $this->anchor->subDays((int) $row['joined_days_ago'])->toDateString(),
-                'created_by' => $adminId, 'email_verified_at' => $this->anchor->subDays(90),
-                'created_at' => $this->anchor->subDays((int) $row['joined_days_ago']), 'updated_at' => $this->anchor,
-            ]);
-            $this->employees[] = $id;
-            $roleId = $roleIds[$row['role_slug']] ?? null;
-            if ($roleId && Schema::hasTable('role_user')) {
-                DB::table('role_user')->updateOrInsert(['role_id' => $roleId, 'user_id' => $id], []);
-            }
+        $adminId = DB::table('users')->where('email', 'admin@hajjmart.local')->value('id');
+        if (! $adminId) {
+            throw new RuntimeException('The seeded HajjMart admin account is required before realistic data can be loaded.');
         }
+
+        $this->employees = [(int) $adminId];
     }
 
     private function seedCustomers(): void
@@ -133,7 +117,7 @@ class HajjMartRealisticDatabaseSeeder extends Seeder
             $created = $this->at($row['created_days_ago'] ?? 1, 600);
             $id = $this->upsert('users', ['email' => $row['email']], [
                 'name' => $row['name'], 'email' => $row['email'], 'phone' => $row['phone'],
-                'password' => $this->customerPasswordHash, 'role' => 'customer', 'is_active' => true,
+                'password' => $this->customerPasswordHash, 'is_employee' => false, 'is_admin' => false, 'is_active' => true,
                 'email_verified_at' => $created, 'created_at' => $created, 'updated_at' => $created,
             ]);
             $this->customers[] = $id;
@@ -251,20 +235,6 @@ class HajjMartRealisticDatabaseSeeder extends Seeder
                 $at = $this->at($row['days_ago'], $row['minute']);
                 $this->insert('contact_messages', [...$row, 'created_at' => $at, 'updated_at' => $at]);
             }
-        }
-    }
-
-    private function seedTransactions(): void
-    {
-        if (! Schema::hasTable('business_transactions')) return;
-        foreach ($this->data['business_transactions'] ?? [] as $row) {
-            $at = $this->at($row['days_ago'], $row['minute']);
-            $this->upsert('business_transactions', ['transaction_number' => $row['transaction_number']], [
-                ...$row, 'shop_id' => $this->shops[$row['store_code']] ?? $this->shops['MAIN'],
-                'created_by' => $this->employee($row['employee_slot']), 'approved_by' => $this->employee($row['employee_slot'] + 1),
-                'occurred_at' => $at, 'meta' => $this->json(['seeded' => true, 'source' => 'realistic_fixture']),
-                'created_at' => $at, 'updated_at' => $at,
-            ]);
         }
     }
 
@@ -535,7 +505,7 @@ class HajjMartRealisticDatabaseSeeder extends Seeder
     private function writeAuditLogs(): void
     {
         if (! Schema::hasTable('activity_logs')) return;
-        $modules = ['orders', 'inventory', 'product_batches', 'returns', 'transactions', 'promotions', 'employees', 'products'];
+        $modules = ['orders', 'inventory', 'product_batches', 'returns', 'promotions', 'employees', 'products'];
         for ($i = 0; $i < 400; $i++) {
             $at = $this->at($i % 30, 500 + ($i % 500));
             $this->insert('activity_logs', ['user_id' => $this->employee($i), 'shop_id' => array_values($this->shops)[$i % count($this->shops)], 'module' => $modules[$i % count($modules)], 'action' => ['created', 'updated', 'approved', 'received'][$i % 4], 'subject_type' => 'SeededRecord', 'subject_id' => $i + 1, 'description' => 'Realistic seeded activity log #'.str_pad((string) ($i + 1), 4, '0', STR_PAD_LEFT), 'before' => $this->json(null), 'after' => $this->json(['seeded' => true]), 'ip_address' => '127.0.0.1', 'user_agent' => 'HajjMart realistic seeder', 'created_at' => $at, 'updated_at' => $at]);

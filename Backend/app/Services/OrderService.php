@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Domains\Accounting\Services\OperationalPostingService;
 use App\Actions\CommitInventoryAction;
 use App\Actions\ReleaseInventoryAction;
 use App\Actions\ReserveInventoryAction;
@@ -24,7 +23,7 @@ class OrderService
         private InventoryService $inventoryService,
         private PromotionService $promotionService,
         private RiskEngine $riskEngine,
-        private OperationalPostingService $accounting,
+        private StoreAllocationService $allocationService,
     ) {}
 
     public function validateCart(array $items, array $pricingContext = [], ?int $customerId = null, ?int $shopId = null): array
@@ -55,8 +54,11 @@ class OrderService
 
     public function quoteCheckout(array $data, ?int $customerId = null): array
     {
-        $shopId = Shop::defaultStore()->id;
-        $validatedItems = $this->inventoryService->validateItems($data['items'] ?? [], $shopId, 'retail');
+        $allocation = $this->allocationService->chooseStoreForWebsiteOrder($data['items'] ?? []);
+        $shop = $allocation['shop'];
+        $isProvisional = (bool) $allocation['is_provisional'];
+
+        $validatedItems = $this->inventoryService->validateItems($data['items'] ?? [], $shop->id, 'retail');
         $subtotal = round(array_sum(array_map(
             fn (array $row): float => (float) $row['quantity'] * (float) $row['unitPrice'],
             $validatedItems,
@@ -80,7 +82,12 @@ class OrderService
                 : ($quote['rejected_promotions'][0]['reason'] ?? 'Coupon could not be applied.');
         }
 
+        $token = $this->allocationService->generateAllocationToken($shop, $data['items'] ?? [], $quote['grand_total'], $isProvisional);
+
         return [
+            'allocation_token' => $token,
+            'allocated_shop_id' => $shop->id,
+            'is_provisional' => $isProvisional,
             'currency' => $quote['currency'],
             'subtotal' => $quote['subtotal'],
             'delivery' => $quote['shipping_total'],
@@ -124,12 +131,63 @@ class OrderService
                     'checkout_email' => $checkout['email'],
                     'checkout_mobile_number' => $checkout['mobile_number'],
                 ]);
-                $shopId = (int) ($data['shop_id'] ?? Shop::defaultStore()->id);
+
+                $shopId = null;
+                $isProvisional = false;
+
+                if ($sourceChannel === 'website') {
+                    if (! empty($data['allocation_token'])) {
+                        try {
+                            $tokenPayload = $this->allocationService->verifyAllocationToken($data['allocation_token'], $data['items'] ?? []);
+                            $candidateShopId = (int) $tokenPayload['shop_id'];
+                            if ($this->allocationService->isStoreEligible($candidateShopId, $data['items'] ?? [])) {
+                                $shopId = $candidateShopId;
+                                $isProvisional = (bool) ($tokenPayload['is_provisional'] ?? false);
+                            } else {
+                                $allocation = $this->allocationService->chooseStoreForWebsiteOrder($data['items'] ?? []);
+                                $shopId = (int) $allocation['shop']->id;
+                                $isProvisional = (bool) $allocation['is_provisional'];
+                            }
+                        } catch (\Throwable $e) {
+                            $allocation = $this->allocationService->chooseStoreForWebsiteOrder($data['items'] ?? []);
+                            $shopId = (int) $allocation['shop']->id;
+                            $isProvisional = (bool) $allocation['is_provisional'];
+                        }
+                    } else {
+                        $allocation = $this->allocationService->chooseStoreForWebsiteOrder($data['items'] ?? []);
+                        $shopId = (int) $allocation['shop']->id;
+                        $isProvisional = (bool) $allocation['is_provisional'];
+                    }
+
+                    if ($isProvisional) {
+                        $data['reconciliation_status'] = 'provisional';
+                    }
+                } else {
+                    $shopId = (int) ($data['shop_id'] ?? Shop::defaultStore()->id);
+                }
+
+                if (! empty($data['client_transaction_id'])) {
+                    $existing = Order::query()
+                        ->where('shop_id', $shopId)
+                        ->where('client_transaction_id', $data['client_transaction_id'])
+                        ->first();
+                    if ($existing) {
+                        return $existing;
+                    }
+                }
+
+                $snapshotAuthorized = ! empty($data['offline_snapshot_authorized']);
+                $isRecoveryOrder = ! empty($data['offline_recovery_case_id']);
+                if (! $snapshotAuthorized && ! $isRecoveryOrder && in_array($sourceChannel, ['pos', 'social_commerce'], true)) {
+                    $shop = Shop::findOrFail($shopId);
+                    app(StoreConnectivityService::class)->assertOrdinaryEmployeeCommerceAllowed($shop, $sourceChannel);
+                }
+
                 $priceMode = $sourceChannel === 'website'
                     ? 'retail'
                     : (strtolower((string) ($data['price_mode'] ?? 'retail')) === 'wholesale' ? 'wholesale' : 'retail');
                 $actorId = isset($data['created_by']) ? (int) $data['created_by'] : $customerId;
-                $validatedItems = $this->inventoryService->validateItems($data['items'] ?? [], $shopId, $priceMode);
+                $validatedItems = $this->inventoryService->validateItems($data['items'] ?? [], $shopId, $priceMode, $snapshotAuthorized);
 
                 if ($sourceChannel === 'website') {
                     $subtotal = round(array_sum(array_map(
@@ -141,19 +199,22 @@ class OrderService
                     $data['manual_discount'] = 0;
                 }
 
-                $quote = $this->promotionService->quote($validatedItems, $data, $customerId);
+                $quote = $snapshotAuthorized
+                    ? $this->offlineSnapshotQuote($validatedItems, $data)
+                    : $this->promotionService->quote($validatedItems, $data, $customerId);
                 $quote = $this->applyManualDiscount($quote, (float) ($data['manual_discount'] ?? 0));
 
                 $paymentMethod = strtolower((string) ($data['payment_method'] ?? 'cod'));
                 $requestedStatus = strtolower((string) ($data['status'] ?? ''));
-                $guestWebsiteCod = $sourceChannel === 'website' && $customerId === null && $paymentMethod === 'cod';
-                $status = $requestedStatus ?: ($guestWebsiteCod
-                    ? OrderStatus::PENDING->value
-                    : ($paymentMethod === 'cod' ? OrderStatus::CONFIRMED->value : OrderStatus::PENDING->value));
-                if ($sourceChannel === 'pos' && ! $requestedStatus) $status = OrderStatus::DELIVERED->value;
+                if ($sourceChannel === 'pos') {
+                    $status = OrderStatus::DELIVERED->value;
+                    $paidAmount = (float) $quote['grand_total'];
+                } else {
+                    $status = $requestedStatus ?: ($paymentMethod === 'cod' ? OrderStatus::CONFIRMED->value : OrderStatus::PENDING->value);
+                    $paidAmount = min((float) $quote['grand_total'], (float) ($data['paid_amount'] ?? 0));
+                }
 
                 $orderList = OrderList::create();
-                $paidAmount = min((float) $quote['grand_total'], (float) ($data['paid_amount'] ?? ($sourceChannel === 'pos' ? $quote['grand_total'] : 0)));
                 $order = Order::create([
                     'order_list_id' => $orderList->id,
                     'order_id' => (string) random_int(1000000, 9999999),
@@ -180,7 +241,7 @@ class OrderService
 
                     'status' => $status,
                     'order_status' => $status,
-                    'payment_status' => PaymentStatus::PENDING->value,
+                    'payment_status' => PaymentStatus::forOrder($paidAmount, (float) $quote['grand_total']),
                     'payment_method' => $paymentMethod,
                     'payment_channel' => $sourceChannel === 'website'
                         ? ($paymentMethod === 'cod' ? 'cash' : 'sslcommerz')
@@ -191,6 +252,9 @@ class OrderService
                     'source_reference' => $data['source_reference'] ?? null,
                     'terminal_id' => $data['terminal_id'] ?? null,
                     'client_transaction_id' => $data['client_transaction_id'] ?? null,
+                    'offline_inventory_session_id' => $data['offline_inventory_session_id'] ?? null,
+                    'local_sequence' => $data['local_sequence'] ?? null,
+                    'reconciliation_status' => $data['reconciliation_status'] ?? 'normal',
                     'checkout_idempotency_key' => $idempotencyKey,
                     'offline_created_at' => $data['offline_created_at'] ?? null,
                     'synced_at' => $data['synced_at'] ?? null,
@@ -219,6 +283,9 @@ class OrderService
                     'admin_note' => $data['admin_note'] ?? null,
                     'placed_at' => now(),
                     'confirmed_at' => $status === OrderStatus::CONFIRMED->value ? now() : null,
+                    'offline_recovery_case_id' => $data['offline_recovery_case_id'] ?? null,
+                    'manual_outage_reference' => $data['manual_outage_reference'] ?? null,
+                    'manual_outage_occurred_at' => $data['manual_outage_occurred_at'] ?? null,
 
                     // Legacy Sareng compatibility fields.
                     'ordered_products' => $data['items'],
@@ -234,19 +301,14 @@ class OrderService
 
                 $totalCogs = 0.0;
                 $grossProfit = 0.0;
-                $reservePendingWebsiteOrder = $sourceChannel === 'website' && $status === OrderStatus::PENDING->value && $paidAmount <= 0;
+                $physicalSale = $sourceChannel === 'pos';
 
                 foreach ($validatedItems as $row) {
                     $key = $this->promotionService->lineKey($row['product']->id, $row['variant']?->id);
                     $allocation = $quote['line_allocations'][$key] ?? [];
-                    $unitCost = (float) ($row['variant']?->cost_price ?? $row['product']->cost_price ?? 0);
                     $lineSubtotal = round($row['quantity'] * $row['unitPrice'], 2);
                     $lineDiscount = round((float) ($allocation['discount_total'] ?? 0), 2);
                     $lineGrand = round(max(0, $lineSubtotal - $lineDiscount), 2);
-                    $cogsTotal = round($row['quantity'] * $unitCost, 2);
-                    $lineProfit = round($lineGrand - $cogsTotal, 2);
-                    $totalCogs += $cogsTotal;
-                    $grossProfit += $lineProfit;
 
                     $item = OrderItem::create([
                         'order_id' => $order->id,
@@ -257,7 +319,7 @@ class OrderService
                         'quantity' => $row['quantity'],
                         'unit_price' => $row['unitPrice'],
                         'price_mode' => $priceMode,
-                        'unit_cost' => $unitCost,
+                        'unit_cost' => 0,
                         'line_subtotal' => $lineSubtotal,
                         'discount_amount' => $lineDiscount,
                         'line_discount_total' => $lineDiscount,
@@ -265,17 +327,26 @@ class OrderService
                         'line_total' => $lineGrand,
                         'line_grand_total' => $lineGrand,
                         'discount_snapshot' => $allocation['discounts'] ?? [],
-                        'cogs_total' => $cogsTotal,
-                        'gross_profit' => $lineProfit,
+                        'cogs_total' => 0,
+                        'gross_profit' => 0,
                         'item_status' => $status,
                     ]);
 
-                    if (! $reservePendingWebsiteOrder) {
-                        $this->inventoryService->decrement($row['inventory'], $row['quantity'], $item, $actorId);
+                    if ($physicalSale) {
+                        $cogsTotal = $this->inventoryService->decrement($row['inventory'], $row['quantity'], $item, $actorId);
+                        $unitCost = $row['quantity'] > 0 ? round($cogsTotal / $row['quantity'], 2) : 0.0;
+                        $lineProfit = round($lineGrand - $cogsTotal, 2);
+                        $item->update([
+                            'unit_cost' => $unitCost,
+                            'cogs_total' => $cogsTotal,
+                            'gross_profit' => $lineProfit,
+                        ]);
+                        $totalCogs += $cogsTotal;
+                        $grossProfit += $lineProfit;
                     }
                 }
 
-                if ($reservePendingWebsiteOrder) {
+                if (! $physicalSale) {
                     ReserveInventoryAction::run($order->fresh('items'));
                 }
 
@@ -284,39 +355,47 @@ class OrderService
                     'gross_profit' => round($grossProfit, 2),
                 ]);
 
-                $this->promotionService->persistApplications($order, $quote, $customerId, $checkout['email'], $checkout['mobile_number']);
-
-                $paymentStatus = $paidAmount >= (float) $order->grand_total && (float) $order->grand_total > 0
-                    ? PaymentStatus::PAID->value
-                    : ($paidAmount > 0 ? 'partial' : PaymentStatus::PENDING->value);
-                $order->update(['payment_status' => $paymentStatus]);
-
-                $paymentRowAmount = $paidAmount > 0
-                    ? $paidAmount
-                    : (($sourceChannel === 'website' && $paymentMethod !== 'cod') ? (float) $quote['grand_total'] : 0.0);
-                if ($paymentRowAmount > 0) {
-                    Payment::create([
-                        'order_id' => $order->id,
-                        'payment_method' => $paymentMethod,
-                        'gateway' => $paymentMethod === 'cod' ? null : ($sourceChannel === 'website' ? 'sslcommerz' : ($data['gateway'] ?? 'sslcommerz')),
-                        'amount' => round($paymentRowAmount, 2),
-                        'currency' => $order->currency,
-                        'status' => $paidAmount > 0 ? PaymentStatus::PAID->value : PaymentStatus::PENDING->value,
-                        'paid_at' => $paidAmount > 0 ? ($data['order_date'] ?? now()) : null,
-                        'received_by' => $actorId,
-                        'payment_reference' => $data['payment_reference'] ?? ($sourceChannel === 'website' && $paymentMethod !== 'cod' ? $order->order_number : null),
-                    ]);
+                if (! $snapshotAuthorized) {
+                    $this->promotionService->persistApplications($order, $quote, $customerId, $checkout['email'], $checkout['mobile_number']);
                 }
 
-                if ($sourceChannel === 'pos' && $paymentStatus === PaymentStatus::PAID->value) {
-                    // A sale is an operational fact first. Accounting is idempotent
-                    // and AccountingOperationalBackfillSeeder backfills missed POS journals, so a
-                    // temporary GL configuration problem must never roll back a
-                    // successfully paid store sale or its stock movement.
-                    try {
-                        $this->accounting->postCompletedPosSale($order->fresh('items'));
-                    } catch (\Throwable $exception) {
-                        report($exception);
+                $paymentStatus = PaymentStatus::forOrder($paidAmount, (float) $quote['grand_total']);
+                $order->update(['payment_status' => $paymentStatus]);
+
+                if (! empty($data['split_payments']) && is_array($data['split_payments'])) {
+                    foreach ($data['split_payments'] as $splitRow) {
+                        $splitAmt = round((float) ($splitRow['amount'] ?? 0), 2);
+                        if ($splitAmt > 0) {
+                            $method = strtolower((string) ($splitRow['method'] ?? 'cash'));
+                            Payment::create([
+                                'order_id' => $order->id,
+                                'payment_method' => $method,
+                                'gateway' => in_array($method, ['bkash', 'nagad', 'sslcommerz'], true) ? $method : null,
+                                'amount' => $splitAmt,
+                                'currency' => $order->currency,
+                                'status' => 'paid',
+                                'paid_at' => $data['order_date'] ?? now(),
+                                'received_by' => $actorId,
+                                'payment_reference' => $splitRow['reference'] ?? null,
+                            ]);
+                        }
+                    }
+                } else {
+                    $paymentRowAmount = $paidAmount > 0
+                        ? $paidAmount
+                        : (($sourceChannel === 'website' && $paymentMethod !== 'cod') ? (float) $quote['grand_total'] : 0.0);
+                    if ($paymentRowAmount > 0) {
+                        Payment::create([
+                            'order_id' => $order->id,
+                            'payment_method' => $paymentMethod,
+                            'gateway' => $paymentMethod === 'cod' ? null : ($sourceChannel === 'website' ? 'sslcommerz' : ($data['gateway'] ?? 'sslcommerz')),
+                            'amount' => round($paymentRowAmount, 2),
+                            'currency' => $order->currency,
+                            'status' => $paidAmount > 0 ? 'paid' : 'pending',
+                            'paid_at' => $paidAmount > 0 ? ($data['order_date'] ?? now()) : null,
+                            'received_by' => $actorId,
+                            'payment_reference' => $data['payment_reference'] ?? ($sourceChannel === 'website' && $paymentMethod !== 'cod' ? $order->order_number : null),
+                        ]);
                     }
                 }
 
@@ -348,20 +427,63 @@ class OrderService
     {
         return DB::transaction(function () use ($order, $toStatus, $actorId, $note, $force): Order {
             $from = $order->status ?: $order->order_status;
+            if ($order->reconciliation_status === 'provisional' && in_array($toStatus, [
+                OrderStatus::SHIPPED->value,
+                OrderStatus::DELIVERED->value,
+            ], true)) {
+                throw new \App\Exceptions\InventoryConflictException(
+                    'order_waiting_for_store_sync',
+                    'This order is waiting for the store to sync stock. You can fulfil it after reconciliation.'
+                );
+            }
+
+            if ($from === $toStatus) {
+                return $order->fresh(['items.product', 'payments', 'statusHistory']);
+            }
+
             if (! $force && ! in_array($toStatus, OrderStatus::allowedNext($from), true)) {
                 throw new RuntimeException("Order cannot move from {$from} to {$toStatus}");
             }
 
-            if ($toStatus === OrderStatus::CONFIRMED->value && $order->reservedProducts()->exists()) {
-                CommitInventoryAction::run($order->fresh('items'));
-                $order->refresh();
-            }
+            $this->commitInventoryIfPhysicallyLeaving($order, $toStatus);
 
             $timestamps = [];
             if ($toStatus === OrderStatus::CONFIRMED->value) $timestamps['confirmed_at'] = now();
-            if ($toStatus === OrderStatus::SHIPPED->value) $timestamps['shipped_at'] = now();
+            if ($toStatus === OrderStatus::SHIPPED->value) {
+                $timestamps['shipped_at'] = now();
+                if ($actorId && ! $order->packed_by) {
+                    $timestamps['packed_by'] = $actorId;
+                }
+            }
             if ($toStatus === OrderStatus::DELIVERED->value) $timestamps['delivered_at'] = now();
-            if ($toStatus === OrderStatus::CANCELLED->value) $timestamps['cancelled_at'] = now();
+            if ($toStatus === OrderStatus::RETURNED->value) {
+                $timestamps['returned_at'] = now();
+                $order->loadMissing('items');
+                if ($order->activeReservedProducts()->exists()) {
+                    ReleaseInventoryAction::run($order, $note ?: 'unaccepted_delivery_return');
+                } elseif ($from !== OrderStatus::PENDING->value || $order->payment_status === PaymentStatus::PAID->value) {
+                    foreach ($order->items as $item) {
+                        $inventory = $this->inventoryService->inventoryRow($item->product_id, $item->variant_id, $order->shop_id);
+                        $this->inventoryService->increment(
+                            $inventory,
+                            $item->quantity,
+                            'return',
+                            $item,
+                            $actorId,
+                            $note ?: 'unaccepted_delivery_return',
+                            (float) ($item->unit_cost ?? 0),
+                        );
+                        $item->update([
+                            'refunded_quantity' => $item->quantity,
+                            'refunded_amount' => $item->line_grand_total ?: $item->line_total,
+                        ]);
+                    }
+                }
+                $paid = (float) $order->paid_amount;
+                $timestamps['refund_total'] = $paid > 0 ? $paid : 0;
+                $timestamps['due_amount'] = 0;
+                $timestamps['payment_status'] = PaymentStatus::forOrder($paid, (float) $order->grand_total);
+            }
 
             $order->update(array_merge(['status' => $toStatus, 'order_status' => $toStatus], $timestamps));
             $order->items()->update(['item_status' => $toStatus]);
@@ -379,18 +501,26 @@ class OrderService
 
     public function cancel(Order $order, ?int $actorId = null, ?string $reason = null): Order
     {
-        if (in_array($order->status, [OrderStatus::DELIVERED->value, OrderStatus::CANCELLED->value], true)) {
+        if (in_array($order->status, [OrderStatus::DELIVERED->value, OrderStatus::RETURNED->value], true)) {
             throw new RuntimeException('This order cannot be cancelled.');
         }
 
         return DB::transaction(function () use ($order, $actorId, $reason): Order {
             $order->loadMissing('items');
-            if ($order->reservedProducts()->exists()) {
-                ReleaseInventoryAction::run($order);
+            if ($order->activeReservedProducts()->exists()) {
+                ReleaseInventoryAction::run($order, $reason ?: 'order_cancel');
             } elseif ($order->status !== OrderStatus::PENDING->value || $order->payment_status === PaymentStatus::PAID->value) {
                 foreach ($order->items as $item) {
                     $inventory = $this->inventoryService->inventoryRow($item->product_id, $item->variant_id, $order->shop_id);
-                    $this->inventoryService->increment($inventory, $item->quantity, 'return', $item, $actorId);
+                    $this->inventoryService->increment(
+                        $inventory,
+                        $item->quantity,
+                        'return',
+                        $item,
+                        $actorId,
+                        'order_cancel',
+                        (float) $item->unit_cost,
+                    );
                     $item->update([
                         'refunded_quantity' => $item->quantity,
                         'refunded_amount' => $item->line_grand_total ?: $item->line_total,
@@ -399,14 +529,62 @@ class OrderService
                 $order->update(['refund_total' => $order->grand_total]);
             }
 
-            return $this->transition($order, OrderStatus::CANCELLED->value, $actorId, $reason, true);
+            return $this->transition($order, OrderStatus::RETURNED->value, $actorId, $reason, true);
         });
+    }
+
+
+    private function commitInventoryIfPhysicallyLeaving(Order $order, string $toStatus): void
+    {
+        if ($order->source_channel === 'pos') {
+            return;
+        }
+
+        if (! in_array($toStatus, [
+            OrderStatus::CONFIRMED->value,
+            OrderStatus::SHIPPED->value,
+            OrderStatus::DELIVERED->value,
+        ], true)) {
+            return;
+        }
+
+        if ($order->activeReservedProducts()->exists()) {
+            CommitInventoryAction::run($order->fresh('items'));
+            $order->refresh();
+        }
     }
 
     /**
      * Allocate an authorised manual discount proportionally across item lines.
      * Keeping the allocation at line level preserves correct profit and return values.
      */
+    private function offlineSnapshotQuote(array $validatedItems, array $data): array
+    {
+        $lines = [];
+        foreach ($validatedItems as $index => $row) {
+            $key = $this->promotionService->lineKey($row['product']->id, $row['variant']?->id);
+            $subtotal = round($row['quantity'] * $row['unitPrice'], 2);
+            $lines[$key] = [
+                'key' => $key, 'index' => $index, 'product_id' => $row['product']->id,
+                'variant_id' => $row['variant']?->id, 'quantity' => $row['quantity'],
+                'unit_price' => round($row['unitPrice'], 2), 'line_subtotal' => $subtotal,
+                'remaining_subtotal' => $subtotal, 'discount_total' => 0.0, 'discounts' => [],
+                'line_grand_total' => $subtotal, 'line_total' => $subtotal,
+            ];
+        }
+        $subtotal = round(array_sum(array_column($lines, 'line_subtotal')), 2);
+        $shipping = round((float) ($data['shipping_total'] ?? 0), 2);
+        $tax = round((float) ($data['tax_total'] ?? 0), 2);
+        return [
+            'currency' => $data['currency'] ?? config('hajjmart.currency', 'BDT'),
+            'subtotal' => $subtotal, 'tax_total' => $tax, 'shipping_original' => $shipping,
+            'shipping_total' => $shipping, 'net_subtotal' => $subtotal, 'item_discount_total' => 0.0,
+            'shipping_discount_total' => 0.0, 'discount_total' => 0.0,
+            'grand_total' => round($subtotal + $shipping + $tax, 2), 'coupon_codes' => [],
+            'applied_promotions' => [], 'rejected_promotions' => [], 'line_allocations' => $lines,
+        ];
+    }
+
     private function applyManualDiscount(array $quote, float $requested): array
     {
         $eligibleBase = max(0, (float) ($quote['net_subtotal'] ?? 0));

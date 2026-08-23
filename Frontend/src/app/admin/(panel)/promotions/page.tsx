@@ -2,25 +2,179 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useAdmin } from "@/context/admin-context";
-import { useStore } from "@/context/store-context";
+import { useAdminLanguage } from "@/context/admin-language-context";
 import { adminRequest, pageRows } from "@/lib/admin-api";
 import { demoPromotions } from "@/lib/admin-demo";
 import type { AdminPromotion, Paginated } from "@/lib/admin-types";
 import { formatPrice } from "@/lib/utils";
-import { AdminButton, AdminIcon, AdminSelect, Drawer, Field, FormGrid, PageHeader, Panel, SearchField, StatusBadge, formatDate } from "@/components/admin/admin-ui";
+import {
+  AdminButton,
+  AdminIcon,
+  EmptyState,
+  Field,
+  PageHeader,
+  Panel,
+  SearchField,
+  Sheet,
+  StatusChip,
+  formatDate,
+  useAdminToast,
+} from "@/components/admin/admin-ui";
+
+type PromotionKind = "public_sale" | "coupon";
+type PromotionFormProps = {
+  promotion?: AdminPromotion | null;
+  busy: boolean;
+  error: string | null;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+};
+
+function kindOf(promotion?: AdminPromotion | null): PromotionKind {
+  return promotion?.promotion_type === "public_sale" ? "public_sale" : "coupon";
+}
+
+function PromotionForm({ promotion, busy, error, onSubmit }: PromotionFormProps) {
+  const { t } = useAdminLanguage();
+  const [kind, setKind] = useState<PromotionKind>(kindOf(promotion));
+  const [discountType, setDiscountType] = useState<AdminPromotion["type"]>(promotion?.type || "percent");
+
+  return <form className="admin-stack admin-promotion-form" onSubmit={onSubmit}>
+    <div className="admin-promotion-kind" role="group" aria-label={t("promotions.chooseType")}>
+      <button type="button" className={kind === "public_sale" ? "active" : ""} onClick={() => setKind("public_sale")}><AdminIcon name="promotions"/><span><strong>{t("promotions.publicSale")}</strong><small>{t("promotions.publicSaleCopy")}</small></span></button>
+      <button type="button" className={kind === "coupon" ? "active" : ""} onClick={() => setKind("coupon")}><AdminIcon name="shield"/><span><strong>{t("promotions.coupon")}</strong><small>{t("promotions.couponCopy")}</small></span></button>
+    </div>
+    <input type="hidden" name="promotion_type" value={kind}/>
+
+    <Field label={t("promotions.titleLabel")} required><input name="title" defaultValue={promotion?.title || ""} required/></Field>
+    {kind === "coupon" && <Field label={t("promotions.codeLabel")} required><input name="code" defaultValue={promotion?.code || ""} placeholder="UMRAH10" required autoCapitalize="characters"/></Field>}
+    <Field label={t("promotions.discountType")} required><select name="type" value={discountType} onChange={(event) => setDiscountType(event.target.value as AdminPromotion["type"])}><option value="percent">{t("promotions.percent")}</option><option value="fixed">{t("promotions.fixed")}</option><option value="free_shipping">{t("promotions.freeShipping")}</option></select></Field>
+    {discountType !== "free_shipping" && <Field label={t("promotions.discountAmount")} required><input name="value" type="number" inputMode="decimal" min="0" step="0.01" defaultValue={Number(promotion?.value || 0)} required/></Field>}
+
+    {kind === "coupon" && <>
+      <Field label={t("promotions.minimumOrder")}><input name="min_order_amount" type="number" inputMode="decimal" min="0" step="0.01" defaultValue={Number(promotion?.min_order_amount || 0)}/></Field>
+      <Field label={t("promotions.usageLimit")}><input name="usage_limit" type="number" inputMode="numeric" min="1" defaultValue={promotion?.usage_limit || ""}/></Field>
+    </>}
+
+    <Field label={t("promotions.startDate")}><input name="starts_at" type="date" defaultValue={promotion?.starts_at ? String(promotion.starts_at).slice(0, 10) : ""}/></Field>
+    <Field label={t("promotions.endDate")}><input name="expires_at" type="date" defaultValue={promotion?.expires_at ? String(promotion.expires_at).slice(0, 10) : ""}/></Field>
+
+    <details className="admin-form-more"><summary>{t("promotions.moreOptions")}</summary><div className="admin-stack">
+      <Field label={t("promotions.descriptionLabel")}><textarea name="description" rows={3} defaultValue={promotion?.description || ""}/></Field>
+      <Field label={t("promotions.scopeLabel")}><select name="discount_scope" defaultValue={promotion?.discount_scope || (discountType === "free_shipping" ? "shipping" : "cart")}><option value="cart">{t("promotions.scopeCart")}</option><option value="items">{t("promotions.scopeItems")}</option><option value="shipping">{t("promotions.scopeShipping")}</option></select></Field>
+      <label className="admin-simple-toggle"><input name="stackable" type="checkbox" defaultChecked={Boolean(promotion?.stackable)}/><span><strong>{t("promotions.stackable")}</strong><small>{t("promotions.stackableCopy")}</small></span></label>
+    </div></details>
+
+    {error && <p className="admin-form-error">{error}</p>}
+    <AdminButton icon="check" disabled={busy}>{busy ? t("shared.working") : promotion ? t("promotions.saveChanges") : t("promotions.createAction")}</AdminButton>
+  </form>;
+}
 
 export default function PromotionsPage() {
-  const {token,demoMode}=useAdmin(); const {notify}=useStore(); const [rows,setRows]=useState<AdminPromotion[]>([]); const [search,setSearch]=useState(""); const [type,setType]=useState("all"); const [createOpen,setCreateOpen]=useState(false); const [selected,setSelected]=useState<AdminPromotion|null>(null); const [busy,setBusy]=useState(false); const [error,setError]=useState<string|null>(null);
-  useEffect(()=>{if(demoMode){setRows(demoPromotions);setError(null);return}if(!token)return;const controller=new AbortController();setError(null);void adminRequest<Paginated<AdminPromotion>|AdminPromotion[]>("/coupons?per_page=100",{token,signal:controller.signal}).then(data=>{if(!controller.signal.aborted)setRows(pageRows(data))}).catch(reason=>{if(!controller.signal.aborted)setError(reason instanceof Error?reason.message:"Promotions could not be loaded.")});return()=>controller.abort()},[token,demoMode]);
-  const filtered=useMemo(()=>rows.filter(r=>`${r.code} ${r.title}`.toLowerCase().includes(search.toLowerCase())&&(type==="all"||r.promotion_type===type)),[rows,search,type]);
-  async function create(event:FormEvent<HTMLFormElement>){event.preventDefault();const d=new FormData(event.currentTarget);setBusy(true);setError(null);try{const payload={code:String(d.get("code")).toUpperCase(),title:String(d.get("title")),description:String(d.get("description")||""),type:String(d.get("type")) as AdminPromotion["type"],value:Number(d.get("value")),visibility:String(d.get("visibility")) as AdminPromotion["visibility"],promotion_type:String(d.get("promotion_type")) as AdminPromotion["promotion_type"],discount_scope:String(d.get("discount_scope")||"cart"),is_active:true,auto_apply:d.get("auto_apply")==="on",stackable:d.get("stackable")==="on",starts_at:String(d.get("starts_at")||"")||null,expires_at:String(d.get("expires_at")||"")||null,usage_limit:Number(d.get("usage_limit"))||null,min_order_amount:Number(d.get("min_order_amount"))||0};let promotion:AdminPromotion;if(demoMode||!token)promotion={id:Date.now(),...payload,used_count:0};else promotion=await adminRequest<AdminPromotion>("/coupons",{method:"POST",token,body:payload});setRows(c=>[promotion,...c]);setCreateOpen(false);notify("Promotion created with visibility, eligibility and stacking rules.");}catch(reason){setError(reason instanceof Error?reason.message:"Promotion could not be created.");}finally{setBusy(false)}}
-  async function toggle(){if(!selected)return;setBusy(true);setError(null);try{const active=!selected.is_active;let updated:AdminPromotion={...selected,is_active:active};if(!demoMode&&token)updated=await adminRequest<AdminPromotion>(`/coupons/${selected.id}`,{method:"PUT",token,body:{is_active:active}});setRows(c=>c.map(p=>p.id===updated.id?updated:p));setSelected(updated);notify(active?"Promotion activated.":"Promotion paused.");}catch(reason){setError(reason instanceof Error?reason.message:"Promotion status could not be updated.");}finally{setBusy(false)}}
-  return <>
-    <PageHeader title="Promotions" description="Run public sales that customers can discover automatically, or private coupon campaigns shared only with selected audiences." actions={<AdminButton icon="plus" onClick={()=>{setError(null);setCreateOpen(true)}}>Create promotion</AdminButton>}/>
-    {error&&<p className="admin-form-error">{error}</p>}
-    <div className="admin-promotion-summary"><div><span><AdminIcon name="promotions"/></span><strong>{rows.filter(r=>r.is_active).length}</strong><p>active campaigns</p></div><div><span><AdminIcon name="users"/></span><strong>{rows.reduce((s,r)=>s+(r.used_count||0),0)}</strong><p>redemptions</p></div><div><span><AdminIcon name="eye"/></span><strong>{rows.filter(r=>r.visibility==="public").length}</strong><p>public sales</p></div><div><span><AdminIcon name="roles"/></span><strong>{rows.filter(r=>r.visibility==="private").length}</strong><p>private coupons</p></div></div>
-    <Panel><div className="admin-toolbar"><SearchField value={search} onChange={setSearch} placeholder="Promotion code or title…"/><AdminSelect value={type} onChange={setType}><option value="all">All campaign types</option><option value="public_sale">Public sales</option><option value="private_coupon">Private coupons</option><option value="coupon">Coupons</option></AdminSelect></div><div className="admin-promotion-grid">{filtered.map(p=><article key={p.id} onClick={()=>setSelected(p)} className={!p.is_active?"inactive":""}><div className="admin-promo-top"><span className={p.visibility}><AdminIcon name={p.visibility==="public"?"eye":"roles"}/>{p.visibility}</span><StatusBadge value={p.is_active?"active":"inactive"}/></div><p className="admin-eyebrow">{p.promotion_type.replaceAll("_"," ")}</p><h3>{p.title||p.code}</h3><code>{p.code}</code><div className="admin-promo-value"><strong>{p.type==="percent"?`${p.value}%`:p.type==="fixed"?formatPrice(p.value):"Free"}</strong><span>{p.type==="free_shipping"?"shipping":p.discount_scope||"order discount"}</span></div><p>{p.description}</p><div className="admin-promo-progress"><span><i style={{width:`${Math.min(100,(p.used_count||0)/(p.usage_limit||Math.max(1,p.used_count||1))*100)}%`}}/></span><small>{p.used_count||0} used{p.usage_limit?` of ${p.usage_limit}`:""}</small></div><footer><span>{formatDate(p.starts_at)} → {formatDate(p.expires_at)}</span><AdminIcon name="chevron"/></footer></article>)}</div></Panel>
-    <Drawer open={createOpen} onClose={()=>!busy&&setCreateOpen(false)} title="Create promotion" subtitle="Define who can see it, where it applies and whether it can stack." wide><form className="admin-stack" onSubmit={create}><Panel title="Campaign identity"><FormGrid><Field label="Campaign title" required><input name="title" required/></Field><Field label="Coupon / campaign code" required><input name="code" required placeholder="UMRAH10"/></Field><Field label="Campaign type"><select name="promotion_type"><option value="public_sale">Public sale</option><option value="private_coupon">Private coupon</option><option value="coupon">Standard coupon</option></select></Field><Field label="Visibility"><select name="visibility"><option value="public">Public</option><option value="private">Private</option></select></Field></FormGrid><Field label="Description"><textarea name="description" rows={3}/></Field></Panel><Panel title="Discount rules"><FormGrid columns={3}><Field label="Discount type"><select name="type"><option value="percent">Percentage</option><option value="fixed">Fixed amount</option><option value="free_shipping">Free shipping</option></select></Field><Field label="Value"><input name="value" type="number" min="0" defaultValue="5"/></Field><Field label="Discount scope"><select name="discount_scope"><option value="cart">Entire cart</option><option value="items">Eligible items</option><option value="shipping">Shipping</option></select></Field><Field label="Minimum order"><input name="min_order_amount" type="number" min="0" defaultValue="0"/></Field><Field label="Usage limit"><input name="usage_limit" type="number" min="0"/></Field><Field label="Starts"><input name="starts_at" type="date"/></Field><Field label="Expires"><input name="expires_at" type="date"/></Field></FormGrid><div className="admin-toggle-row"><label><input name="auto_apply" type="checkbox"/><span><strong>Auto apply</strong><small>Use the campaign when customer qualifies.</small></span></label><label><input name="stackable" type="checkbox"/><span><strong>Stackable</strong><small>Allow with another compatible promotion.</small></span></label></div></Panel>{error&&<p className="admin-form-error">{error}</p>}<AdminButton icon="check" disabled={busy}>{busy?"Publishing…":"Publish promotion"}</AdminButton></form></Drawer>
-    <Drawer open={Boolean(selected)} onClose={()=>setSelected(null)} title={selected?.title||"Promotion"} subtitle={selected?.code}>{selected&&<div className="admin-stack"><div className="admin-coupon-hero"><p>{selected.visibility} · {selected.promotion_type.replaceAll("_"," ")}</p><code>{selected.code}</code><strong>{selected.type==="percent"?`${selected.value}% off`:selected.type==="fixed"?`${formatPrice(selected.value)} off`:"Free shipping"}</strong></div><Panel title="Rules"><div className="admin-detail-grid"><div><span>Minimum order</span><strong>{formatPrice(selected.min_order_amount||0)}</strong></div><div><span>Usage</span><strong>{selected.used_count||0} / {selected.usage_limit||"∞"}</strong></div><div><span>Auto apply</span><strong>{selected.auto_apply?"Yes":"No"}</strong></div><div><span>Stackable</span><strong>{selected.stackable?"Yes":"No"}</strong></div></div></Panel><div className="admin-action-strip"><AdminButton icon="edit" onClick={()=>notify("Promotion edit workflow opened.")}>Edit campaign</AdminButton><AdminButton variant="secondary" disabled={busy} onClick={toggle}>{busy?"Updating…":selected.is_active?"Pause":"Activate"}</AdminButton></div></div>}</Drawer>
-  </>;
+  const { token, demoMode } = useAdmin();
+  const { t } = useAdminLanguage();
+  const { showToast } = useAdminToast();
+  const [rows, setRows] = useState<AdminPromotion[]>([]);
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<"all" | PromotionKind>("all");
+  const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState<AdminPromotion | null>(null);
+  const [selected, setSelected] = useState<AdminPromotion | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (demoMode) { setRows(demoPromotions); setError(null); return; }
+    if (!token) return;
+    const controller = new AbortController();
+    void adminRequest<Paginated<AdminPromotion> | AdminPromotion[]>("/coupons?per_page=100", { token, signal: controller.signal })
+      .then((data) => { if (!controller.signal.aborted) setRows(pageRows(data)); })
+      .catch(() => { if (!controller.signal.aborted) setError(t("promotions.loadError")); });
+    return () => controller.abort();
+  }, [token, demoMode, t]);
+
+  const filtered = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return rows.filter((promotion) => {
+      const kind = kindOf(promotion);
+      return (filter === "all" || filter === kind) && (!term || `${promotion.title || ""} ${promotion.code || ""}`.toLowerCase().includes(term));
+    });
+  }, [rows, search, filter]);
+
+  const openCreate = () => { setEditing(null); setError(null); setFormOpen(true); };
+  const openEdit = (promotion: AdminPromotion) => { setSelected(null); setEditing(promotion); setError(null); setFormOpen(true); };
+
+  async function savePromotion(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const kind = String(data.get("promotion_type")) as PromotionKind;
+    const discountType = String(data.get("type")) as AdminPromotion["type"];
+    const payload = {
+      title: String(data.get("title") || "").trim(),
+      code: kind === "coupon" ? String(data.get("code") || "").trim().toUpperCase() : null,
+      promotion_type: kind,
+      visibility: kind === "public_sale" ? "public" : "private",
+      auto_apply: kind === "public_sale",
+      type: discountType,
+      value: discountType === "free_shipping" ? 0 : Number(data.get("value") || 0),
+      min_order_amount: kind === "coupon" ? Number(data.get("min_order_amount") || 0) : 0,
+      usage_limit: kind === "coupon" && data.get("usage_limit") ? Number(data.get("usage_limit")) : null,
+      starts_at: String(data.get("starts_at") || "") || null,
+      expires_at: String(data.get("expires_at") || "") || null,
+      description: String(data.get("description") || ""),
+      discount_scope: discountType === "free_shipping" ? "shipping" : String(data.get("discount_scope") || "cart"),
+      stackable: data.get("stackable") === "on",
+      is_active: editing?.is_active ?? true,
+    };
+
+    if (kind === "coupon" && !payload.code) { setError(t("promotions.codeRequired")); return; }
+    setBusy(true);
+    setError(null);
+    try {
+      let saved: AdminPromotion;
+      if (demoMode || !token) saved = { id: editing?.id || Date.now(), ...payload, used_count: editing?.used_count || 0 } as AdminPromotion;
+      else saved = await adminRequest<AdminPromotion>(editing ? `/coupons/${editing.id}` : "/coupons", { method: editing ? "PUT" : "POST", token, body: payload });
+      setRows((current) => editing ? current.map((promotion) => promotion.id === saved.id ? saved : promotion) : [saved, ...current]);
+      setFormOpen(false);
+      setEditing(null);
+      showToast(t(editing ? "promotions.updatedToast" : "promotions.createdToast"), { tone: "success" });
+    } catch {
+      setError(t("promotions.saveError"));
+    } finally { setBusy(false); }
+  }
+
+  async function setActive(promotion: AdminPromotion, active: boolean, offerUndo = true) {
+    const previous = Boolean(promotion.is_active);
+    const optimistic = { ...promotion, is_active: active };
+    setRows((current) => current.map((row) => row.id === promotion.id ? optimistic : row));
+    setSelected((current) => current?.id === promotion.id ? optimistic : current);
+    try {
+      const saved = demoMode || !token ? optimistic : await adminRequest<AdminPromotion>(`/coupons/${promotion.id}`, { method: "PUT", token, body: { is_active: active } });
+      setRows((current) => current.map((row) => row.id === saved.id ? saved : row));
+      setSelected((current) => current?.id === saved.id ? saved : current);
+      if (offerUndo) showToast(t(active ? "promotions.activatedToast" : "promotions.pausedToast"), { tone: "success", actionLabel: t("promotions.undo"), onAction: () => void setActive(saved, previous, false) });
+    } catch {
+      setRows((current) => current.map((row) => row.id === promotion.id ? promotion : row));
+      setSelected((current) => current?.id === promotion.id ? promotion : current);
+      showToast(t("promotions.statusError"), { tone: "error" });
+    }
+  }
+
+  return <div className="admin-promotions-page">
+    <PageHeader title={t("promotions.title")} description={t("promotions.description")} actions={<AdminButton icon="plus" onClick={openCreate}>{t("promotions.create")}</AdminButton>}/>
+    {error && !formOpen && <p className="admin-form-error">{error}</p>}
+
+    <Panel className="admin-promotions-list">
+      <SearchField value={search} onChange={setSearch} placeholder={t("promotions.search")}/>
+      <div className="admin-promotion-filters"><button type="button" className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>{t("promotions.all")}</button><button type="button" className={filter === "public_sale" ? "active" : ""} onClick={() => setFilter("public_sale")}>{t("promotions.publicSale")}</button><button type="button" className={filter === "coupon" ? "active" : ""} onClick={() => setFilter("coupon")}>{t("promotions.coupon")}</button></div>
+      {filtered.length ? <div className="admin-promotion-rows">{filtered.map((promotion) => <button type="button" key={promotion.id} className={!promotion.is_active ? "paused" : ""} onClick={() => setSelected(promotion)}><div><strong>{promotion.title || promotion.code || t("promotions.untitled")}</strong><small>{kindOf(promotion) === "public_sale" ? t("promotions.publicSale") : `${t("promotions.coupon")}${promotion.code ? ` · ${promotion.code}` : ""}`}</small></div><div><strong>{promotion.type === "percent" ? `${Number(promotion.value)}%` : promotion.type === "fixed" ? formatPrice(promotion.value) : t("promotions.freeShipping")}</strong><small>{formatDate(promotion.starts_at)} → {formatDate(promotion.expires_at)}</small></div><div><StatusChip value={promotion.is_active ? t("promotions.active") : t("promotions.paused")} tone={promotion.is_active ? "success" : "neutral"}/><small>{t("promotions.used").replace("{count}", String(promotion.used_count || 0))}</small></div><AdminIcon name="chevron"/></button>)}</div> : <EmptyState title={t("promotions.emptyTitle")} description={t("promotions.emptyCopy")} icon="promotions" action={<AdminButton icon="plus" onClick={openCreate}>{t("promotions.create")}</AdminButton>}/>} 
+    </Panel>
+
+    <Sheet open={formOpen} onClose={() => !busy && setFormOpen(false)} title={editing ? t("promotions.editTitle") : t("promotions.createTitle")} subtitle={editing?.title || undefined}>
+      <PromotionForm key={editing?.id || "create"} promotion={editing} busy={busy} error={error} onSubmit={savePromotion}/>
+    </Sheet>
+
+    <Sheet open={Boolean(selected)} onClose={() => setSelected(null)} title={selected?.title || selected?.code || t("promotions.detailTitle")} subtitle={selected ? (kindOf(selected) === "public_sale" ? t("promotions.publicSale") : t("promotions.coupon")) : undefined}>
+      {selected && <div className="admin-stack admin-promotion-detail"><div className="admin-promotion-detail-value"><span>{selected.code || t("promotions.autoApplied")}</span><strong>{selected.type === "percent" ? `${Number(selected.value)}%` : selected.type === "fixed" ? formatPrice(selected.value) : t("promotions.freeShipping")}</strong><StatusChip value={selected.is_active ? t("promotions.active") : t("promotions.paused")} tone={selected.is_active ? "success" : "neutral"}/></div><Panel title={t("promotions.details")}><div className="admin-detail-grid"><div><span>{t("promotions.dates")}</span><strong>{formatDate(selected.starts_at)} → {formatDate(selected.expires_at)}</strong></div><div><span>{t("promotions.usage")}</span><strong>{selected.used_count || 0}{selected.usage_limit ? ` / ${selected.usage_limit}` : ""}</strong></div><div><span>{t("promotions.minimumOrder")}</span><strong>{formatPrice(selected.min_order_amount || 0)}</strong></div><div><span>{t("promotions.application")}</span><strong>{selected.auto_apply ? t("promotions.autoApply") : t("promotions.enterCode")}</strong></div></div></Panel><div className="admin-action-strip"><AdminButton icon="edit" onClick={() => openEdit(selected)}>{t("promotions.edit")}</AdminButton><AdminButton variant="secondary" onClick={() => void setActive(selected, !selected.is_active)}>{selected.is_active ? t("promotions.pause") : t("promotions.activate")}</AdminButton></div></div>}
+    </Sheet>
+  </div>;
 }

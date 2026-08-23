@@ -7,6 +7,7 @@ const DB_VERSION = 1;
 const TERMINAL_KEY = "hajjmart-pos-terminal-v1";
 
 type PriceMode = "retail" | "wholesale";
+export type PosPaymentMethod = "cash" | "bkash" | "nagad" | "card" | "split";
 
 export type PersistedCartLine = {
   product: AdminProduct;
@@ -23,6 +24,11 @@ export type PosCartSnapshot = {
   priceMode: PriceMode;
   cart: PersistedCartLine[];
   discount: number;
+  customerName?: string;
+  mobileNumber?: string;
+  paymentMethod?: PosPaymentMethod;
+  paymentReference?: string;
+  paidAmount?: number;
   updatedAt: string;
 };
 
@@ -32,6 +38,11 @@ export type HeldPosSale = {
   priceMode: PriceMode;
   cart: PersistedCartLine[];
   discount: number;
+  customerName?: string;
+  mobileNumber?: string;
+  paymentMethod?: PosPaymentMethod;
+  paymentReference?: string;
+  paidAmount?: number;
   createdAt: string;
 };
 
@@ -42,8 +53,8 @@ export type PosSalePayload = {
   items: Array<{ product_id: number; variant_id: number | null; quantity: number; unit_price: number }>;
   customer_name: string;
   mobile_number: string | null;
-  payment_method: "cash";
-  payment_channel: "cash";
+  payment_method: PosPaymentMethod;
+  payment_channel: PosPaymentMethod;
   paid_amount: number;
   payment_reference: string | null;
   manual_discount: number;
@@ -248,11 +259,11 @@ export async function clearActiveCart(shopId: number): Promise<void> {
   await done;
 }
 
-export async function holdCurrentSale(shopId: number, priceMode: PriceMode, cart: PersistedCartLine[], discount: number): Promise<HeldPosSale> {
+export async function holdCurrentSale(shopId: number, priceMode: PriceMode, cart: PersistedCartLine[], discount: number, details: Partial<Pick<HeldPosSale, "customerName" | "mobileNumber" | "paymentMethod" | "paymentReference" | "paidAmount">> = {}): Promise<HeldPosSale> {
   const db = await openDb();
   const createdAt = new Date().toISOString();
   const id = createClientTransactionId();
-  const held: HeldPosSale = { id, shopId, priceMode, cart, discount, createdAt };
+  const held: HeldPosSale = { id, shopId, priceMode, cart, discount, ...details, createdAt };
   const tx = db.transaction("heldSales", "readwrite");
   const done = transactionDone(tx);
   tx.objectStore("heldSales").put(held);
@@ -269,6 +280,15 @@ export async function listHeldSales(shopId: number): Promise<HeldPosSale[]> {
   return values.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
+
+export async function saveHeldSale(sale: HeldPosSale): Promise<void> {
+  const db = await openDb();
+  const tx = db.transaction("heldSales", "readwrite");
+  const done = transactionDone(tx);
+  tx.objectStore("heldSales").put(sale);
+  await done;
+}
+
 export async function deleteHeldSale(id: string): Promise<void> {
   const db = await openDb();
   const tx = db.transaction("heldSales", "readwrite");
@@ -282,6 +302,15 @@ export async function queuePosSale(sale: OfflinePosSale): Promise<void> {
   const tx = db.transaction("sales", "readwrite");
   const done = transactionDone(tx);
   tx.objectStore("sales").put(sale);
+  await done;
+}
+
+
+export async function deletePosSale(clientTransactionId: string): Promise<void> {
+  const db = await openDb();
+  const tx = db.transaction("sales", "readwrite");
+  const done = transactionDone(tx);
+  tx.objectStore("sales").delete(clientTransactionId);
   await done;
 }
 

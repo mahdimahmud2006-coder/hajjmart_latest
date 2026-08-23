@@ -126,7 +126,7 @@ return new class extends Migration
             });
         }
 
-        // One unified order ledger for POS, social-commerce and website orders.
+        // One order ledger for POS, social-commerce and website orders.
         $this->add('orders', 'shop_id', fn (Blueprint $table) => $table->foreignId('shop_id')->nullable()->constrained('shops')->nullOnDelete());
         $this->add('orders', 'created_by', fn (Blueprint $table) => $table->foreignId('created_by')->nullable()->constrained('users')->nullOnDelete());
         $this->add('orders', 'assigned_to', fn (Blueprint $table) => $table->foreignId('assigned_to')->nullable()->constrained('users')->nullOnDelete());

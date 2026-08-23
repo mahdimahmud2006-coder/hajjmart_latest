@@ -20,13 +20,18 @@ class StoreController extends Controller
     {
         $stores = Shop::query()
             ->with('manager:id,name,email,phone')
-            ->withCount(['employees', 'orders'])
+            ->withCount([
+                'employees' => fn ($q) => $q->where('is_employee', true),
+                'orders',
+            ])
             ->when($request->shop_id, fn ($q, $shopId) => $q->whereKey($shopId))
             ->when($request->q, fn ($q, $search) => $q->where(fn ($sub) => $sub->where('name', 'like', "%{$search}%")->orWhere('code', 'like', "%{$search}%")))
             ->orderByDesc('is_default')->orderBy('name')->get();
 
         $stores->each(function (Shop $store): void {
-            $store->setAttribute('inventory_units', (int) $store->inventory()->sum('quantity'));
+            $store->setAttribute('inventory_units', (int) $store->inventory()->get(['quantity', 'reserved'])->sum(
+                fn ($inventory) => max(0, (int) $inventory->quantity - (int) $inventory->reserved)
+            ));
             $store->setAttribute('sales_30_days', round((float) $store->orders()->where('created_at', '>=', now()->subDays(30))->where('status', '!=', 'cancelled')->sum('grand_total'), 2));
         });
         return $this->success($stores, 'Stores retrieved.');
@@ -47,8 +52,13 @@ class StoreController extends Controller
     public function show(Shop $store)
     {
         $store->load('manager:id,name,email,phone');
-        $store->loadCount(['employees', 'orders']);
-        $store->setAttribute('inventory_units', (int) $store->inventory()->sum('quantity'));
+        $store->loadCount([
+            'employees' => fn ($q) => $q->where('is_employee', true),
+            'orders',
+        ]);
+        $store->setAttribute('inventory_units', (int) $store->inventory()->get(['quantity', 'reserved'])->sum(
+            fn ($inventory) => max(0, (int) $inventory->quantity - (int) $inventory->reserved)
+        ));
         return $this->success($store, 'Store retrieved.');
     }
 

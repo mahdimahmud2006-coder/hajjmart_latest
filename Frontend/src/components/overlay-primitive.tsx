@@ -26,6 +26,8 @@ const FOCUSABLE = [
 export function useOverlayPrimitive<T extends HTMLElement = HTMLElement>(open: boolean, onClose: () => void) {
   const panelRef = useRef<T | null>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!open) return;
@@ -36,6 +38,9 @@ export function useOverlayPrimitive<T extends HTMLElement = HTMLElement>(open: b
     const focusFirst = () => {
       const panel = panelRef.current;
       if (!panel) return;
+      if (document.activeElement && panel.contains(document.activeElement)) {
+        return;
+      }
       const first = panel.querySelector<HTMLElement>(FOCUSABLE);
       (first || panel).focus({ preventScroll: true });
     };
@@ -44,7 +49,7 @@ export function useOverlayPrimitive<T extends HTMLElement = HTMLElement>(open: b
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== "Tab") return;
@@ -73,9 +78,11 @@ export function useOverlayPrimitive<T extends HTMLElement = HTMLElement>(open: b
       window.cancelAnimationFrame(frame);
       document.removeEventListener("keydown", onKeyDown);
       unlockBody();
-      previousFocus.current?.focus({ preventScroll: true });
+      if (previousFocus.current && typeof previousFocus.current.focus === "function") {
+        previousFocus.current.focus({ preventScroll: true });
+      }
     };
-  }, [open, onClose]);
+  }, [open]);
 
   return panelRef;
 }

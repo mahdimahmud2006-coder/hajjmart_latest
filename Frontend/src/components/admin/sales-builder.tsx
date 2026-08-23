@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useAdmin } from "@/context/admin-context";
+import { useAdminLanguage } from "@/context/admin-language-context";
 import { adminRequest, pageRows, queryString } from "@/lib/admin-api";
 import { demoProductsAdmin } from "@/lib/admin-demo";
 import type { AdminProduct, AdminProductVariant, Paginated } from "@/lib/admin-types";
@@ -9,18 +10,21 @@ import { formatPrice } from "@/lib/utils";
 import { AdminProductImage } from "@/components/admin/admin-product-image";
 import { AdminButton, AdminIcon, Pagination, SearchField } from "./admin-ui";
 import { getCachedCatalog } from "@/lib/offline/pos-db";
+import { getOfflineCommerceProducts } from "@/lib/offline/commerce-catalog";
+import { subscribeOfflineCommerceChanges } from "@/lib/offline/commerce-db";
 import { QuantityStepper } from "@/components/interaction-kit";
 
 export type PriceMode = "retail" | "wholesale";
 export type ProductSort = "newest" | "price_asc" | "price_desc";
 
 export function PriceModeSelector({ value, onChange }: { value: PriceMode; onChange: (mode: PriceMode) => void }) {
-  return <div className="admin-price-mode" role="group" aria-label="Selling price type">
-    <span className="admin-price-mode-label">Selling price</span>
+  const { t } = useAdminLanguage();
+  return <div className="admin-price-mode" role="group" aria-label={t("sales.sellingPrice")}>
+    <span className="admin-price-mode-label">{t("sales.sellingPrice")}</span>
     <div className="admin-price-mode-track" data-mode={value}>
-      <i className="admin-price-mode-slider" aria-hidden="true"/>
-      <button type="button" className={value === "retail" ? "active" : ""} aria-pressed={value === "retail"} onClick={() => onChange("retail")}>Retail</button>
-      <button type="button" className={value === "wholesale" ? "active" : ""} aria-pressed={value === "wholesale"} onClick={() => onChange("wholesale")}>Wholesale</button>
+      <i className="admin-price-mode-slider" aria-hidden="true" />
+      <button type="button" className={value === "retail" ? "active" : ""} aria-pressed={value === "retail"} onClick={() => onChange("retail")}>{t("sales.retail")}</button>
+      <button type="button" className={value === "wholesale" ? "active" : ""} aria-pressed={value === "wholesale"} onClick={() => onChange("wholesale")}>{t("sales.wholesale")}</button>
     </div>
   </div>;
 }
@@ -91,7 +95,7 @@ function productVariants(product: AdminProduct): AdminProductVariant[] {
   return product.product_variants || product.productVariants || [];
 }
 
-function selectionFor(product: AdminProduct, variant: AdminProductVariant | null | undefined, priceMode: PriceMode): ProductSelection {
+export function selectionForProduct(product: AdminProduct, variant: AdminProductVariant | null | undefined, priceMode: PriceMode): ProductSelection {
   const loadedInventory = product.inventory?.reduce((sum, row) => sum + Number(row.available ?? (row.quantity - row.reserved)), 0);
   const available = variant ? variantInventory(variant) : Math.max(0, Number(product.inventory?.length ? loadedInventory : (product.available_stock ?? 0)));
   return {
@@ -105,6 +109,17 @@ function selectionFor(product: AdminProduct, variant: AdminProductVariant | null
   };
 }
 
+export function selectionForCode(product: AdminProduct, code: string, priceMode: PriceMode): ProductSelection | null {
+  const needle = code.trim().toLowerCase();
+  if (!needle) return null;
+  const variants = productVariants(product);
+  const variant = variants.find((item) => [item.sku, item.barcode].some((value) => String(value || "").trim().toLowerCase() === needle));
+  if (variant) return selectionForProduct(product, variant, priceMode);
+  const productMatches = [product.sku, product.barcode].some((value) => String(value || "").trim().toLowerCase() === needle);
+  if (!productMatches) return null;
+  return selectionForProduct(product, variants[0] || null, priceMode);
+}
+
 function productMinimumPrice(product: AdminProduct, priceMode: PriceMode): number {
   const variants = productVariants(product);
   const prices = variants.length
@@ -113,11 +128,11 @@ function productMinimumPrice(product: AdminProduct, priceMode: PriceMode): numbe
   return prices.length ? Math.min(...prices) : 0;
 }
 
-function localProductPage(source: AdminProduct[], search: string, page: number, perPage: number, sort: ProductSort, priceMode: PriceMode): Paginated<AdminProduct> {
+function localProductPage(source: AdminProduct[], search: string, page: number, perPage: number, sort: ProductSort, priceMode: PriceMode, _channel?: "social" | "pos"): Paginated<AdminProduct> {
   const term = search.toLowerCase();
   const filtered = source.filter((product) => {
-    const variants = productVariants(product).map((variant) => `${variant.sku || ""} ${variantLabel(variant)}`).join(" ");
-    return `${product.name} ${product.sku || ""} ${product.brand || ""} ${variants}`.toLowerCase().includes(term);
+    const variants = productVariants(product).map((variant) => `${variant.sku || ""} ${variant.barcode || ""} ${variantLabel(variant)}`).join(" ");
+    return `${product.name} ${product.sku || ""} ${product.barcode || ""} ${product.brand || ""} ${variants}`.toLowerCase().includes(term);
   });
   const sorted = [...filtered].sort((a, b) => {
     if (sort === "price_asc") return productMinimumPrice(a, priceMode) - productMinimumPrice(b, priceMode);
@@ -129,11 +144,13 @@ function localProductPage(source: AdminProduct[], search: string, page: number, 
   return { data: sorted.slice((currentPage - 1) * perPage, currentPage * perPage), current_page: currentPage, last_page: lastPage, total: sorted.length, per_page: perPage };
 }
 
-export function ProductPicker({ cart, onAdd, priceMode = "retail", preferOffline = false, storeId }: { cart: CartLine[]; onAdd: (entry: ProductSelection) => void; priceMode?: PriceMode; preferOffline?: boolean; storeId?: number | string | null }) {
+export function ProductPicker({ cart, onAdd, priceMode = "retail", preferOffline = false, commerceV2 = false, storeId, showPopular = false, channel }: { cart: CartLine[]; onAdd: (entry: ProductSelection) => void; priceMode?: PriceMode; preferOffline?: boolean; commerceV2?: boolean; storeId?: number | string | null; showPopular?: boolean; channel?: "social" | "pos" }) {
   const { token, demoMode, selectedStoreId, stores } = useAdmin();
+  const { t } = useAdminLanguage();
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [products, setProducts] = useState<AdminProduct[]>([]);
+  const [popularProducts, setPopularProducts] = useState<AdminProduct[]>([]);
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState<ProductSort>("newest");
   const [meta, setMeta] = useState({ currentPage: 1, lastPage: 1, total: 0 });
@@ -141,10 +158,13 @@ export function ProductPicker({ cart, onAdd, priceMode = "retail", preferOffline
   const [dataSource, setDataSource] = useState<"server" | "offline">("server");
   const [choices, setChoices] = useState<Record<number, number>>({});
   const [recentlyAdded, setRecentlyAdded] = useState<string | null>(null);
+  const [offlineRevision, setOfflineRevision] = useState(0);
   const requestSequence = useRef(0);
   const contextStore = selectedStoreId === "all" ? stores[0]?.id : selectedStoreId;
   const resolvedStore = storeId ?? contextStore;
-  const perPage = 20;
+  const perPage = channel === "pos" ? 15 : 20;
+
+  useEffect(() => subscribeOfflineCommerceChanges(() => setOfflineRevision((value) => value + 1)), []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 280);
@@ -154,15 +174,41 @@ export function ProductPicker({ cart, onAdd, priceMode = "retail", preferOffline
   useEffect(() => { setPage(1); }, [debouncedSearch, resolvedStore, sort, priceMode]);
 
   useEffect(() => {
+    if (!showPopular || !resolvedStore) { setPopularProducts([]); return; }
+    if (demoMode) { setPopularProducts(localProductPage(demoProductsAdmin, "", 1, 6, "newest", priceMode, channel).data); return; }
+    if (commerceV2 && channel) { void getOfflineCommerceProducts(Number(resolvedStore), channel).then((cached) => setPopularProducts(localProductPage(cached, "", 1, 6, "newest", priceMode, channel).data)).catch(() => setPopularProducts([])); return; }
+    if (!token) { setPopularProducts([]); return; }
+    const controller = new AbortController();
+    void adminRequest<Paginated<AdminProduct>>(`/products${queryString({ shop_id: resolvedStore, in_stock: 1, page: 1, per_page: 6, sort: "best_selling", price_mode: priceMode, channel })}`, { token, signal: controller.signal })
+      .then((result) => setPopularProducts(pageRows(result)))
+      .catch(async () => {
+        try { setPopularProducts(localProductPage(await getCachedCatalog(Number(resolvedStore)), "", 1, 6, "newest", priceMode, channel).data); } catch { setPopularProducts([]); }
+      });
+    return () => controller.abort();
+  }, [channel, commerceV2, demoMode, offlineRevision, priceMode, resolvedStore, showPopular, token]);
+
+  useEffect(() => {
     const sequence = ++requestSequence.current;
     setLoading(true);
     if (demoMode) {
-      const result = localProductPage(demoProductsAdmin, debouncedSearch, page, perPage, sort, priceMode);
+      const result = localProductPage(demoProductsAdmin, debouncedSearch, page, perPage, sort, priceMode, channel);
       setProducts(result.data);
       setMeta({ currentPage: result.current_page || 1, lastPage: result.last_page || 1, total: result.total || 0 });
       setLoading(false);
       return;
     }
+    if (commerceV2 && resolvedStore && channel) {
+      void getOfflineCommerceProducts(Number(resolvedStore), channel).then((cached) => {
+        if (sequence !== requestSequence.current) return;
+        const result = localProductPage(cached, debouncedSearch, page, perPage, sort, priceMode, channel);
+        setProducts(result.data);
+        setMeta({ currentPage: result.current_page || 1, lastPage: result.last_page || 1, total: result.total || 0 });
+        setDataSource("offline");
+      }).catch(() => { if (sequence === requestSequence.current) { setProducts([]); setMeta({ currentPage: 1, lastPage: 1, total: 0 }); } })
+        .finally(() => { if (sequence === requestSequence.current) setLoading(false); });
+      return;
+    }
+
     if (!token) {
       setProducts([]);
       setMeta({ currentPage: 1, lastPage: 1, total: 0 });
@@ -173,7 +219,7 @@ export function ProductPicker({ cart, onAdd, priceMode = "retail", preferOffline
     if (preferOffline && resolvedStore) {
       void getCachedCatalog(Number(resolvedStore)).then((cached) => {
         if (sequence !== requestSequence.current) return;
-        const result = localProductPage(cached, debouncedSearch, page, perPage, sort, priceMode);
+        const result = localProductPage(cached, debouncedSearch, page, perPage, sort, priceMode, channel);
         setProducts(result.data);
         setMeta({ currentPage: result.current_page || 1, lastPage: result.last_page || 1, total: result.total || 0 });
         setDataSource("offline");
@@ -185,7 +231,7 @@ export function ProductPicker({ cart, onAdd, priceMode = "retail", preferOffline
       return;
     }
 
-    void adminRequest<Paginated<AdminProduct>>(`/products${queryString({ q: debouncedSearch || undefined, shop_id: resolvedStore, in_stock: 1, page, per_page: perPage, sort, price_mode: priceMode })}`, { token })
+    void adminRequest<Paginated<AdminProduct>>(`/products${queryString({ q: debouncedSearch || undefined, shop_id: resolvedStore, in_stock: 1, page, per_page: perPage, sort, price_mode: priceMode, channel })}`, { token })
       .then((result) => {
         if (sequence !== requestSequence.current) return;
         setProducts(pageRows(result));
@@ -196,7 +242,7 @@ export function ProductPicker({ cart, onAdd, priceMode = "retail", preferOffline
         if (sequence !== requestSequence.current || !resolvedStore) return;
         try {
           const cached = await getCachedCatalog(Number(resolvedStore));
-          const result = localProductPage(cached, debouncedSearch, page, perPage, sort, priceMode);
+          const result = localProductPage(cached, debouncedSearch, page, perPage, sort, priceMode, channel);
           if (sequence !== requestSequence.current) return;
           setProducts(result.data);
           setMeta({ currentPage: result.current_page || 1, lastPage: result.last_page || 1, total: result.total || 0 });
@@ -208,19 +254,19 @@ export function ProductPicker({ cart, onAdd, priceMode = "retail", preferOffline
         }
       })
       .finally(() => { if (sequence === requestSequence.current) setLoading(false); });
-  }, [demoMode, token, debouncedSearch, resolvedStore, page, sort, priceMode, preferOffline]);
+  }, [channel, commerceV2, demoMode, token, debouncedSearch, resolvedStore, page, sort, priceMode, preferOffline, offlineRevision]);
 
   useEffect(() => {
     setChoices((current) => {
       const next = { ...current };
-      products.forEach((product) => {
+      [...products, ...popularProducts].forEach((product) => {
         const variants = productVariants(product);
         if (!variants.length || variants.some((variant) => variant.id === next[product.id])) return;
         next[product.id] = (variants.find((variant) => variantInventory(variant) > 0) || variants[0]).id;
       });
       return next;
     });
-  }, [products]);
+  }, [popularProducts, products]);
 
   function addSelection(selection: ProductSelection) {
     onAdd(selection);
@@ -230,44 +276,60 @@ export function ProductPicker({ cart, onAdd, priceMode = "retail", preferOffline
 
   return <div className="admin-product-picker">
     <div className="admin-picker-toolbar">
-      <SearchField value={search} onChange={setSearch} placeholder="Search product name, parent SKU or variation SKU…"/>
+      <SearchField value={search} onChange={setSearch} placeholder={t("sales.searchPlaceholder")} />
       <div className="admin-picker-controls">
-        <span>{dataSource === "offline" ? "Offline catalogue" : (debouncedSearch ? "Search matches" : "Available products")} · {meta.total}</span>
-        <select aria-label="Sort POS products" value={sort} onChange={(event) => setSort(event.target.value as ProductSort)}>
-          <option value="newest">Newest first</option>
-          <option value="price_asc">Cheapest first</option>
-          <option value="price_desc">Highest price first</option>
+        <span>{dataSource === "offline" ? t("sales.offlineCatalogue") : (debouncedSearch ? t("sales.searchMatches") : t("sales.availableProducts"))} · {meta.total}</span>
+        <select aria-label={t("sales.sort")} value={sort} onChange={(event) => setSort(event.target.value as ProductSort)}>
+          <option value="newest">{t("sales.newest")}</option>
+          <option value="price_asc">{t("sales.cheapest")}</option>
+          <option value="price_desc">{t("sales.highest")}</option>
         </select>
       </div>
     </div>
-    {loading && <p className="admin-picker-loading">Loading store-aware product groups…</p>}
+    {loading && <p className="admin-picker-loading">{t("sales.loading")}</p>}
     <div className="admin-picker-grid grouped">{products.map((product) => {
       const variants = productVariants(product);
       const selectedVariant = variants.find((variant) => variant.id === choices[product.id]) || variants[0] || null;
-      const selection = selectionFor(product, selectedVariant, priceMode);
+      const selection = selectionForProduct(product, selectedVariant, priceMode);
       const groupAvailable = variants.length ? variants.reduce((sum, variant) => sum + variantInventory(variant), 0) : selection.available;
       const prices = variants.length ? variants.map((variant) => salePrice(product, variant, priceMode)).filter(Number.isFinite) : [selection.unitPrice];
       const minPrice = Math.min(...prices);
       const maxPrice = Math.max(...prices);
       const inCart = cart.some((line) => line.key === selection.key);
       return <article key={product.id} className={`${groupAvailable < 1 ? "unavailable" : ""} ${recentlyAdded === selection.key ? "just-added" : ""}`}>
-        <span className="admin-picker-image"><AdminProductImage product={product}/>{groupAvailable < 1 && <em>Out of stock</em>}</span>
+        <span className="admin-picker-image"><AdminProductImage product={product} />{groupAvailable < 1 && <em>{t("sales.outOfStock")}</em>}</span>
         <div className="admin-picker-card-body">
-          <small>{product.sku || `HM-${product.id}`} · {groupAvailable} available</small>
+          <small>{product.sku || `HM-${product.id}`} · {groupAvailable} {t("sales.available")}</small>
           <strong>{product.name}</strong>
-          {variants.length > 0 && <label className="admin-variation-choice"><span>Variation</span><select value={selectedVariant?.id || ""} onChange={(event) => setChoices((current) => ({ ...current, [product.id]: Number(event.target.value) }))}>{variants.map((variant) => <option key={variant.id} value={variant.id} disabled={variantInventory(variant) < 1}>{variantLabel(variant)} · {variant.sku || "No SKU"} · {variantInventory(variant)} pcs · {formatPrice(salePrice(product, variant, priceMode))}</option>)}</select></label>}
-          <div className="admin-picker-price"><b>{minPrice === maxPrice ? formatPrice(minPrice) : `${formatPrice(minPrice)} – ${formatPrice(maxPrice)}`}</b><span>{priceMode === "wholesale" ? "Wholesale" : "Retail"} · {variants.length ? `${variants.length} variations` : "Simple product"}</span></div>
-          <AdminButton type="button" variant={inCart ? "secondary" : "primary"} icon={inCart ? "check" : "plus"} disabled={selection.available < 1} onClick={() => addSelection(selection)}>{selection.available < 1 ? "Unavailable" : inCart ? "Add another" : "Add to sale"}</AdminButton>
+          {variants.length > 0 && <label className="admin-variation-choice"><span>{t("sales.variation")}</span><select value={selectedVariant?.id || ""} onChange={(event) => setChoices((current) => ({ ...current, [product.id]: Number(event.target.value) }))}>{variants.map((variant) => <option key={variant.id} value={variant.id} disabled={variantInventory(variant) < 1}>{variantLabel(variant)} · {variant.sku || t("sales.noSku")} · {variantInventory(variant)} {t("sales.pieces")} · {formatPrice(salePrice(product, variant, priceMode))}</option>)}</select></label>}
+          <div className="admin-picker-price"><b>{minPrice === maxPrice ? formatPrice(minPrice) : `${formatPrice(minPrice)} – ${formatPrice(maxPrice)}`}</b><span>{priceMode === "wholesale" ? t("sales.wholesale") : t("sales.retail")} · {variants.length ? `${variants.length} ${t("sales.variations")}` : t("sales.simpleProduct")}</span></div>
+          <AdminButton type="button" variant={inCart ? "secondary" : "primary"} icon={inCart ? "check" : "plus"} disabled={selection.available < 1} onClick={() => addSelection(selection)}>{selection.available < 1 ? t("sales.unavailable") : inCart ? t("sales.addAnother") : t("sales.addToSale")}</AdminButton>
         </div>
       </article>;
     })}</div>
-    {!products.length && !loading && <div className="admin-cart-empty"><AdminIcon name="products" size={30}/><strong>No available product found</strong><small>Try another server search or switch the active store.</small></div>}
-    <Pagination currentPage={meta.currentPage} lastPage={meta.lastPage} total={meta.total} perPage={perPage} onPageChange={setPage}/>
+    {!products.length && !loading && <div className="admin-cart-empty"><AdminIcon name="products" size={30} /><strong>{t("sales.emptyTitle")}</strong><small>{t("sales.emptyCopy")}</small></div>}
+    <Pagination currentPage={meta.currentPage} lastPage={meta.lastPage} total={meta.total} perPage={perPage} onPageChange={setPage} />
+    {showPopular && !debouncedSearch && popularProducts.length > 0 && <div className="admin-picker-popular">
+      <div className="admin-picker-popular-head"><strong>{t("sales.popular")}</strong><span>{t("sales.popularHint")}</span></div>
+      <div className="admin-picker-popular-row">{popularProducts.map((product) => {
+        const variants = productVariants(product);
+        const selectedVariant = variants.find((variant) => variant.id === choices[product.id]) || variants.find((variant) => variantInventory(variant) > 0) || variants[0] || null;
+        const selection = selectionForProduct(product, selectedVariant, priceMode);
+        return <article key={`popular-${product.id}`}>
+          <span className="admin-picker-popular-image"><AdminProductImage product={product} /></span>
+          <strong>{product.name}</strong>
+          {variants.length > 0 && <select aria-label={`${t("sales.variation")} ${product.name}`} value={selectedVariant?.id || ""} onChange={(event) => setChoices((current) => ({ ...current, [product.id]: Number(event.target.value) }))}>{variants.map((variant) => <option key={variant.id} value={variant.id} disabled={variantInventory(variant) < 1}>{variantLabel(variant)} · {variantInventory(variant)} {t("sales.pieces")}</option>)}</select>}
+          <span>{formatPrice(selection.unitPrice)} · {selection.available} {t("sales.available")}</span>
+          <AdminButton type="button" variant="secondary" disabled={selection.available < 1} onClick={() => addSelection(selection)}>{selection.available < 1 ? t("sales.unavailable") : t("sales.addOne")}</AdminButton>
+        </article>;
+      })}</div>
+    </div>}
   </div>;
 }
 
-export function SaleCart({ cart, setCart, discount, setDiscount, delivery = 0, title = "Current sale", allowDiscount = true, priceMode, onPriceModeChange }: { cart: CartLine[]; setCart: React.Dispatch<React.SetStateAction<CartLine[]>>; discount: number; setDiscount: (value: number) => void; delivery?: number; title?: string; allowDiscount?: boolean; priceMode?: PriceMode; onPriceModeChange?: (mode: PriceMode) => void }) {
+export function SaleCart({ cart, setCart, discount, setDiscount, delivery = 0, title = "Current sale", allowDiscount = true, priceMode, onPriceModeChange, onRemove }: { cart: CartLine[]; setCart: React.Dispatch<React.SetStateAction<CartLine[]>>; discount: number; setDiscount: (value: number) => void; delivery?: number; title?: string; allowDiscount?: boolean; priceMode?: PriceMode; onPriceModeChange?: (mode: PriceMode) => void; onRemove?: (line: CartLine) => void }) {
+  const { t } = useAdminLanguage();
   const subtotal = cart.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0);
   const grand = Math.max(0, subtotal - discount + delivery);
-  return <aside className="admin-sale-cart"><div className="admin-sale-cart-head"><div className="admin-sale-cart-title"><p className="admin-eyebrow">Order builder</p><h2>{title}</h2></div><span className="admin-sale-cart-count">{cart.reduce((sum, line) => sum + line.quantity, 0)} items</span>{priceMode && onPriceModeChange && <div className="admin-sale-cart-price-mode"><PriceModeSelector value={priceMode} onChange={onPriceModeChange}/></div>}</div><div className="admin-sale-lines">{cart.length ? cart.map((line) => <div key={line.key}><span><AdminProductImage product={line.product}/></span><div><strong>{line.product.name}</strong><small>{line.variant?.sku || line.product.sku}{line.variant ? ` · ${variantLabel(line.variant)}` : ""} · {formatPrice(line.unitPrice)}</small><QuantityStepper size="admin" value={line.quantity} max={line.available || 1} onChange={(value) => setCart((current) => current.map((item) => item.key === line.key ? { ...item, quantity: value } : item))}/></div><div><b key={line.quantity} className="value-pop">{formatPrice(line.unitPrice * line.quantity)}</b><button type="button" onClick={() => setCart((current) => current.filter((item) => item.key !== line.key))}><AdminIcon name="trash" size={16}/></button></div></div>) : <div className="admin-cart-empty"><AdminIcon name="bag" size={30}/><strong>No products selected</strong><small>Search and select a product to begin.</small></div>}</div>{allowDiscount && <div className="admin-sale-adjust"><label><span>Authorised order discount</span><input type="number" min="0" max={subtotal} value={discount} onChange={(event) => setDiscount(Math.min(subtotal, Number(event.target.value) || 0))}/></label></div>}<div className="admin-sale-totals"><p><span>Subtotal</span><b>{formatPrice(subtotal)}</b></p>{delivery > 0 && <p><span>Delivery</span><b>{formatPrice(delivery)}</b></p>}{discount > 0 && <p><span>Discount</span><b>− {formatPrice(discount)}</b></p>}<p className="grand"><span>Total payable</span><b>{formatPrice(grand)}</b></p></div></aside>;
+  return <aside className="admin-sale-cart"><div className="admin-sale-cart-head"><div className="admin-sale-cart-title"><p className="admin-eyebrow">{t("sales.orderBuilder")}</p><h2>{title}</h2></div><span className="admin-sale-cart-count">{cart.reduce((sum, line) => sum + line.quantity, 0)} {t("sales.items")}</span>{priceMode && onPriceModeChange && <div className="admin-sale-cart-price-mode"><PriceModeSelector value={priceMode} onChange={onPriceModeChange} /></div>}</div><div className="admin-sale-lines">{cart.length ? cart.map((line) => <div key={line.key}><span><AdminProductImage product={line.product} /></span><div><strong>{line.product.name}</strong><small>{line.variant?.sku || line.product.sku}{line.variant ? ` · ${variantLabel(line.variant)}` : ""} · {formatPrice(line.unitPrice)}</small><QuantityStepper size="admin" value={line.quantity} max={line.available || 1} onChange={(value) => setCart((current) => current.map((item) => item.key === line.key ? { ...item, quantity: value } : item))} /></div><div><b key={line.quantity} className="value-pop">{formatPrice(line.unitPrice * line.quantity)}</b><button type="button" aria-label={`${t("sales.remove")} ${line.product.name}`} onClick={() => { if (onRemove) onRemove(line); else setCart((current) => current.filter((item) => item.key !== line.key)); }}><AdminIcon name="trash" size={16} /></button></div></div>) : <div className="admin-cart-empty"><AdminIcon name="bag" size={30} /><strong>{t("sales.noProducts")}</strong><small>{t("sales.noProductsCopy")}</small></div>}</div>{allowDiscount && <div className="admin-sale-adjust"><label><span>{t("sales.discount")}</span><input type="number" min="0" max={subtotal} value={discount} onChange={(event) => setDiscount(Math.min(subtotal, Number(event.target.value) || 0))} /></label></div>}<div className="admin-sale-totals"><p><span>{t("sales.subtotal")}</span><b>{formatPrice(subtotal)}</b></p>{delivery > 0 && <p><span>{t("sales.delivery")}</span><b>{formatPrice(delivery)}</b></p>}{discount > 0 && <p><span>{t("sales.discount")}</span><b>− {formatPrice(discount)}</b></p>}<p className="grand"><span>{t("sales.totalPayable")}</span><b>{formatPrice(grand)}</b></p></div></aside>;
 }

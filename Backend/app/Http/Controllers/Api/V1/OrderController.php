@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Exceptions\InventoryConflictException;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Models\CustomerCartItem;
@@ -65,6 +66,8 @@ class OrderController extends Controller
 
         try {
             $quote = $this->orders->quoteCheckout($data, auth('sanctum')->user()?->id);
+        } catch (InventoryConflictException $exception) {
+            return $this->error($exception->getMessage(), 409, [], $exception->reasonCode);
         } catch (RuntimeException $exception) {
             return $this->error($exception->getMessage(), 422);
         }
@@ -107,21 +110,16 @@ class OrderController extends Controller
         $statusRank = [
             'pending' => 0,
             'confirmed' => 1,
-            'processing' => 2,
-            'ready_to_ship' => 2,
-            'shipped' => 3,
-            'out_for_delivery' => 3,
-            'delivered' => 4,
-            'return_requested' => 4,
+            'shipped' => 2,
+            'delivered' => 3,
             'returned' => 4,
-            'refunded' => 4,
         ];
 
         $orders = Order::query()
             ->select([
                 'id', 'order_number', 'status', 'payment_status', 'payment_method',
                 'grand_total', 'placed_at', 'created_at', 'confirmed_at', 'shipped_at',
-                'delivered_at', 'cancelled_at',
+                'delivered_at', 'cancelled_at', 'reconciliation_status', 'admin_note',
             ])
             ->with(['statusHistory:id,order_id,to_status,created_at'])
             ->withCount('items')
@@ -143,14 +141,22 @@ class OrderController extends Controller
             $iso = fn ($value) => $value?->toISOString();
             $historyAt = fn (string $status) => $iso($order->statusHistory->firstWhere('to_status', $status)?->created_at);
             $currentRank = $statusRank[$order->status] ?? -1;
-            $cancelled = $order->status === \App\Enums\OrderStatus::CANCELLED->value;
+            $returned = $order->status === \App\Enums\OrderStatus::RETURNED->value;
             $steps = [
                 ['step' => 'placed', 'at' => $iso($order->placed_at ?? $order->created_at), 'done' => true],
-                ['step' => 'confirmed', 'at' => $iso($order->confirmed_at) ?? $historyAt('confirmed'), 'done' => ! $cancelled && $currentRank >= 1],
-                ['step' => 'processing', 'at' => $historyAt('processing'), 'done' => ! $cancelled && $currentRank >= 2],
-                ['step' => 'shipped', 'at' => $iso($order->shipped_at) ?? $historyAt('shipped'), 'done' => ! $cancelled && $currentRank >= 3],
-                ['step' => 'delivered', 'at' => $iso($order->delivered_at) ?? $historyAt('delivered'), 'done' => ! $cancelled && $currentRank >= 4],
+                ['step' => 'confirmed', 'at' => $iso($order->confirmed_at) ?? $historyAt('confirmed'), 'done' => ! $returned && $currentRank >= 1],
+                ['step' => 'shipped', 'at' => $iso($order->shipped_at) ?? $historyAt('shipped'), 'done' => ! $returned && $currentRank >= 2],
+                ['step' => 'delivered', 'at' => $iso($order->delivered_at) ?? $historyAt('delivered'), 'done' => ! $returned && $currentRank >= 3],
             ];
+
+            $cancellationReason = null;
+            if ($returned) {
+                if ($order->reconciliation_status === 'preempted' || str_contains(strtolower((string) $order->admin_note), 'preempted') || str_contains(strtolower((string) $order->admin_note), 'offline')) {
+                    $cancellationReason = 'The item sold at our store before the stock update reached us. We cancelled this order and started any required refund.';
+                } else {
+                    $cancellationReason = $order->admin_note ?: null;
+                }
+            }
 
             return [
                 'order_number' => $order->order_number,
@@ -161,6 +167,7 @@ class OrderController extends Controller
                 'grand_total' => (float) $order->grand_total,
                 'items_count' => (int) $order->items_count,
                 'cancelled_at' => $iso($order->cancelled_at),
+                'cancellation_reason' => $cancellationReason,
                 'timeline' => $steps,
             ];
         })->values();
@@ -173,6 +180,8 @@ class OrderController extends Controller
         $data = $this->validatedCheckout($request);
         try {
             $order = $this->orders->place($this->customerOrderCommand($data), null);
+        } catch (InventoryConflictException $exception) {
+            return $this->error($exception->getMessage(), 409, [], $exception->reasonCode);
         } catch (RuntimeException $exception) {
             return $this->error($exception->getMessage(), 422);
         }
@@ -184,6 +193,8 @@ class OrderController extends Controller
         $data = $this->validatedCheckout($request);
         try {
             $order = $this->orders->place($this->customerOrderCommand($data), $request->user()?->id);
+        } catch (InventoryConflictException $exception) {
+            return $this->error($exception->getMessage(), 409, [], $exception->reasonCode);
         } catch (RuntimeException $exception) {
             return $this->error($exception->getMessage(), 422);
         }
@@ -210,21 +221,21 @@ class OrderController extends Controller
             ->orWhere('order_id', $orderNumber)
             ->firstOrFail();
 
-        abort_unless($request->user()->role === 'admin' || $order->customer_id === $request->user()->id, 403);
+        abort_unless($request->user()->is_employee || $order->customer_id === $request->user()->id, 403);
         return $this->success($order, 'Order retrieved.');
     }
 
     public function cancel(Request $request, string $orderNumber)
     {
         $order = Order::where('order_number', $orderNumber)->orWhere('order_id', $orderNumber)->firstOrFail();
-        abort_unless($request->user()->role === 'admin' || $order->customer_id === $request->user()->id, 403);
+        abort_unless($request->user()->is_employee || $order->customer_id === $request->user()->id, 403);
         return $this->success($this->orders->cancel($order, $request->user()->id, $request->input('reason')), 'Order cancelled.');
     }
 
     public function returnExchange(Request $request, string $orderNumber)
     {
         $order = Order::where('order_number', $orderNumber)->orWhere('order_id', $orderNumber)->firstOrFail();
-        abort_unless($request->user()->role === 'admin' || $order->customer_id === $request->user()->id, 403);
+        abort_unless($request->user()->is_employee || $order->customer_id === $request->user()->id, 403);
         $data = $request->validate([
             'type' => ['required', 'in:return,exchange'],
             'reason' => ['nullable', 'string'],
@@ -264,6 +275,8 @@ class OrderController extends Controller
             $updated = $data['status'] === 'cancelled'
                 ? $this->orders->cancel($order, $request->user()->id, $data['note'] ?? 'Cancelled from admin order workflow')
                 : $this->orders->transition($order, $data['status'], $request->user()->id, $data['note'] ?? null, (bool) ($data['force'] ?? false));
+        } catch (InventoryConflictException $exception) {
+            return $this->error($exception->getMessage(), 409, [], $exception->reasonCode);
         } catch (RuntimeException $exception) {
             return $this->error($exception->getMessage(), 422);
         } catch (Throwable $exception) {

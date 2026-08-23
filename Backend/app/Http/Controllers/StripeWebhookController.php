@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\Order;
 use App\Models\StripeId;
-use App\Actions\CommitInventoryAction;
 use App\Actions\ReleaseInventoryAction;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
@@ -92,9 +91,8 @@ class StripeWebhookController extends Controller
             return;
         }
 
-        // Commit inventory and update order status
-        CommitInventoryAction::run($order);
-
+        // Payment confirmation changes payment/order state only. Inventory
+        // stays reserved until physical fulfilment.
         $order->update([
             'order_status' => 'Confirmed',
             'payment_status' => 'Paid',
@@ -125,7 +123,7 @@ class StripeWebhookController extends Controller
 
         if ($order && $order->payment_status !== 'Paid') {
             // Release reserved inventory
-            ReleaseInventoryAction::run($order);
+            ReleaseInventoryAction::run($order, 'payment_failed');
 
             $order->update([
                 'order_status' => 'Cancelled',

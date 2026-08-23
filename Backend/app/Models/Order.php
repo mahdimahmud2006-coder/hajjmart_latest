@@ -21,9 +21,10 @@ class Order extends Model
         'promotion_snapshot', 'net_subtotal', 'item_discount_total', 'shipping_discount_total',
         'grand_total', 'total_cogs', 'gross_profit', 'refund_total', 'exchange_due_total',
         'currency', 'shipping_address_snapshot', 'billing_address_snapshot', 'customer_note',
-        'admin_note', 'shop_id', 'created_by', 'assigned_to', 'order_date', 'paid_amount', 'due_amount',
-        'source_reference', 'terminal_id', 'client_transaction_id', 'checkout_idempotency_key', 'offline_created_at', 'synced_at', 'priority', 'delivery_status', 'placed_at', 'confirmed_at', 'shipped_at', 'delivered_at', 'cancelled_at',
-        'ordered_products', 'customer_details', 'address', 'delivery_charge', 'total_price',
+        'admin_note', 'shop_id', 'created_by', 'assigned_to', 'packed_by', 'order_date', 'paid_amount', 'due_amount',
+        'source_reference', 'terminal_id', 'client_transaction_id', 'offline_inventory_session_id', 'local_sequence', 'reconciliation_status', 'preempted_by_session_id', 'cancellation_reason_code', 'checkout_idempotency_key', 'offline_created_at', 'synced_at', 'priority', 'delivery_status', 'placed_at', 'confirmed_at', 'shipped_at', 'delivered_at', 'cancelled_at',
+        'offline_recovery_case_id', 'manual_outage_reference', 'manual_outage_occurred_at',
+        'ordered_products', 'customer_details', 'address', 'delivery_charge', 'total_price', 'invoice_printed_at',
     ];
 
     protected $casts = [
@@ -53,6 +54,7 @@ class Order extends Model
         'exchange_due_total' => 'decimal:2',
         'paid_amount' => 'decimal:2',
         'due_amount' => 'decimal:2',
+        'local_sequence' => 'integer',
         'order_date' => 'datetime',
         'offline_created_at' => 'datetime',
         'synced_at' => 'datetime',
@@ -61,6 +63,7 @@ class Order extends Model
         'shipped_at' => 'datetime',
         'delivered_at' => 'datetime',
         'cancelled_at' => 'datetime',
+        'invoice_printed_at' => 'datetime',
     ];
 
     public function orderList(): BelongsTo
@@ -78,10 +81,25 @@ class Order extends Model
         return $this->hasMany(ReservedProduct::class);
     }
 
+    public function activeReservedProducts(): HasMany
+    {
+        return $this->hasMany(ReservedProduct::class)->where('status', 'active');
+    }
+
 
     public function shop(): BelongsTo
     {
         return $this->belongsTo(Shop::class);
+    }
+
+    public function offlineInventorySession(): BelongsTo
+    {
+        return $this->belongsTo(OfflineInventorySession::class);
+    }
+
+    public function preemptedBySession(): BelongsTo
+    {
+        return $this->belongsTo(OfflineInventorySession::class, 'preempted_by_session_id');
     }
 
     public function creator(): BelongsTo
@@ -92,6 +110,11 @@ class Order extends Model
     public function assignee(): BelongsTo
     {
         return $this->belongsTo(User::class, 'assigned_to');
+    }
+
+    public function packer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'packed_by');
     }
 
     public function customer(): BelongsTo
@@ -141,15 +164,6 @@ class Order extends Model
     public function confirm(): bool
     {
         if ($this->order_status === 'Confirmed' && $this->payment_status === 'Paid') {
-            return false;
-        }
-
-        try {
-            if ($this->reservedProducts()->exists()) {
-                \App\Actions\CommitInventoryAction::run($this);
-            }
-        } catch (\Exception $e) {
-            \Illuminate\Support\Facades\Log::error('Inventory commit failed during order confirmation: ' . $e->getMessage());
             return false;
         }
 

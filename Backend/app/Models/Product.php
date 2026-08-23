@@ -23,7 +23,7 @@ class Product extends Model
         'long_description_clean_html', 'additional_information', 'additional_information_rows',
         'additional_information_text', 'additional_information_html', 'additional_information_clean_html',
         'specifications', 'variation_attribute_options', 'variation_extraction', 'variation_warning',
-        'stock_summary', 'brand', 'brands', 'discovery_sources', 'visible_in_shop', 'raw_payload',
+        'stock_summary', 'brand', 'brands', 'discovery_sources', 'visible_in_shop', 'sell_on_website', 'sell_on_social', 'sell_on_pos', 'raw_payload',
         'scraped_at', 'weight', 'weight_unit', 'dimensions_json', 'is_featured', 'is_active', 'is_digital',
         'meta_title', 'meta_description', 'meta_keywords',
         'sold_count', 'total_count', 'image_src', 'has_dynamic_pricing', 'price_slabs', 'has_variations',
@@ -100,6 +100,9 @@ class Product extends Model
         'is_active' => 'boolean',
         'is_digital' => 'boolean',
         'visible_in_shop' => 'boolean',
+        'sell_on_website' => 'boolean',
+        'sell_on_social' => 'boolean',
+        'sell_on_pos' => 'boolean',
         'has_dynamic_pricing' => 'boolean',
         'price_slabs' => 'array',
         'has_variations' => 'boolean',
@@ -436,7 +439,7 @@ class Product extends Model
      */
     public function getReservedQty(): int
     {
-        return (int) $this->reservedProducts()->whereNull('variation_id')->sum('qty');
+        return (int) $this->reservedProducts()->active()->whereNull('variation_id')->sum('qty');
     }
 
     /**

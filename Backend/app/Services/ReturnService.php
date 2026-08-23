@@ -3,10 +3,12 @@
 namespace App\Services;
 
 use App\Enums\OrderStatus;
+use App\Enums\PaymentStatus;
 use App\Models\Inventory;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductVariant;
+use App\Models\Payment;
 use App\Models\ReturnRequest;
 use App\Models\ReturnRequestItem;
 use App\Models\ReturnStatusHistory;
@@ -15,7 +17,7 @@ use RuntimeException;
 
 class ReturnService
 {
-    public function __construct(private InventoryService $inventoryService) {}
+    public function __construct(private InventoryService $inventoryService, private PaymentService $paymentService) {}
 
     public function request(Order $order, array $data, ?int $customerId = null, ?int $actorId = null): ReturnRequest
     {
@@ -32,9 +34,14 @@ class ReturnService
                 'shop_id' => $order->shop_id,
                 'created_by' => $actorId ?? $customerId,
                 'type' => $type,
-                'status' => 'requested',
+                'status' => 'completed',
+                'resolution_type' => $type === 'exchange' ? 'exchange' : 'refund',
+                'refund_method' => 'instant_settlement',
                 'reason' => $data['reason'] ?? null,
                 'customer_note' => $data['customer_note'] ?? null,
+                'approved_by' => $actorId,
+                'approved_at' => now(),
+                'resolved_at' => now(),
             ]);
 
             $refundTotal = 0.0;
@@ -48,6 +55,22 @@ class ReturnService
                 if ($quantity < 1 || $quantity > $orderItem->remaining_returnable_quantity) {
                     throw new RuntimeException('Return/exchange quantity exceeds remaining returnable quantity.');
                 }
+
+                // 1. Restock the returned item back into store inventory immediately
+                $inventory = $this->inventoryService->inventoryRow(
+                    $orderItem->product_id,
+                    $orderItem->variant_id,
+                    $order->shop_id
+                );
+                $this->inventoryService->increment(
+                    $inventory,
+                    $quantity,
+                    'return',
+                    $return,
+                    $actorId,
+                    'customer_return',
+                    (float) $orderItem->unit_cost
+                );
 
                 $lineSubtotal = round((float) $orderItem->unit_price * $quantity, 2);
                 $discountPerUnit = ((float) $orderItem->line_discount_total) / max(1, (int) $orderItem->quantity);
@@ -67,8 +90,34 @@ class ReturnService
                     $creditTotal += $refundable;
                     $dueTotal += $exchangeDue;
                     $refundTotal += $exchangeRefund;
+
+                    // Deduct replacement product stock immediately
+                    if (! empty($itemData['exchange_product_id'])) {
+                        $replacementInventory = $this->inventoryService->inventoryRow(
+                            (int) $itemData['exchange_product_id'],
+                            ! empty($itemData['exchange_variant_id']) ? (int) $itemData['exchange_variant_id'] : null,
+                            $order->shop_id
+                        );
+                        $avail = $replacementInventory->quantity - $replacementInventory->reserved;
+                        if ($avail < $quantity) {
+                            $needed = $quantity - $avail;
+                            $this->inventoryService->increment(
+                                $replacementInventory,
+                                $needed,
+                                'exchange_stock_sync',
+                                $return,
+                                $actorId,
+                                'exchange_auto_replenish'
+                            );
+                            $replacementInventory->refresh();
+                        }
+                        $this->inventoryService->decrement($replacementInventory, $quantity, $return, $actorId);
+                    }
+                    $orderItem->increment('exchanged_quantity', $quantity);
                 } else {
                     $refundTotal += $refundable;
+                    $orderItem->increment('refunded_quantity', $quantity);
+                    $orderItem->increment('refunded_amount', $refundable);
                 }
                 $promotionAdjustment += $proratedDiscount;
 
@@ -99,8 +148,44 @@ class ReturnService
                 'promotion_adjustment_total' => round($promotionAdjustment, 2),
             ]);
 
-            $order->update(['status' => OrderStatus::RETURN_REQUESTED->value, 'order_status' => OrderStatus::RETURN_REQUESTED->value]);
-            ReturnStatusHistory::create(['return_request_id' => $return->id, 'to_status' => 'requested', 'changed_by' => $actorId ?? $customerId, 'created_at' => now()]);
+            // If replacement items cost more than returned items credit, increase order grand_total by the net excess
+            $exchangeExcess = $type === 'exchange' ? round($dueTotal, 2) : 0.0;
+            if ($exchangeExcess > 0) {
+                $order->increment('grand_total', $exchangeExcess);
+                $paidInput = min($exchangeExcess, (float) ($data['paid_amount'] ?? 0));
+                if ($paidInput > 0) {
+                    Payment::create([
+                        'order_id' => $order->id,
+                        'payment_method' => strtolower((string) ($data['payment_method'] ?? 'cash')),
+                        'amount' => $paidInput,
+                        'currency' => $order->currency ?: 'BDT',
+                        'status' => 'paid',
+                        'paid_at' => now(),
+                        'received_by' => $actorId,
+                        'payment_reference' => $data['payment_reference'] ?? 'Exchange advance payment',
+                    ]);
+                    $order->increment('paid_amount', $paidInput);
+                }
+            }
+
+            $order->refresh();
+            $newRefundTotal = round((float) $order->refund_total + ($type === 'return' ? $refundTotal : ($refundTotal > 0 ? $refundTotal : 0)), 2);
+            $netGrandTotal = round(max(0, (float) $order->grand_total - $newRefundTotal), 2);
+            $paidAmount = (float) $order->paid_amount;
+            $newDueAmount = round(max(0, $netGrandTotal - $paidAmount), 2);
+            $newPaymentStatus = PaymentStatus::forOrder($paidAmount, $netGrandTotal);
+
+            $allReturned = $order->fresh('items')->items->every(fn ($item) => $item->remaining_returnable_quantity <= 0);
+
+            $order->update([
+                'status' => $allReturned ? OrderStatus::RETURNED->value : $order->status,
+                'order_status' => $allReturned ? OrderStatus::RETURNED->value : $order->status,
+                'refund_total' => $newRefundTotal,
+                'due_amount' => $newDueAmount,
+                'payment_status' => $newPaymentStatus,
+            ]);
+
+            ReturnStatusHistory::create(['return_request_id' => $return->id, 'to_status' => 'completed', 'changed_by' => $actorId ?? $customerId, 'note' => 'Instant return/exchange recorded.', 'created_at' => now()]);
             return $return->fresh(['items.orderItem.product', 'items.exchangeProduct', 'items.exchangeVariant']);
         });
     }
@@ -130,28 +215,27 @@ class ReturnService
                 $orderItem = $item->orderItem;
                 if ($restockReturnedItems) {
                     $inventory = $this->inventoryService->inventoryRow($orderItem->product_id, $orderItem->variant_id, $returnRequest->shop_id ?? $returnRequest->order?->shop_id);
-                    $this->inventoryService->increment($inventory, (int) $item->quantity, 'return', $item, $actorId);
+                    $this->inventoryService->increment(
+                        $inventory,
+                        (int) $item->quantity,
+                        'return',
+                        $item,
+                        $actorId,
+                        'customer_return',
+                        (float) $orderItem->unit_cost,
+                    );
                 }
 
-                if ($returnRequest->type === 'exchange') {
-                    if (! $item->exchange_product_id) {
-                        throw new RuntimeException('Exchange product is required.');
-                    }
-                    $replacementInventory = $this->inventoryService->inventoryRow((int) $item->exchange_product_id, $item->exchange_variant_id ? (int) $item->exchange_variant_id : null, $returnRequest->shop_id ?? $returnRequest->order?->shop_id);
-                    $this->inventoryService->decrement($replacementInventory, (int) $item->quantity, $item, $actorId);
-                    $orderItem->increment('exchanged_quantity', (int) $item->quantity);
-                } else {
+                if ($returnRequest->type === 'return') {
                     $orderItem->increment('refunded_quantity', (int) $item->quantity);
                     $orderItem->increment('refunded_amount', (float) $item->refundable_amount);
                 }
             }
 
             $returnRequest->update([
-                'status' => $returnRequest->type === 'exchange' ? 'exchanged' : 'received',
-                'resolved_at' => now(),
+                'status' => 'received',
+                'resolved_at' => null,
             ]);
-            $returnRequest->order?->increment('refund_total', (float) $returnRequest->refund_total);
-            $returnRequest->order?->increment('exchange_due_total', (float) $returnRequest->exchange_due_total);
             ReturnStatusHistory::create([
                 'return_request_id' => $returnRequest->id,
                 'from_status' => $fromStatus,
@@ -160,7 +244,7 @@ class ReturnService
                 'note' => $note,
                 'created_at' => now(),
             ]);
-            return $returnRequest->fresh(['items.orderItem.product', 'order']);
+            return $returnRequest->fresh(['order.shop', 'order.payments.receiver', 'items.orderItem.product', 'items.orderItem.variant', 'items.exchangeProduct', 'items.exchangeVariant', 'statusHistory']);
         });
     }
 
@@ -169,10 +253,86 @@ class ReturnService
         if (! in_array($returnRequest->status, ['received', 'exchanged'], true)) {
             throw new RuntimeException('Only received returns or issued exchanges can be completed.');
         }
-        return $this->transition($returnRequest, 'completed', $actorId, $note, array_merge([
-            'resolved_at' => now(),
-            'admin_note' => $note,
-        ], $details));
+
+        return DB::transaction(function () use ($returnRequest, $actorId, $note, $details): ReturnRequest {
+            if ($returnRequest->type === 'exchange' && $returnRequest->status === 'received') {
+                foreach ($returnRequest->items()->with('orderItem')->get() as $item) {
+                    if (! $item->exchange_product_id) {
+                        throw new RuntimeException('Exchange product is required.');
+                    }
+                    $replacementInventory = $this->inventoryService->inventoryRow(
+                        (int) $item->exchange_product_id,
+                        $item->exchange_variant_id ? (int) $item->exchange_variant_id : null,
+                        $returnRequest->shop_id ?? $returnRequest->order?->shop_id
+                    );
+                    $this->inventoryService->decrement($replacementInventory, (int) $item->quantity, $item, $actorId);
+                    $item->orderItem->increment('exchanged_quantity', (int) $item->quantity);
+                }
+                $returnRequest->order?->increment('exchange_due_total', (float) $returnRequest->exchange_due_total);
+            }
+
+            return $this->transition($returnRequest, 'completed', $actorId, $note, array_merge([
+                'resolved_at' => now(),
+                'admin_note' => $note,
+            ], $details));
+        });
+    }
+
+    public function refund(ReturnRequest $returnRequest, ?int $actorId = null, ?int $preferredPaymentId = null, ?string $note = null): ReturnRequest
+    {
+        if ($returnRequest->type !== 'return' || $returnRequest->status !== 'received') {
+            throw new RuntimeException('Only a received return can be refunded.');
+        }
+
+        $order = $returnRequest->order()->with('payments')->firstOrFail();
+        $target = round((float) $returnRequest->refund_total, 2);
+        if ($target <= 0) {
+            return $this->complete($returnRequest, $actorId, $note, ['resolution_type' => 'refund', 'refund_method' => 'original_payment']);
+        }
+
+        $priorCompletedRefunds = (float) ReturnRequest::query()
+            ->where('order_id', $order->id)
+            ->where('id', '<>', $returnRequest->id)
+            ->where('type', 'return')
+            ->where('status', 'completed')
+            ->where('resolution_type', 'refund')
+            ->sum('refund_total');
+        $actualRefunded = (float) $order->payments()->sum('refunded_amount');
+        $alreadyForThisReturn = round(max(0, $actualRefunded - $priorCompletedRefunds), 2);
+        $remaining = round(max(0, $target - $alreadyForThisReturn), 2);
+
+        if ($remaining > 0) {
+            $payments = $order->payments()
+                ->whereIn('status', ['paid', 'partial', 'partially_refunded', 'refunded'])
+                ->orderByDesc('paid_at')
+                ->get()
+                ->filter(fn (Payment $payment): bool => round((float) $payment->amount - (float) ($payment->refunded_amount ?? 0), 2) > 0)
+                ->sortByDesc(fn (Payment $payment): int => $preferredPaymentId && $payment->id === $preferredPaymentId ? 1 : 0)
+                ->values();
+
+            $available = round($payments->sum(fn (Payment $payment): float => max(0, (float) $payment->amount - (float) ($payment->refunded_amount ?? 0))), 2);
+            if ($available + 0.009 < $remaining) {
+                throw new RuntimeException('The original payments do not have enough refundable balance for this return.');
+            }
+
+            foreach ($payments as $payment) {
+                if ($remaining <= 0) break;
+                $paymentRemaining = round(max(0, (float) $payment->amount - (float) ($payment->refunded_amount ?? 0)), 2);
+                if ($paymentRemaining <= 0) continue;
+                $amount = min($remaining, $paymentRemaining);
+                $this->paymentService->refund($payment, $amount, $actorId);
+                $remaining = round(max(0, $remaining - $amount), 2);
+            }
+        }
+
+        if ($remaining > 0.009) {
+            throw new RuntimeException('The refund is not complete yet. Retry after checking the original payments.');
+        }
+
+        return $this->complete($returnRequest->fresh(), $actorId, $note, [
+            'resolution_type' => 'refund',
+            'refund_method' => 'original_payment',
+        ]);
     }
 
     private function transition(ReturnRequest $returnRequest, string $toStatus, ?int $actorId, ?string $note, array $extra = []): ReturnRequest
@@ -188,17 +348,20 @@ class ReturnService
                 'note' => $note,
                 'created_at' => now(),
             ]);
-            return $returnRequest->fresh(['items.orderItem.product', 'order']);
+            return $returnRequest->fresh(['order.shop', 'order.payments.receiver', 'items.orderItem.product', 'items.orderItem.variant', 'items.exchangeProduct', 'items.exchangeVariant', 'statusHistory']);
         });
     }
 
     private function exchangeUnitPrice(?int $productId, ?int $variantId): float
     {
         if (! $productId) {
-            throw new RuntimeException('Exchange product is required for exchange requests.');
+            return 0.0;
         }
-        $product = Product::findOrFail($productId);
-        $variant = $variantId ? ProductVariant::findOrFail($variantId) : null;
+        $product = Product::find($productId);
+        if (! $product) {
+            return 0.0;
+        }
+        $variant = $variantId ? ProductVariant::where('product_id', $product->id)->find($variantId) : null;
         return round((float) ($variant?->sale_price ?? $variant?->price ?? $product->selling_price ?? 0), 2);
     }
 }

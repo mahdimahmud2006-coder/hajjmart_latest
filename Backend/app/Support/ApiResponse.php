@@ -32,7 +32,7 @@ trait ApiResponse
         return response()->json($payload, $status);
     }
 
-    protected function error(string $message = 'Error', int $status = 400, array $errors = []): JsonResponse
+    protected function error(string $message = 'Error', int $status = 400, array $errors = [], ?string $code = null): JsonResponse
     {
         $payload = [
             'success' => false,
@@ -41,6 +41,9 @@ trait ApiResponse
 
         if ($errors !== []) {
             $payload['errors'] = $errors;
+        }
+        if ($code !== null) {
+            $payload['code'] = $code;
         }
 
         return response()->json($payload, $status);

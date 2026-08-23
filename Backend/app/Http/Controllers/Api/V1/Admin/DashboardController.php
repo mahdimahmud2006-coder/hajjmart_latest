@@ -3,13 +3,11 @@
 namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Models\Coupon;
+use App\Models\FraudCase;
 use App\Models\Inventory;
 use App\Models\Order;
+use App\Models\Product;
 use App\Models\ProductBatch;
-use App\Models\ReturnRequest;
-use App\Models\FraudCase;
-use App\Models\Shop;
 use App\Models\User;
 use App\Support\ApiResponse;
 use Illuminate\Http\Request;
@@ -22,96 +20,138 @@ class DashboardController extends Controller
     public function __invoke(Request $request)
     {
         $shopId = $request->integer('shop_id') ?: null;
-        $orderQuery = Order::query()->when($shopId, fn ($q) => $q->where('shop_id', $shopId));
-        $inventoryQuery = Inventory::query()->when($shopId, fn ($q) => $q->where('shop_id', $shopId));
-        $batchQuery = ProductBatch::query()->when($shopId, fn ($q) => $q->where('shop_id', $shopId));
+        $today = now()->toDateString();
 
-        $today = now()->startOfDay();
-        $start = now()->subDays(6)->startOfDay();
-        $daily = collect(range(0, 6))->map(function (int $offset) use ($orderQuery, $start): array {
-            $date = $start->copy()->addDays($offset);
-            $query = (clone $orderQuery)->whereDate(DB::raw('COALESCE(order_date, created_at)'), $date->toDateString());
-            return [
-                'date' => $date->toDateString(),
-                'label' => $date->format('D'),
-                'orders' => (clone $query)->count(),
-                'sales' => round((float) (clone $query)->whereNotIn('status', ['cancelled'])->sum('grand_total'), 2),
-            ];
-        });
+        $orders = Order::query()->when($shopId, fn ($query) => $query->where('shop_id', $shopId));
+        $validOrders = (clone $orders)->where('status', '!=', 'cancelled');
+        $inventory = Inventory::query()->when($shopId, fn ($query) => $query->where('shop_id', $shopId));
 
-        $sourceMix = (clone $orderQuery)
-            ->selectRaw("COALESCE(source_channel, 'website') as source, COUNT(*) as orders, SUM(grand_total) as sales")
-            ->where('created_at', '>=', now()->subDays(30))
+        $todaySummary = (clone $validOrders)
+            ->whereDate(DB::raw('COALESCE(order_date, created_at)'), $today)
+            ->selectRaw('COUNT(*) as orders, COALESCE(SUM(grand_total), 0) as sales')
+            ->first();
+
+        $channelRows = (clone $validOrders)
+            ->whereDate(DB::raw('COALESCE(order_date, created_at)'), $today)
+            ->selectRaw("COALESCE(source_channel, 'website') as source, COUNT(*) as orders, COALESCE(SUM(grand_total), 0) as sales")
             ->groupBy('source_channel')
             ->get();
 
-        $lowStock = (clone $inventoryQuery)
-            ->with(['product:id,name,sku,slug,image_src', 'variant:id,sku', 'shop:id,name,code'])
+        $channels = collect([
+            'website' => ['source' => 'website', 'orders' => 0, 'sales' => 0.0],
+            'social_commerce' => ['source' => 'social_commerce', 'orders' => 0, 'sales' => 0.0],
+            'pos' => ['source' => 'pos', 'orders' => 0, 'sales' => 0.0],
+        ]);
+
+        foreach ($channelRows as $row) {
+            $source = $row->source === 'ecommerce' ? 'website' : $row->source;
+            if (! $channels->has($source)) {
+                $source = 'website';
+            }
+            $current = $channels->get($source);
+            $channels->put($source, [
+                'source' => $source,
+                'orders' => $current['orders'] + (int) $row->orders,
+                'sales' => round($current['sales'] + (float) $row->sales, 2),
+            ]);
+        }
+
+        $attentionCounts = (clone $validOrders)
+            ->selectRaw("SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending_orders")
+            ->selectRaw("SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) as confirmed_orders")
+            ->first();
+
+        $attention = collect();
+        if ((int) ($attentionCounts->pending_orders ?? 0) > 0) {
+            $attention->push([
+                'type' => 'pending_orders',
+                'urgency' => 1,
+                'count' => (int) $attentionCounts->pending_orders,
+            ]);
+        }
+        if ((int) ($attentionCounts->confirmed_orders ?? 0) > 0) {
+            $attention->push([
+                'type' => 'confirmed_orders',
+                'urgency' => 2,
+                'count' => (int) $attentionCounts->confirmed_orders,
+            ]);
+        }
+
+        $lowStockRows = (clone $inventory)
+            ->with(['product:id,name,sku', 'variant:id,sku'])
             ->whereRaw('(quantity - reserved) <= low_stock_threshold')
             ->orderByRaw('(quantity - reserved) asc')
-            ->limit(8)
+            ->limit(3)
             ->get();
 
-        $recentOrders = (clone $orderQuery)
-            ->with(['shop:id,name,code', 'creator:id,name', 'items:id,order_id,quantity'])
+        foreach ($lowStockRows as $row) {
+            $available = max(0, (int) $row->quantity - (int) $row->reserved);
+            $attention->push([
+                'type' => $available <= 0 ? 'out_of_stock' : 'low_stock',
+                'urgency' => $available <= 0 ? 1 : 3,
+                'inventory_id' => $row->id,
+                'product_id' => $row->product_id,
+                'variant_id' => $row->variant_id,
+                'product_name' => $row->product?->name,
+                'sku' => $row->variant?->sku ?: $row->product?->sku,
+                'available' => $available,
+            ]);
+        }
+
+        $criticalRiskCases = FraudCase::query()
+            ->when($shopId, fn ($query) => $query->where('shop_id', $shopId))
+            ->where('severity', 'critical')
+            ->where('status', 'open')
+            ->count();
+
+        if ($criticalRiskCases > 0) {
+            $attention->push([
+                'type' => 'critical_risk',
+                'urgency' => 1,
+                'count' => $criticalRiskCases,
+            ]);
+        }
+
+        $attention = $attention
+            ->sortBy('urgency')
+            ->values();
+
+        $recentOrders = (clone $orders)
+            ->select([
+                'id', 'order_number', 'checkout_name', 'checkout_mobile_number', 'source_channel',
+                'status', 'grand_total', 'order_date', 'created_at',
+            ])
             ->latest('order_date')
             ->latest('created_at')
-            ->limit(8)
+            ->limit(5)
             ->get();
 
-        $todaySales = round((float) (clone $orderQuery)
-            ->whereDate(DB::raw('COALESCE(order_date, created_at)'), $today->toDateString())
-            ->whereNotIn('status', ['cancelled'])
-            ->sum('grand_total'), 2);
-        $todayOrders = (clone $orderQuery)
-            ->whereDate(DB::raw('COALESCE(order_date, created_at)'), $today->toDateString())
-            ->count();
-        $lowStockCount = (clone $inventoryQuery)
+        $lowStockCount = (clone $inventory)
             ->whereRaw('(quantity - reserved) <= low_stock_threshold')
             ->count();
-        $openReturns = ReturnRequest::query()
-            ->when($shopId, fn ($q) => $q->where('shop_id', $shopId))
-            ->whereIn('status', ['requested', 'approved'])
-            ->count();
-
-        $inventoryRows = (clone $inventoryQuery)
-            ->with(['product:id,cost_price', 'variant:id,cost_price'])
-            ->get();
-        $inventoryUnits = (int) $inventoryRows->sum('quantity');
-        $availableUnits = (int) $inventoryRows->sum(fn ($row) => $row->available);
-        $stockValue = round((float) $inventoryRows->sum(fn ($row) => (int) $row->quantity * (float) ($row->variant?->cost_price ?? $row->product?->cost_price ?? 0)), 2);
-        $directBatchesToday = (clone $batchQuery)->whereDate('received_at', $today->toDateString())->distinct('batch_reference')->count('batch_reference');
-        $unitsReceivedToday = (int) (clone $batchQuery)->whereDate('received_at', $today->toDateString())->sum('initial_quantity');
 
         $data = [
             'metrics' => [
-                'today_sales' => $todaySales,
-                'today_orders' => $todayOrders,
-                'pending_orders' => (clone $orderQuery)->whereIn('status', ['pending', 'confirmed', 'processing'])->count(),
-                'due_amount' => round((float) (clone $orderQuery)->where('due_amount', '>', 0)->sum('due_amount'), 2),
-                'low_stock_products' => $lowStockCount,
-                'returns_open' => $openReturns,
-                'active_promotions' => Coupon::query()->active()->count(),
-                'stock_value' => $stockValue,
-                'inventory_units' => $inventoryUnits,
-                'available_inventory_units' => $availableUnits,
-                'direct_batches_today' => $directBatchesToday,
-                'units_received_today' => $unitsReceivedToday,
-                'risk_open_cases' => FraudCase::query()->when($shopId, fn ($q) => $q->where('shop_id', $shopId))->whereNotIn('status', ['resolved', 'closed'])->count(),
-                'risk_critical_cases' => FraudCase::query()->when($shopId, fn ($q) => $q->where('shop_id', $shopId))->where('severity', 'critical')->whereNotIn('status', ['resolved', 'closed'])->count(),
-
-                // Compatibility aliases for older clients.
-                'sales_today' => $todaySales,
-                'orders_today' => $todayOrders,
-                'low_stock_items' => $lowStockCount,
-                'pending_returns' => $openReturns,
-                'active_employees' => User::where('is_active', true)->where('role', '!=', 'customer')->when($shopId, fn ($q) => $q->where('shop_id', $shopId))->count(),
-                'active_stores' => Shop::where('is_active', true)->count(),
+                'sales_today' => round((float) ($todaySummary->sales ?? 0), 2),
+                'orders_today' => (int) ($todaySummary->orders ?? 0),
+                'customer_due' => round((float) (clone $validOrders)->where('due_amount', '>', 0)->sum('due_amount'), 2),
+                'low_stock_count' => $lowStockCount,
             ],
-            'daily_sales' => $daily,
-            'source_mix' => $sourceMix,
-            'low_stock' => $lowStock,
+            'channel_today' => $channels->values(),
+            'attention' => $attention,
             'recent_orders' => $recentOrders,
+            'onboarding' => [
+                'has_product' => Product::query()->exists(),
+                'has_stock' => ProductBatch::query()
+                    ->when($shopId, fn ($query) => $query->where('shop_id', $shopId))
+                    ->where('initial_quantity', '>', 0)
+                    ->exists(),
+                'has_order' => (clone $validOrders)->exists(),
+                'employee_count' => User::query()
+                    ->where('is_employee', true)
+                    ->where('is_active', true)
+                    ->count(),
+            ],
             'generated_at' => now()->toIso8601String(),
         ];
 

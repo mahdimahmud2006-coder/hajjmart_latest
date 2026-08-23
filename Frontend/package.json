@@ -7,12 +7,24 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "verify:admin-pagination": "node scripts/verify-admin-pagination.mjs"
+    "verify:admin-pagination": "node scripts/verify-admin-pagination.mjs",
+    "verify:prd02": "node scripts/verify-prd02-customers-search.mjs",
+    "verify:prd03": "node scripts/verify-prd03-dashboard.mjs",
+    "verify:prd04": "node scripts/verify-prd04-orders.mjs",
+    "verify:prd05": "node scripts/verify-prd05-social-commerce.mjs",
+    "verify:prd06": "node scripts/verify-prd06-pos.mjs",
+    "verify:prd07": "node scripts/verify-prd07-products-inventory.mjs",
+    "verify:prd08": "node scripts/verify-prd08-returns-promotions.mjs",
+    "verify:prd09": "node scripts/verify-prd09-stores-employees.mjs",
+    "verify:prd10": "node scripts/verify-prd10-final-sweep.mjs",
+    "verify:offline-commerce": "node scripts/verify-offline-commerce.mjs",
+    "test:offline-commerce": "vitest run src/lib/offline/__tests__/offline-commerce.test.ts src/lib/offline/__tests__/offline-commerce-cutover.test.ts"
   },
   "dependencies": {
     "next": "^15.5.9",
     "react": "^19.1.2",
-    "react-dom": "^19.1.2"
+    "react-dom": "^19.1.2",
+    "lucide-react": "^0.468.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "4.1.10",
@@ -20,6 +32,8 @@
     "@types/react": "19.1.5",
     "@types/react-dom": "19.1.5",
     "tailwindcss": "4.1.10",
-    "typescript": "5.8.3"
+    "typescript": "5.8.3",
+    "fake-indexeddb": "^6.0.0",
+    "vitest": "^3.2.4"
   }
 }

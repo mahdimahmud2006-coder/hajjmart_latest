@@ -9,10 +9,10 @@ use Illuminate\Support\Facades\DB;
 
 class ReleaseInventoryAction
 {
-    public function execute(Order $order): void
+    public function execute(Order $order, ?string $reason = null): void
     {
-        DB::transaction(function () use ($order): void {
-            $reservedItems = $order->reservedProducts()->lockForUpdate()->get();
+        DB::transaction(function () use ($order, $reason): void {
+            $reservedItems = $order->activeReservedProducts()->lockForUpdate()->get();
             if ($reservedItems->isEmpty()) {
                 return;
             }
@@ -27,6 +27,7 @@ class ReleaseInventoryAction
                     );
                     if ((int) $inventory->reserved < (int) $item->qty) {
                         $reservationQuery = ReservedProduct::query()
+                            ->active()
                             ->where('product_id', $item->product_id)
                             ->where('shop_id', $item->shop_id);
                         $item->variant_id
@@ -34,20 +35,24 @@ class ReleaseInventoryAction
                             : $reservationQuery->whereNull('variant_id');
                         $expectedReserved = min((int) $inventory->quantity, (int) $reservationQuery->sum('qty'));
                         if ($expectedReserved >= (int) $item->qty) {
-                            $inventory->forceFill(['reserved' => $expectedReserved, 'updated_at' => now()])->save();
-                            $inventory->refresh();
+                            $inventory = $inventoryService->reconcileReservedCounter($inventory, $expectedReserved);
                         }
                     }
 
                     $inventoryService->releaseReservation($inventory, (int) $item->qty, $item, $order->created_by);
                 }
-                $item->delete();
+
+                $item->update([
+                    'status' => 'released',
+                    'released_at' => now(),
+                    'release_reason' => $reason,
+                ]);
             }
         });
     }
 
-    public static function run(Order $order): void
+    public static function run(Order $order, ?string $reason = null): void
     {
-        (new self())->execute($order);
+        (new self())->execute($order, $reason);
     }
 }

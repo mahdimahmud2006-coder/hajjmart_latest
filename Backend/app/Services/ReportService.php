@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Models\BusinessTransaction;
 use App\Models\CouponApplication;
 use App\Models\Inventory;
 use App\Models\Order;
@@ -14,6 +13,11 @@ use Illuminate\Support\Facades\DB;
 
 class ReportService
 {
+    private function resultLimit(array $filters, int $default = 100): int
+    {
+        return max(1, min(250, (int) ($filters['limit'] ?? $default)));
+    }
+
     private function applyOrderFilters($query, array $filters, string $dateColumn = 'orders.created_at')
     {
         return $query
@@ -74,10 +78,13 @@ class ReportService
         $totalCogs = (float) ($itemMetrics->cogs ?? 0);
 
         $inventory = Inventory::query()
-            ->with(['product:id,cost_price', 'variant:id,cost_price'])
             ->when($filters['shop_id'] ?? null, fn ($q, $shopId) => $q->where('shop_id', $shopId))
             ->get();
-        $stockValue = $inventory->sum(fn ($row) => max(0, (int) $row->quantity) * (float) ($row->variant?->cost_price ?? $row->product?->cost_price ?? 0));
+        $stockValue = (float) ProductBatch::query()
+            ->when($filters['shop_id'] ?? null, fn ($q, $shopId) => $q->where('shop_id', $shopId))
+            ->where('count', '>', 0)
+            ->selectRaw('COALESCE(SUM(count * cost_price), 0) as value')
+            ->value('value');
         $lowStockCount = $inventory->filter(fn ($row) => $row->available <= (int) $row->low_stock_threshold)->count();
         $stockUnits = (int) $inventory->sum('quantity');
         $reservedStockUnits = (int) $inventory->sum('reserved');
@@ -93,6 +100,25 @@ class ReportService
             ->when($filters['from'] ?? null, fn ($q, $from) => $q->whereDate('created_at', '>=', $from))
             ->when($filters['to'] ?? null, fn ($q, $to) => $q->whereDate('created_at', '<=', $to));
 
+        $purgedMovements = DB::table('stock_movements')
+            ->leftJoin('product_batches', function ($join) {
+                $join->on('stock_movements.reference_id', '=', 'product_batches.id')
+                    ->where('stock_movements.reference_type', '=', 'App\\Models\\ProductBatch');
+            })
+            ->when($filters['shop_id'] ?? null, fn ($q, $shopId) => $q->where('stock_movements.shop_id', $shopId))
+            ->when($filters['from'] ?? null, fn ($q, $from) => $q->whereDate('stock_movements.created_at', '>=', $from))
+            ->when($filters['to'] ?? null, fn ($q, $to) => $q->whereDate('stock_movements.created_at', '<=', $to))
+            ->where(function ($q) {
+                $q->where('stock_movements.type', 'purge')
+                  ->orWhere('stock_movements.reason_code', 'stock_purge');
+            })
+            ->selectRaw('COALESCE(SUM(ABS(stock_movements.quantity_change)), 0) as units')
+            ->selectRaw('COALESCE(SUM(ABS(stock_movements.quantity_change) * COALESCE(product_batches.cost_price, 0)), 0) as cost_loss')
+            ->first();
+
+        $purgedUnits = (int) ($purgedMovements->units ?? 0);
+        $purgedStockCost = round((float) ($purgedMovements->cost_loss ?? 0), 2);
+
         return [
             'currency' => config('hajjmart.currency', 'BDT'),
             'filters' => $filters,
@@ -101,7 +127,7 @@ class ReportService
                 'valid_orders' => $validOrderCount,
                 'cancelled_orders' => $cancelledOrders,
                 'cancellation_rate' => $totalOrders > 0 ? round(($cancelledOrders / $totalOrders) * 100, 2) : 0,
-                'pending_orders' => (clone $orders)->whereRaw("LOWER(COALESCE(status, order_status, '')) NOT IN ('delivered', 'completed', 'cancelled', 'returned', 'refunded')")->count(),
+                'pending_orders' => (clone $orders)->whereRaw("LOWER(COALESCE(status, order_status, '')) NOT IN ('delivered', 'returned')")->count(),
                 'total_sales' => round($totalRevenue, 2),
                 'collection' => round($collection, 2),
                 'customer_due' => round($customerDue, 2),
@@ -127,6 +153,10 @@ class ReportService
                 'batch_receipts' => (clone $batchReceipts)->distinct('batch_reference')->count('batch_reference'),
                 'stock_received_units' => (int) (clone $batchReceipts)->sum('initial_quantity'),
                 'stock_value' => round((float) $stockValue, 2),
+                'purged_units' => $purgedUnits,
+                'purged_stock_cost' => $purgedStockCost,
+                'stock_damage_loss' => $purgedStockCost,
+                'net_profit' => round($grossProfit - $purgedStockCost, 2),
                 'low_stock_count' => $lowStockCount,
                 'return_requests' => (clone $returns)->count(),
             ],
@@ -176,16 +206,14 @@ class ReportService
     {
         $orders = $this->applyOrderFilters(Order::query()->from('orders'), $filters);
         $total = (clone $orders)->count();
-        $cancelled = (clone $orders)->whereRaw("LOWER(COALESCE(status, order_status, '')) = 'cancelled'")->count();
-
         return [
             'total_orders' => $total,
             'cancelled_orders' => $cancelled,
             'cancellation_rate' => $total > 0 ? round(($cancelled / $total) * 100, 2) : 0,
-            'pending_orders' => (clone $orders)->whereRaw("LOWER(COALESCE(status, order_status, '')) NOT IN ('delivered', 'completed', 'cancelled', 'returned', 'refunded')")->count(),
-            'total_order_value' => round((float) (clone $orders)->whereRaw("LOWER(COALESCE(status, order_status, '')) != 'cancelled'")->sum('grand_total'), 2),
-            'total_paid' => round((float) (clone $orders)->whereRaw("LOWER(COALESCE(status, order_status, '')) != 'cancelled'")->sum('paid_amount'), 2),
-            'total_due' => round((float) (clone $orders)->whereRaw("LOWER(COALESCE(status, order_status, '')) != 'cancelled'")->sum('due_amount'), 2),
+            'pending_orders' => (clone $orders)->whereRaw("LOWER(COALESCE(status, order_status, '')) NOT IN ('delivered', 'returned')")->count(),
+            'total_order_value' => round((float) (clone $orders)->whereRaw("LOWER(COALESCE(status, order_status, '')) != 'returned'")->sum('grand_total'), 2),
+            'total_paid' => round((float) (clone $orders)->whereRaw("LOWER(COALESCE(status, order_status, '')) != 'returned'")->sum('paid_amount'), 2),
+            'total_due' => round((float) (clone $orders)->whereRaw("LOWER(COALESCE(status, order_status, '')) != 'returned'")->sum('due_amount'), 2),
             'by_status' => (clone $orders)
                 ->selectRaw("COALESCE(status, order_status, 'unknown') as status_name, COUNT(*) as count, COALESCE(SUM(grand_total), 0) as order_value")
                 ->groupBy('status_name')->orderByDesc('count')->get(),
@@ -198,7 +226,7 @@ class ReportService
             'recent_orders' => (clone $orders)
                 ->with(['shop:id,name,code', 'customer:id,name,phone'])
                 ->latest('created_at')
-                ->limit((int) ($filters['limit'] ?? 100))
+                ->limit($this->resultLimit($filters))
                 ->get([
                     'id', 'order_number', 'customer_id', 'checkout_name', 'checkout_mobile_number',
                     'checkout_district', 'status', 'order_status', 'payment_status', 'payment_method',
@@ -228,7 +256,7 @@ class ReportService
             ->addSelect('products.id as product_id', 'products.name', 'products.sku', 'categories.name as category_name')
             ->groupBy('products.id', 'products.name', 'products.sku', 'categories.name')
             ->orderByDesc('revenue')
-            ->limit((int) ($filters['limit'] ?? 100))
+            ->limit($this->resultLimit($filters))
             ->get()
             ->map(fn ($row) => [
                 'product_id' => $row->product_id,
@@ -251,6 +279,7 @@ class ReportService
             ->addSelect('categories.id as category_id', DB::raw("COALESCE(categories.name, 'Uncategorized') as category_name"))
             ->groupBy('categories.id', 'categories.name')
             ->orderByDesc('revenue')
+            ->limit($this->resultLimit($filters))
             ->get()
             ->map(fn ($row) => [
                 'category_id' => $row->category_id,
@@ -271,6 +300,7 @@ class ReportService
             ->addSelect(DB::raw("COALESCE(orders.checkout_district, 'Unknown') as district"))
             ->groupBy('district')
             ->orderByDesc('revenue')
+            ->limit($this->resultLimit($filters))
             ->get()
             ->map(fn ($row) => [
                 'district' => $row->district,
@@ -293,6 +323,7 @@ class ReportService
             ->addSelect(DB::raw("{$monthExpr} as month"))
             ->groupBy('month')
             ->orderBy('month')
+            ->limit($this->resultLimit($filters))
             ->get()
             ->map(fn ($row) => [
                 'month' => $row->month,
@@ -336,6 +367,14 @@ class ReportService
 
     public function inventory(array $filters): array
     {
+        $batchValues = ProductBatch::query()
+            ->selectRaw('product_id, variant_id, shop_id, SUM(count) as tracked_units, SUM(count * cost_price) as tracked_value')
+            ->where('count', '>', 0)
+            ->when($filters['shop_id'] ?? null, fn ($q, $shopId) => $q->where('shop_id', $shopId))
+            ->groupBy('product_id', 'variant_id', 'shop_id')
+            ->get()
+            ->keyBy(fn ($row) => $row->product_id . ':' . ($row->variant_id ?: 0) . ':' . $row->shop_id);
+
         return Inventory::with([
                 'product:id,name,sku,cost_price,category_id',
                 'product.primaryCategory:id,name',
@@ -343,9 +382,16 @@ class ReportService
                 'shop:id,name,code',
             ])
             ->when($filters['shop_id'] ?? null, fn ($q, $shopId) => $q->where('shop_id', $shopId))
+            ->limit($this->resultLimit($filters))
             ->get()
-            ->map(function ($row): array {
-                $unitCost = (float) ($row->variant?->cost_price ?? $row->product?->cost_price ?? 0);
+            ->map(function ($row) use ($batchValues): array {
+                $quantity = max(0, (int) $row->quantity);
+                $batchValue = $batchValues->get($row->product_id . ':' . ($row->variant_id ?: 0) . ':' . $row->shop_id);
+                $trackedUnits = min($quantity, (int) ($batchValue?->tracked_units ?? 0));
+                $trackedValue = (float) ($batchValue?->tracked_value ?? 0);
+                $fallbackCost = (float) ($row->variant?->cost_price ?? $row->product?->cost_price ?? 0);
+                $stockValue = $trackedValue + max(0, $quantity - $trackedUnits) * $fallbackCost;
+                $unitCost = $quantity > 0 ? $stockValue / $quantity : $fallbackCost;
                 $variation = $row->variant?->attribute_values;
                 if (is_array($variation)) {
                     $variation = collect($variation)->map(fn ($value, $key) => ucfirst((string) $key) . ': ' . $value)->implode(', ');
@@ -359,12 +405,12 @@ class ReportService
                     'category_name' => $row->product?->primaryCategory?->name,
                     'store_name' => $row->shop?->name,
                     'store_code' => $row->shop?->code,
-                    'quantity' => (int) $row->quantity,
+                    'quantity' => $quantity,
                     'reserved' => (int) $row->reserved,
                     'available' => (int) $row->available,
                     'low_stock_threshold' => (int) $row->low_stock_threshold,
                     'unit_cost' => round($unitCost, 2),
-                    'stock_value' => round($unitCost * (int) $row->quantity, 2),
+                    'stock_value' => round($stockValue, 2),
                     'stock_health' => $row->stock_health,
                     'low_stock' => $row->available <= $row->low_stock_threshold,
                 ];
@@ -392,7 +438,7 @@ class ReportService
             'requests' => (clone $returns)
                 ->with(['order:id,order_number,checkout_name,checkout_mobile_number,grand_total', 'shop:id,name,code', 'creator:id,name'])
                 ->latest('created_at')
-                ->limit((int) ($filters['limit'] ?? 100))
+                ->limit($this->resultLimit($filters))
                 ->get([
                     'id', 'rr_number', 'order_id', 'type', 'status', 'reason', 'refund_total',
                     'exchange_credit_total', 'exchange_due_total', 'resolution_type', 'refund_method',
@@ -416,56 +462,6 @@ class ReportService
                     'created_by' => $return->creator?->name,
                     'resolved_at' => optional($return->resolved_at)->toDateTimeString(),
                     'created_at' => optional($return->created_at)->toDateTimeString(),
-                ]),
-        ];
-    }
-
-    public function transactions(array $filters): array
-    {
-        $base = BusinessTransaction::query()
-            ->whereIn('status', ['recorded', 'reversed'])
-            ->when($filters['shop_id'] ?? null, fn ($q, $shopId) => $q->where('shop_id', $shopId))
-            ->when($filters['from'] ?? null, fn ($q, $from) => $q->whereDate('occurred_at', '>=', $from))
-            ->when($filters['to'] ?? null, fn ($q, $to) => $q->whereDate('occurred_at', '<=', $to))
-            ->when($filters['type'] ?? null, fn ($q, $type) => $q->where('type', $type));
-
-        $expenses = (float) (clone $base)->where('type', 'expense')->sum('amount');
-        $income = (float) (clone $base)->where('type', 'income')->sum('amount');
-
-        return [
-            'currency' => config('hajjmart.currency', 'BDT'),
-            'summary' => [
-                'records' => (clone $base)->count(),
-                'expenses' => round($expenses, 2),
-                'income' => round($income, 2),
-                'net_cash_impact' => round($income - $expenses, 2),
-            ],
-            'by_type' => (clone $base)
-                ->select('type', DB::raw('COUNT(*) as records'), DB::raw('COALESCE(SUM(amount), 0) as amount'))
-                ->groupBy('type')->orderByDesc('amount')->get(),
-            'by_category' => (clone $base)
-                ->selectRaw("COALESCE(category, 'Uncategorized') as category")
-                ->selectRaw('type, COUNT(*) as records, COALESCE(SUM(amount), 0) as amount')
-                ->groupBy('category', 'type')->orderByDesc('amount')->get(),
-            'by_day' => (clone $base)
-                ->selectRaw('DATE(occurred_at) as date')
-                ->selectRaw("COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) as income")
-                ->selectRaw("COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) as expenses")
-                ->groupBy('date')->orderBy('date')->get(),
-            'recent_transactions' => (clone $base)
-                ->with(['shop:id,name,code', 'creator:id,name'])
-                ->latest('occurred_at')->limit((int) ($filters['limit'] ?? 100))->get()
-                ->map(fn ($transaction) => [
-                    'transaction_number' => $transaction->transaction_number,
-                    'type' => $transaction->type,
-                    'category' => $transaction->category,
-                    'amount' => round((float) $transaction->amount, 2),
-                    'payment_method' => $transaction->payment_method,
-                    'reason' => $transaction->reason,
-                    'reference' => $transaction->reference,
-                    'store_name' => $transaction->shop?->name,
-                    'recorded_by' => $transaction->creator?->name,
-                    'occurred_at' => optional($transaction->occurred_at)->toDateTimeString(),
                 ]),
         ];
     }

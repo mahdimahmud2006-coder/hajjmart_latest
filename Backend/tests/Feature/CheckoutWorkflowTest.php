@@ -7,6 +7,7 @@ use App\Models\Inventory;
 use App\Models\Order;
 use App\Models\Payment;
 use App\Models\Product;
+use App\Models\ReservedProduct;
 use App\Models\Shop;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
@@ -68,8 +69,8 @@ class CheckoutWorkflowTest extends TestCase
 
         $order = Order::firstOrFail();
         $this->assertSame('website', $order->source_channel);
-        $this->assertSame('pending', $order->status);
-        $this->assertSame('pending', $order->payment_status);
+        $this->assertSame('confirmed', $order->status);
+        $this->assertSame('due', $order->payment_status);
         $this->assertNull($order->checkout_email);
         $this->assertSame(80.0, (float) $order->shipping_total);
         $this->assertSame(2780.0, (float) $order->grand_total);
@@ -96,18 +97,8 @@ class CheckoutWorkflowTest extends TestCase
             'status' => 'delivered',
         ]);
 
-        $entries = \App\Domains\Accounting\Models\JournalEntry::query()
-            ->where('source_type', $order->getMorphClass())
-            ->where('source_id', $order->id)
-            ->with('lines.account')
-            ->orderBy('id')
-            ->get();
-
-        $this->assertCount(2, $entries);
-        $this->assertSame(['SALE_COMPLETED', 'SALE_COGS_RECOGNIZED'], $entries->pluck('metadata.event_type')->all());
-        $this->assertTrue($entries->every(fn ($entry) => round($entry->lines->sum(fn ($line) => (float) $line->debit), 2) === round($entry->lines->sum(fn ($line) => (float) $line->credit), 2)));
-        $this->assertSame(1350.0, (float) $entries->first()->lines->first(fn ($line) => $line->account->code === '4000')->credit);
-        $this->assertSame(800.0, (float) $entries->last()->lines->first(fn ($line) => $line->account->code === '5000')->debit);
+        $this->assertSame('delivered', $order->fresh()->status);
+        $this->assertSame(1350.0, (float) $order->fresh()->grand_total);
     }
 
     public function test_guest_cod_confirmation_commits_reserved_inventory_once(): void
@@ -115,10 +106,10 @@ class CheckoutWorkflowTest extends TestCase
         $this->postJson('/api/v1/checkout/place-order', $this->checkoutPayload('cod', (string) Str::uuid()))->assertCreated();
         $order = Order::firstOrFail();
 
-        $this->assertSame('pending', $order->status);
+        $this->assertSame('confirmed', $order->status);
         $this->assertSame(2, $this->inventory->fresh()->reserved);
 
-        $updated = app(\App\Services\OrderService::class)->transition($order, 'confirmed', null, 'Approved by operations');
+        $updated = app(\App\Services\OrderService::class)->transition($order, 'shipped', null, 'Approved by operations');
 
         $this->assertTrue($updated->relationLoaded('items'));
         $this->assertTrue($updated->items->first()->relationLoaded('product'));
@@ -127,8 +118,8 @@ class CheckoutWorkflowTest extends TestCase
         $inventory = $this->inventory->fresh();
         $this->assertSame(8, $inventory->quantity);
         $this->assertSame(0, $inventory->reserved);
-        $this->assertSame('confirmed', $order->fresh()->status);
-        $this->assertDatabaseCount('reserved_products', 0);
+        $this->assertSame('shipped', $order->fresh()->status);
+        $this->assertSame(0, ReservedProduct::active()->count());
     }
 
     public function test_confirmation_repairs_a_legacy_missing_reserved_counter_before_committing(): void
@@ -140,13 +131,13 @@ class CheckoutWorkflowTest extends TestCase
         // store-scoped inventory.reserved counter had not been populated.
         $this->inventory->forceFill(['reserved' => 0])->save();
 
-        app(\App\Services\OrderService::class)->transition($order, 'confirmed', null, 'Approved after upgrade');
+        app(\App\Services\OrderService::class)->transition($order, 'shipped', null, 'Approved after upgrade');
 
         $inventory = $this->inventory->fresh();
         $this->assertSame(8, $inventory->quantity);
         $this->assertSame(0, $inventory->reserved);
-        $this->assertSame('confirmed', $order->fresh()->status);
-        $this->assertDatabaseCount('reserved_products', 0);
+        $this->assertSame('shipped', $order->fresh()->status);
+        $this->assertSame(0, ReservedProduct::active()->count());
     }
 
     public function test_pos_sale_deducts_only_from_the_explicitly_selected_store(): void
@@ -223,7 +214,7 @@ class CheckoutWorkflowTest extends TestCase
         $this->inventory->update(['quantity' => 1]);
 
         $this->postJson('/api/v1/checkout/place-order', $this->checkoutPayload('cod', (string) Str::uuid()))
-            ->assertUnprocessable();
+            ->assertStatus(409);
 
         $this->assertDatabaseCount('orders', 0);
         $inventory = $this->inventory->fresh();
@@ -253,12 +244,12 @@ class CheckoutWorkflowTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('data.orders.0.order_number', $orderNumber)
-            ->assertJsonPath('data.orders.0.status', 'pending')
+            ->assertJsonPath('data.orders.0.status', 'confirmed')
             ->assertJsonPath('data.orders.0.items_count', 1)
             ->assertJsonPath('data.orders.0.timeline.0.step', 'placed')
             ->assertJsonPath('data.orders.0.timeline.0.done', true)
             ->assertJsonPath('data.orders.0.timeline.1.step', 'confirmed')
-            ->assertJsonPath('data.orders.0.timeline.1.done', false);
+            ->assertJsonPath('data.orders.0.timeline.1.done', true);
 
         $this->assertArrayNotHasKey('checkout_full_address', $response->json('data.orders.0'));
         $this->assertArrayNotHasKey('customer_note', $response->json('data.orders.0'));
@@ -296,7 +287,7 @@ class CheckoutWorkflowTest extends TestCase
         $this->assertSame(0, $inventory->reserved);
         $this->assertSame('paid', $payment->fresh()->status);
         $this->assertSame('confirmed', Order::firstOrFail()->status);
-        $this->assertDatabaseCount('reserved_products', 0);
+        $this->assertSame(0, ReservedProduct::active()->count());
     }
 
     public function test_expired_online_checkout_releases_reservation_once(): void
@@ -311,10 +302,10 @@ class CheckoutWorkflowTest extends TestCase
         $inventory = $this->inventory->fresh();
         $this->assertSame(10, $inventory->quantity);
         $this->assertSame(0, $inventory->reserved);
-        $this->assertSame('cancelled', $order->fresh()->status);
-        $this->assertSame('failed', $order->fresh()->payment_status);
+        $this->assertSame('returned', $order->fresh()->status);
+        $this->assertSame('due', $order->fresh()->payment_status);
         $this->assertSame('failed', Payment::firstOrFail()->status);
-        $this->assertDatabaseCount('reserved_products', 0);
+        $this->assertSame(0, ReservedProduct::active()->count());
     }
 
     private function checkoutPayload(string $paymentMethod, string $key): array

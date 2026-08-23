@@ -1,176 +1,334 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAdmin } from "@/context/admin-context";
+import { useAdminLanguage } from "@/context/admin-language-context";
 import { useStore } from "@/context/store-context";
 import { adminRequest, pageRows, queryString } from "@/lib/admin-api";
 import { demoProductsAdmin } from "@/lib/admin-demo";
-import type { AdminProduct, Paginated } from "@/lib/admin-types";
+import type { AdminCategory, AdminProduct, AdminProductVariant, Paginated } from "@/lib/admin-types";
 import { formatPrice } from "@/lib/utils";
 import { AdminProductImage } from "@/components/admin/admin-product-image";
-import { AdminButton, AdminIcon, AdminSelect, Drawer, EmptyState, Field, FormGrid, PageHeader, Pagination, Panel, SearchField, StatusBadge, TableShell } from "@/components/admin/admin-ui";
+import { ProductForm } from "@/components/admin/product-form";
+import { ProductsInventoryNav } from "@/components/admin/products-inventory-nav";
+import { AdminButton, AdminIcon, AdminSelect, BulkActionBar, DataList, Dialog, EmptyState, Field, PageHeader, Pagination, Panel, SearchField, Sheet, StatusChip, TableShell } from "@/components/admin/admin-ui";
 
-function stockState(product: AdminProduct) {
-  const raw = (product.stock_status || "").replaceAll("_", "").toLowerCase();
-  if ((product.available_stock ?? 0) <= 0 || raw === "outofstock") return "outofstock";
-  if (raw === "lowstock" || (product.available_stock ?? 0) <= 5) return "lowstock";
-  return "instock";
+function variants(product: AdminProduct) {
+  return (product.product_variants || product.productVariants || []).filter((variant) => variant.is_active !== false);
 }
 
-function demoResult(search: string, stock: string, page: number, perPage: number): Paginated<AdminProduct> {
-  const term = search.toLowerCase();
-  const filtered = demoProductsAdmin.filter((product) => `${product.name} ${product.sku || ""} ${product.brand || ""}`.toLowerCase().includes(term) && (stock === "all" || stockState(product) === stock));
+function stockState(product: AdminProduct): "success" | "warning" | "error" {
+  const available = Number(product.available_stock || 0);
+  if (available <= 0) return "error";
+  if (available <= 5) return "warning";
+  return "success";
+}
+
+function canDeleteProduct(product: AdminProduct): boolean {
+  const stock = Number(product.available_stock || 0);
+  const totalInventory = (product.inventory || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+  return stock === 0 && totalInventory === 0;
+}
+
+function demoPage(source: AdminProduct[], search: string, stock: string, currentPage: number, perPage: number) {
+  const needle = search.toLowerCase();
+  const filtered = source.filter((product) => {
+    const matchesSearch = !needle || `${product.name} ${product.sku || ""} ${variants(product).map((variant) => variant.sku || "").join(" ")}`.toLowerCase().includes(needle);
+    const count = Number(product.available_stock || 0);
+    const matchesStock = stock === "all" || (stock === "instock" && count > 0) || (stock === "lowstock" && count > 0 && count <= 5) || (stock === "outofstock" && count <= 0);
+    return matchesSearch && matchesStock;
+  });
   const lastPage = Math.max(1, Math.ceil(filtered.length / perPage));
-  const currentPage = Math.min(page, lastPage);
   return { data: filtered.slice((currentPage - 1) * perPage, currentPage * perPage), current_page: currentPage, last_page: lastPage, total: filtered.length, per_page: perPage };
 }
 
+function variantSummary(variant: AdminProductVariant): string {
+  if (variant.attributes_json && Object.keys(variant.attributes_json).length > 0) {
+    return Object.entries(variant.attributes_json)
+      .map(([key, val]) => `${key}: ${val}`)
+      .join(" · ");
+  }
+  if (Array.isArray(variant.attribute_values) && variant.attribute_values.length > 0) {
+    return variant.attribute_values.join(" · ");
+  }
+  return variant.sku ? `SKU: ${variant.sku}` : `Variation #${variant.id}`;
+}
+
+function variantStock(variant: AdminProductVariant): number {
+  const v = variant as any;
+  if (typeof v.available_stock === "number") return v.available_stock;
+  if (typeof v.stock === "number") return v.stock;
+  if (typeof v.quantity === "number") return v.quantity;
+  if (typeof v.count === "number") return v.count;
+  if (v.inventory && typeof v.inventory.quantity === "number") {
+    return Math.max(0, v.inventory.quantity - (v.inventory.reserved || 0));
+  }
+  return 0;
+}
+
 export default function ProductsPage() {
-  const { token, demoMode, selectedStoreId } = useAdmin();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const { token, demoMode, selectedStoreId, user } = useAdmin();
+  const { t } = useAdminLanguage();
   const { notify } = useStore();
   const [products, setProducts] = useState<AdminProduct[]>([]);
+  const [categories, setCategories] = useState<AdminCategory[]>([]);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [stock, setStock] = useState("all");
-  const [view, setView] = useState<"table" | "grid">("table");
   const [page, setPage] = useState(1);
-  const [perPage, setPerPage] = useState(50);
+  const [perPage, setPerPage] = useState(30);
   const [meta, setMeta] = useState({ currentPage: 1, lastPage: 1, total: 0 });
-  const [selected, setSelected] = useState<AdminProduct | null>(null);
-  const [createOpen, setCreateOpen] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<AdminProduct | null>(null);
+  const [formProduct, setFormProduct] = useState<AdminProduct | null | undefined>(undefined);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [bulkMode, setBulkMode] = useState<"prices" | null>(null);
+  const [deleteProduct, setDeleteProduct] = useState<AdminProduct | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const sequence = useRef(0);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 280);
     return () => window.clearTimeout(timer);
   }, [search]);
   useEffect(() => { setPage(1); }, [debouncedSearch, stock, selectedStoreId, perPage]);
 
-  useEffect(() => {
+  const loadProducts = useCallback(async () => {
     const requestId = ++sequence.current;
     setLoading(true);
-    if (demoMode) {
-      const result = demoResult(debouncedSearch, stock, page, perPage);
-      setProducts(result.data);
-      setMeta({ currentPage: result.current_page || 1, lastPage: result.last_page || 1, total: result.total || 0 });
-      setLoading(false);
-      return;
-    }
-    if (!token) {
-      setProducts([]);
-      setMeta({ currentPage: 1, lastPage: 1, total: 0 });
-      setError("Live products require an authenticated employee session.");
-      setLoading(false);
-      return;
-    }
-    void adminRequest<Paginated<AdminProduct>>(`/products${queryString({ q: debouncedSearch || undefined, shop_id: selectedStoreId === "all" ? undefined : selectedStoreId, stock_state: stock === "all" ? undefined : stock, include_inactive: 1, page, per_page: perPage })}`, { token })
-      .then((result) => {
-        if (requestId !== sequence.current) return;
-        setProducts(pageRows(result));
-        setMeta({ currentPage: result.current_page || page, lastPage: result.last_page || 1, total: result.total || 0 });
-      })
-      .catch((reason) => { if (requestId === sequence.current) setError(reason instanceof Error ? reason.message : "Products could not be loaded."); })
-      .finally(() => { if (requestId === sequence.current) setLoading(false); });
-  }, [token, demoMode, selectedStoreId, debouncedSearch, stock, page, perPage]);
-
-  const pageStats = useMemo(() => ({ active: products.filter((product) => product.is_active).length, low: products.filter((product) => stockState(product) === "lowstock").length, out: products.filter((product) => stockState(product) === "outofstock").length }), [products]);
-
-  async function create(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const data = new FormData(event.currentTarget);
-    setBusy(true); setError(null);
     try {
-      const category = String(data.get("category") || "").trim();
-      const name = String(data.get("name"));
-      const sku = String(data.get("sku"));
-      const brand = String(data.get("brand") || "");
-      const payload = {
-        name,
-        sku,
-        brand,
-        short_description: String(data.get("description") || ""),
-        categories: category ? [category] : [],
-        product_type: String(data.get("product_type") || "simple"),
-        is_active: true,
-        visible_in_shop: true,
-        purchasable: false,
-        stock_status: "out_of_stock",
-      };
-      let product: AdminProduct;
       if (demoMode) {
-        product = {
-          id: Date.now(),
-          name,
-          slug: name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-          sku,
-          brand,
-          selling_price: 0,
-          regular_price: 0,
-          cost_price: 0,
-          is_active: true,
-          is_featured: false,
-          image_src: ["/images/products/travel-kit.svg"],
-          available_stock: 0,
-          stock_status: "out_of_stock",
-          categories: category ? [{ id: Date.now() + 1, name: category, slug: category.toLowerCase().replace(/[^a-z0-9]+/g, "-") }] : [],
-        };
-      } else if (!token) {
-        throw new Error("Live product creation requires an authenticated employee session.");
-      } else {
-        product = await adminRequest<AdminProduct>("/products", { method: "POST", token, body: payload });
+        const result = demoPage(demoProductsAdmin, debouncedSearch, stock, page, perPage);
+        if (requestId !== sequence.current) return;
+        setProducts(result.data);
+        setMeta({ currentPage: result.current_page || 1, lastPage: result.last_page || 1, total: result.total || 0 });
+        setError(null);
+        return;
       }
-      setProducts((current) => [product, ...current].slice(0, perPage));
-      setMeta((current) => ({ ...current, total: current.total + 1 }));
-      setCreateOpen(false);
-      notify("Product master created. Add a confirmed product batch to set prices and enter stock.");
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Product could not be created."); }
-    finally { setBusy(false); }
+      if (!token) return;
+      const result = await adminRequest<Paginated<AdminProduct>>(`/products${queryString({ q: debouncedSearch || undefined, shop_id: selectedStoreId === "all" ? undefined : selectedStoreId, stock_state: stock === "all" ? undefined : stock, include_inactive: 1, page, per_page: perPage })}`, { token });
+      if (requestId !== sequence.current) return;
+      setProducts(pageRows(result));
+      setMeta({ currentPage: result.current_page || page, lastPage: result.last_page || 1, total: result.total || 0 });
+      setError(null);
+    } catch {
+      if (requestId === sequence.current) setError(t("products.loadError"));
+    } finally {
+      if (requestId === sequence.current) setLoading(false);
+    }
+  }, [debouncedSearch, demoMode, page, perPage, selectedStoreId, stock, t, token]);
+
+  useEffect(() => { void loadProducts(); }, [loadProducts]);
+
+  useEffect(() => {
+    if (demoMode) {
+      setCategories([
+        { id: 1, name: "Travel essentials", is_active: true },
+        { id: 2, name: "Ihram", is_active: true },
+      ]);
+      return;
+    }
+    if (!token) return;
+    const controller = new AbortController();
+    void adminRequest<AdminCategory[]>("/categories", { token, signal: controller.signal })
+      .then((rows) => setCategories(rows.flatMap((category) => [category, ...(category.children || [])])))
+      .catch(() => setError(t("products.categoriesLoadError")));
+    return () => controller.abort();
+  }, [demoMode, t, token]);
+
+  useEffect(() => {
+    if (searchParams.get("create") === "1") setFormProduct(null);
+  }, [searchParams]);
+
+  useEffect(() => {
+    const productId = Number(searchParams.get("product"));
+    if (!productId || selectedProduct?.id === productId) return;
+    const local = products.find((product) => product.id === productId);
+    if (local) { setSelectedProduct(local); return; }
+    if (demoMode) {
+      setSelectedProduct(demoProductsAdmin.find((product) => product.id === productId) || null);
+      return;
+    }
+    if (!token) return;
+    const controller = new AbortController();
+    void adminRequest<AdminProduct>(`/products/${productId}`, { token, signal: controller.signal })
+      .then(setSelectedProduct)
+      .catch(() => setError(t("products.detailError")));
+    return () => controller.abort();
+  }, [demoMode, products, searchParams, selectedProduct?.id, t, token]);
+
+  async function openEdit(product: AdminProduct) {
+    if (demoMode) { setFormProduct(product); setSelectedProduct(null); return; }
+    if (!token) return;
+    setBusy(true);
+    try {
+      const detail = await adminRequest<AdminProduct>(`/products/${product.id}`, { token });
+      setFormProduct(detail);
+      setSelectedProduct(null);
+    } catch {
+      setError(t("products.detailError"));
+    } finally { setBusy(false); }
   }
 
-  async function archive() {
-    if (!selected) return;
+  async function bulkUpdate(action: "prices" | "status", payload: Record<string, unknown>) {
+    if (!selectedIds.length) return;
     setBusy(true); setError(null);
     try {
-      let product: AdminProduct = { ...selected, is_active: false };
-      if (!demoMode && token) product = await adminRequest<AdminProduct>(`/products/${selected.id}`, { method: "PUT", token, body: { is_active: false, visible_in_shop: false } });
-      setProducts((current) => current.map((item) => item.id === product.id ? product : item));
-      setSelected(product);
-      notify("Product archived without removing order history.");
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Product could not be archived."); }
-    finally { setBusy(false); }
+      if (!demoMode) {
+        if (!token) throw new Error();
+        await adminRequest("/products/bulk", { method: "PUT", token, body: { product_ids: selectedIds, action, ...payload } });
+      }
+      setBulkMode(null);
+      setSelectedIds([]);
+      await loadProducts();
+      notify(t("products.bulkSaved"));
+    } catch {
+      setError(t("products.bulkError"));
+    } finally { setBusy(false); }
   }
+
+  async function submitBulkPrices(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    await bulkUpdate("prices", { retail_price: Number(form.get("retail_price")), wholesale_price: Number(form.get("wholesale_price")) });
+  }
+
+  async function removeProduct() {
+    if (!deleteProduct) return;
+    setBusy(true); setError(null);
+    try {
+      if (!demoMode) {
+        if (!token) throw new Error();
+        await adminRequest(`/products/${deleteProduct.id}`, { method: "DELETE", token });
+      }
+      setDeleteProduct(null);
+      setSelectedProduct(null);
+      await loadProducts();
+      notify(t("products.deleted"));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : t("products.deleteError"));
+      setDeleteProduct(null);
+    } finally { setBusy(false); }
+  }
+
+  async function setProductActive(product: AdminProduct, active: boolean) {
+    setBusy(true); setError(null);
+    try {
+      let updated = { ...product, is_active: active, visible_in_shop: active };
+      if (!demoMode) {
+        if (!token) throw new Error();
+        updated = (await adminRequest<AdminProduct>(`/products/${product.id}`, { method: "PUT", token, body: { is_active: active, visible_in_shop: active } })) as any;
+      }
+      setProducts((current) => current.map((item) => item.id === updated.id ? updated : item));
+      setSelectedProduct(updated);
+      notify(active ? t("products.activated") : t("products.archived"));
+    } catch (reason) {
+      setError(reason instanceof Error && reason.message ? reason.message : t("products.detailError"));
+    } finally { setBusy(false); }
+  }
+
+  const allPageSelected = products.length > 0 && products.every((product) => selectedIds.includes(product.id));
+  const selected = useMemo(() => products.filter((product) => selectedIds.includes(product.id)), [products, selectedIds]);
 
   return <>
-    <PageHeader title="Product catalogue" description="Manage product identity, categories, images and variants. Commercial prices and stock are introduced only through confirmed product batches." actions={<><AdminButton variant="secondary" icon="download" onClick={() => notify("Product catalogue export generated.")}>Export</AdminButton><AdminButton icon="plus" onClick={() => { setError(null); setCreateOpen(true); }}>Add product</AdminButton></>}/>
+    <ProductsInventoryNav/>
+    <PageHeader title={t("products.title")} description={t("products.description")} actions={<AdminButton icon="plus" onClick={() => setFormProduct(null)}>{t("products.addProduct")}</AdminButton>}/>
     {error && <p className="admin-form-error">{error}</p>}
-    <div className="admin-inline-metrics"><div><span>Total matching products</span><strong>{meta.total}</strong></div><div><span>Active on this page</span><strong>{pageStats.active}</strong></div><div><span>Low stock on page</span><strong>{pageStats.low}</strong></div><div><span>Out of stock on page</span><strong>{pageStats.out}</strong></div></div>
-    <Panel><div className="admin-toolbar"><SearchField value={search} onChange={setSearch} placeholder="Product name, parent SKU, variation SKU or brand…"/><div className="admin-toolbar-filters"><AdminSelect value={stock} onChange={setStock}><option value="all">All stock states</option><option value="instock">In stock</option><option value="lowstock">Low stock</option><option value="outofstock">Out of stock</option></AdminSelect><div className="admin-view-toggle"><button type="button" className={view === "table" ? "active" : ""} onClick={() => setView("table")}><AdminIcon name="menu"/></button><button type="button" className={view === "grid" ? "active" : ""} onClick={() => setView("grid")}><AdminIcon name="dashboard"/></button></div></div></div>
-      {loading && <div className="admin-list-loading"><span/><p>Loading the requested catalogue page…</p></div>}
-      {view === "table" ? (products.length ? <TableShell><thead><tr><th>Product</th><th>Category / brand</th><th>Cost</th><th>Retail / wholesale</th><th>Stock</th><th>Status</th><th></th></tr></thead><tbody>{products.map((product) => <tr key={product.id} onClick={() => setSelected(product)} className="admin-clickable-row"><td><div className="admin-product-cell"><span><AdminProductImage product={product}/></span><div><strong>{product.name}</strong><small>{product.sku || "No SKU"}{(product.product_variants || product.productVariants || []).length ? ` · ${(product.product_variants || product.productVariants || []).length} variations` : ""}</small></div></div></td><td>{product.categories?.[0]?.name || "Uncategorised"}<small>{product.brand || "No brand"}</small></td><td>{formatPrice(product.cost_price || 0)}</td><td><strong>{formatPrice(product.retail_price ?? product.selling_price ?? 0)}</strong><small>Wholesale {formatPrice(product.wholesale_price ?? product.retail_price ?? product.selling_price ?? 0)}</small></td><td><strong>{product.available_stock ?? 0}</strong><small>available units</small></td><td><StatusBadge value={stockState(product)}/><small>{product.is_active ? "Published" : "Hidden"}</small></td><td className="align-right"><button type="button" className="admin-icon-button"><AdminIcon name="chevron"/></button></td></tr>)}</tbody></TableShell> : !loading && <EmptyState title="No products found" description="Change the search or stock filter." icon="products"/>) : <div className="admin-product-admin-grid">{products.map((product) => <article key={product.id} onClick={() => setSelected(product)}><div className="admin-product-admin-image"><AdminProductImage product={product}/><StatusBadge value={stockState(product)}/></div><div><small>{product.categories?.[0]?.name} · {product.sku}</small><h3>{product.name}</h3><p><strong>{formatPrice(product.retail_price ?? product.selling_price)}</strong><span>Wholesale {formatPrice(product.wholesale_price ?? product.retail_price ?? product.selling_price)}</span><span>{product.available_stock} units</span></p></div></article>)}</div>}
+
+    <Panel>
+      <div className="admin-toolbar">
+        <SearchField value={search} onChange={setSearch} placeholder={t("products.search")}/>
+        <div className="admin-toolbar-filters">
+          <AdminSelect value={stock} onChange={setStock}>
+            <option value="all">{t("products.allStock")}</option>
+            <option value="instock">{t("products.inStock")}</option>
+            <option value="lowstock">{t("products.lowStock")}</option>
+            <option value="outofstock">{t("products.outOfStock")}</option>
+          </AdminSelect>
+        </div>
+      </div>
+      {loading && <div className="admin-list-loading"><span/><p>{t("products.loading")}</p></div>}
+      <DataList
+        desktop={products.length ? <TableShell bulkAction={<BulkActionBar selected={selectedIds.length} label={t("products.selected")} onClear={() => setSelectedIds([])}>
+          <button type="button" onClick={() => router.push(`/admin/inventory/product-batches?products=${selectedIds.join(",")}`)}>{t("products.bulkAddStock")}</button>
+          <button type="button" onClick={() => setBulkMode("prices")}>{t("products.bulkPrices")}</button>
+          <button type="button" onClick={() => void bulkUpdate("status", { is_active: true })}>{t("products.activate")}</button>
+          <button type="button" onClick={() => void bulkUpdate("status", { is_active: false })}>{t("products.archive")}</button>
+        </BulkActionBar>}>
+          <thead><tr><th className="admin-select-cell"><input type="checkbox" aria-label={t("products.selectPage")} checked={allPageSelected} onChange={(event) => setSelectedIds(event.target.checked ? products.map((product) => product.id) : [])}/></th><th>{t("products.product")}</th><th>{t("products.price")}</th><th>{t("products.stock")}</th><th>{t("products.status")}</th></tr></thead>
+          <tbody>{products.map((product) => <tr key={product.id} className="admin-clickable-row" onClick={() => setSelectedProduct(product)}>
+            <td className="admin-select-cell" onClick={(event) => event.stopPropagation()}><input type="checkbox" aria-label={`${t("products.select")} ${product.name}`} checked={selectedIds.includes(product.id)} onChange={(event) => setSelectedIds((current) => event.target.checked ? [...new Set([...current, product.id])] : current.filter((id) => id !== product.id))}/></td>
+            <td><div className="admin-product-cell"><span><AdminProductImage product={product}/></span><div><strong>{product.name}</strong><small>{product.sku || t("products.noSku")} · {variants(product).length} {t("products.variationsCount")}</small><small>{product.brand || product.categories?.[0]?.name || t("products.uncategorised")}</small></div></div></td>
+            <td className="align-right">
+              <strong>{formatPrice(product.retail_price ?? product.selling_price ?? 0)}</strong>
+              {product.wholesale_price && Number(product.wholesale_price) > 0 && Number(product.wholesale_price) !== Number(product.retail_price ?? product.selling_price) ? <small style={{ display: "block", fontSize: "12px", color: "var(--neutral-600)" }}>{t("products.currentWholesale")}: {formatPrice(product.wholesale_price)}</small> : null}
+            </td>
+            <td><StatusChip value={`${product.available_stock ?? 0} ${t("products.available")}`} tone={stockState(product)}/></td>
+            <td><StatusChip value={product.is_active ? t("products.active") : t("products.archived")} tone={product.is_active ? "success" : "neutral"}/></td>
+          </tr>)}</tbody>
+        </TableShell> : !loading && <EmptyState title={t("products.empty")} description={t("products.emptyCopy")} icon="products" action={<AdminButton icon="plus" onClick={() => setFormProduct(null)}>{t("products.addProduct")}</AdminButton>}/>} 
+        mobile={<div className="admin-mobile-product-list">{selectedIds.length > 0 && <BulkActionBar selected={selectedIds.length} label={t("products.selected")} onClear={() => setSelectedIds([])}><button type="button" onClick={() => router.push(`/admin/inventory/product-batches?products=${selectedIds.join(",")}`)}>{t("products.bulkAddStock")}</button><button type="button" onClick={() => setBulkMode("prices")}>{t("products.bulkPrices")}</button><button type="button" onClick={() => void bulkUpdate("status", { is_active: true })}>{t("products.activate")}</button><button type="button" onClick={() => void bulkUpdate("status", { is_active: false })}>{t("products.archive")}</button></BulkActionBar>}{products.map((product) => <article key={product.id} className="admin-mobile-product-card" onClick={() => setSelectedProduct(product)}>
+          <input type="checkbox" aria-label={`${t("products.select")} ${product.name}`} checked={selectedIds.includes(product.id)} onClick={(event) => event.stopPropagation()} onChange={(event) => setSelectedIds((current) => event.target.checked ? [...new Set([...current, product.id])] : current.filter((id) => id !== product.id))}/>
+          <AdminProductImage product={product}/><div><strong>{product.name}</strong><span>{product.sku || t("products.noSku")} · {variants(product).length} {t("products.variationsCount")}</span><b>{formatPrice(product.retail_price ?? product.selling_price ?? 0)} · {product.available_stock ?? 0} {t("products.available")}</b></div><AdminIcon name="chevron"/>
+        </article>)}</div>}
+      />
       <Pagination currentPage={meta.currentPage} lastPage={meta.lastPage} total={meta.total} perPage={perPage} onPageChange={setPage} onPerPageChange={setPerPage}/>
     </Panel>
 
-    <Drawer open={createOpen} onClose={() => !busy && setCreateOpen(false)} title="Create product master" subtitle="The product starts at zero stock. Prices and sellable stock are introduced by a confirmed product batch." wide>
-      <form className="admin-stack" onSubmit={create}>
-        <Panel title="Core identity">
-          <FormGrid>
-            <Field label="Product name" required><input name="name" required/></Field>
-            <Field label="SKU" required><input name="sku" required placeholder="HM-CAT-001"/></Field>
-            <Field label="Category"><input name="category"/></Field>
-            <Field label="Brand"><input name="brand"/></Field>
-            <Field label="Product type"><select name="product_type"><option value="simple">Simple product</option><option value="variable">Variable product</option></select></Field>
-          </FormGrid>
-          <Field label="Short description"><textarea name="description" rows={3}/></Field>
-        </Panel>
-        <p className="admin-callout"><AdminIcon name="inventory"/>After saving, go to Inventory and choose <strong>Add product batch</strong> to enter cost price, selling price and stock with confirmation.</p>
-        {error && <p className="admin-form-error">{error}</p>}
-        <AdminButton icon="check" disabled={busy}>{busy ? "Creating…" : "Create product master"}</AdminButton>
-      </form>
-    </Drawer>
+    <Sheet open={selectedProduct !== null} onClose={() => setSelectedProduct(null)} title={selectedProduct?.name || t("products.product")} subtitle={selectedProduct?.sku || undefined} wide>
+      {selectedProduct && <div className="admin-stack">
+        <div className="admin-product-hub-detail"><AdminProductImage product={selectedProduct}/><div><h3>{selectedProduct.name}</h3><p>{selectedProduct.categories?.[0]?.name || t("products.uncategorised")} · {selectedProduct.brand || t("products.noBrand")}</p></div></div>
+        <div className="admin-detail-grid">
+          <div><span>{t("products.currentRetail")}</span><strong>{formatPrice(selectedProduct.retail_price ?? selectedProduct.selling_price ?? 0)}</strong></div>
+          <div><span>{t("products.currentWholesale")}</span><strong>{formatPrice(selectedProduct.wholesale_price ?? selectedProduct.retail_price ?? selectedProduct.selling_price ?? 0)}</strong></div>
+          <div><span>{t("products.availableStock")}</span><strong>{selectedProduct.available_stock ?? 0}</strong></div>
+          <div><span>{t("products.status")}</span><strong>{selectedProduct.is_active ? t("products.active") : t("products.archived")}</strong></div>
+        </div>
+        {variants(selectedProduct).length > 0 && (
+          <Panel title={`${t("products.variations")} (${variants(selectedProduct).length})`}>
+            <TableShell>
+              <thead>
+                <tr>
+                  <th>{t("products.variation")}</th>
+                  <th>{t("products.retailPrice")}</th>
+                  <th>{t("products.wholesalePrice")}</th>
+                  <th>{t("products.availableStock")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {variants(selectedProduct).map((variant) => (
+                  <tr key={variant.id}>
+                    <td>
+                      <strong>{variantSummary(variant)}</strong>
+                      {variant.sku && <small style={{ display: "block", color: "var(--neutral-600)", fontSize: "13px" }}>SKU: {variant.sku}</small>}
+                    </td>
+                    <td><strong>{formatPrice(variant.retail_price ?? variant.sale_price ?? variant.price ?? selectedProduct.retail_price ?? 0)}</strong></td>
+                    <td>{formatPrice(variant.wholesale_price ?? variant.retail_price ?? variant.sale_price ?? variant.price ?? selectedProduct.wholesale_price ?? 0)}</td>
+                    <td><strong>{variantStock(variant)}</strong></td>
+                  </tr>
+                ))}
+              </tbody>
+            </TableShell>
+          </Panel>
+        )}
+        <div className="admin-action-strip"><AdminButton icon="edit" onClick={() => void openEdit(selectedProduct)} disabled={busy}>{t("products.editProduct")}</AdminButton><Link className="admin-button secondary" href={`/admin/inventory/product-batches?products=${selectedProduct.id}`}><AdminIcon name="plus"/><span>{t("products.addStock")}</span></Link><AdminButton variant="ghost" icon={selectedProduct.is_active ? "box" : "check"} disabled={busy} onClick={() => void setProductActive(selectedProduct, !selectedProduct.is_active)}>{selectedProduct.is_active ? t("products.archive") : t("products.activate")}</AdminButton>{selectedProduct.is_active && <Link className="admin-button ghost" href={`/product/${selectedProduct.slug}`} target="_blank"><AdminIcon name="eye"/><span>{t("products.viewStorefront")}</span></Link>}</div>
+        {user?.is_admin && canDeleteProduct(selectedProduct) && <div className="admin-danger-zone"><div><strong>{t("products.deleteProduct")}</strong><p>{t("products.deleteProductCopy")}</p></div><AdminButton variant="danger" icon="trash" onClick={() => setDeleteProduct(selectedProduct)}>{t("products.deleteProduct")}</AdminButton></div>}
+      </div>}
+    </Sheet>
 
-    <Drawer open={Boolean(selected)} onClose={() => setSelected(null)} title={selected?.name || "Product"} subtitle={selected?.sku || undefined} wide>{selected && <div className="admin-stack"><div className="admin-product-hero"><span><AdminProductImage product={selected}/></span><div><p>{selected.categories?.map((category) => category.name).join(" · ")}</p><h3>{selected.name}</h3><strong>{formatPrice(selected.retail_price ?? selected.selling_price)}</strong><small>Wholesale {formatPrice(selected.wholesale_price ?? selected.retail_price ?? selected.selling_price)}</small></div><StatusBadge value={stockState(selected)}/></div><div className="admin-action-strip"><AdminButton icon="edit" onClick={() => notify("Product edit workflow opened.")}>Edit product</AdminButton><AdminButton variant="secondary" icon="inventory" onClick={() => notify("Use Inventory → Add product batch for normal stock entry. Manual adjustment is only for corrections.")}>Stock lifecycle</AdminButton><AdminButton variant="ghost" icon="eye" onClick={() => notify("Public product preview opened.")}>View storefront</AdminButton></div><Panel title="Product controls"><div className="admin-detail-grid"><div><span>Cost price</span><strong>{formatPrice(selected.cost_price || 0)}</strong><small>Internal only</small></div><div><span>Retail selling price</span><strong>{formatPrice(selected.retail_price ?? selected.selling_price ?? 0)}</strong><small>Default POS / social price</small></div><div><span>Wholesale selling price</span><strong>{formatPrice(selected.wholesale_price ?? selected.retail_price ?? selected.selling_price ?? 0)}</strong><small>Used when wholesale mode is selected</small></div><div><span>Available stock</span><strong>{selected.available_stock ?? 0}</strong><small>Across selected scope</small></div><div><span>Publishing</span><strong>{selected.is_active ? "Visible" : "Hidden"}</strong><small>{selected.is_featured ? "Featured product" : "Standard placement"}</small></div></div></Panel><Panel title="Storefront media"><div className="admin-media-drop"><AdminIcon name="plus"/><strong>Add product images</strong><small>Drag, upload or arrange primary image and gallery order.</small></div></Panel><div className="admin-danger-zone"><div><strong>Archive product</strong><p>Existing order history remains intact. Archived products cannot be sold.</p></div><AdminButton variant="danger" icon="trash" disabled={busy || !selected.is_active} onClick={archive}>{busy ? "Archiving…" : "Archive"}</AdminButton></div></div>}</Drawer>
+    <Sheet open={formProduct !== undefined} onClose={() => setFormProduct(undefined)} title={formProduct ? t("products.editProduct") : t("products.addProduct")} subtitle={t("products.formCopy")} wide>
+      {formProduct !== undefined && <ProductForm product={formProduct} categories={categories} token={token} demoMode={demoMode} isAdmin={Boolean(user?.is_admin)} onCancel={() => setFormProduct(undefined)} onSaved={(saved) => { setFormProduct(undefined); setSelectedProduct(saved); void loadProducts(); notify(formProduct ? t("products.updated") : t("products.created")); }}/>} 
+    </Sheet>
+
+    <Sheet open={bulkMode === "prices"} onClose={() => setBulkMode(null)} title={t("products.bulkPrices")} subtitle={`${selected.length} ${t("products.selected")}`}>
+      <form className="admin-stack admin-form-one-column" onSubmit={submitBulkPrices}><Field label={t("products.retailPrice")} required><input name="retail_price" type="number" min="0" step="0.01" required/></Field><Field label={t("products.wholesalePrice")} required><input name="wholesale_price" type="number" min="0" step="0.01" required/></Field><p className="admin-callout"><AdminIcon name="info"/>{t("products.bulkPriceCopy")}</p><AdminButton icon="check" disabled={busy}>{t("products.savePrices")}</AdminButton></form>
+    </Sheet>
+
+    <Dialog open={deleteProduct !== null} onClose={() => setDeleteProduct(null)} title={deleteProduct ? `${t("products.deleteProduct")} “${deleteProduct.name}”?` : t("products.deleteProduct")} description={t("products.deleteConfirmCopy")} actionLabel={deleteProduct ? `${t("products.deleteProduct")} ${deleteProduct.name}` : t("products.deleteProduct")} cancelLabel={t("products.keepProduct")} onAction={() => void removeProduct()} busy={busy}/>
   </>;
 }

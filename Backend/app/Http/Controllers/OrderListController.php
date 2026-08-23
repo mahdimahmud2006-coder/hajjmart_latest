@@ -64,8 +64,8 @@ class OrderListController extends Controller
             $stripeData
         );
 
-        // For Online orders manually marked as Paid, confirm them (commits reserved inventory).
-        // COD orders are already committed inside CreateOrderAction — no double-commit needed.
+        // Manual payment confirmation changes order/payment state only.
+        // Inventory remains reserved until physical fulfilment.
         if ($validated['payment_status'] === 'Paid' && $validated['payment_method'] === 'Online') {
             $order->confirm();
         }

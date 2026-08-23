@@ -16,19 +16,11 @@ class UserSeeder extends Seeder
                 'name' => 'HajjMart Admin',
                 'phone' => '01700000000',
                 'password' => Hash::make('ChangeMe123!'),
-                'role' => 'admin',
+                'is_employee' => true,
+                'is_admin' => true,
                 'is_active' => true,
-            ]
-        );
-
-        User::updateOrCreate(
-            ['email' => 'customer@hajjmart.local'],
-            [
-                'name' => 'Demo Customer',
-                'phone' => '01700000002',
-                'password' => Hash::make('ChangeMe123!'),
-                'role' => 'customer',
-                'is_active' => true,
+                'employee_code' => 'HM-ADMIN',
+                'designation' => 'Administrator',
             ]
         );
     }

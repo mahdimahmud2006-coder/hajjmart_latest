@@ -52,8 +52,8 @@ class DirectBatchService
 
                 $quantity = (int) $line['quantity'];
                 $costPrice = round((float) $line['cost_price'], 2);
-                $retailPrice = round((float) ($line['retail_price'] ?? $line['selling_price'] ?? 0), 2);
-                $wholesalePrice = round((float) ($line['wholesale_price'] ?? $retailPrice), 2);
+                $retailPrice = round((float) ($line['retail_price'] ?? $variant?->retail_price ?? $variant?->sale_price ?? $product->retail_price ?? $product->selling_price ?? 0), 2);
+                $wholesalePrice = round((float) ($line['wholesale_price'] ?? $variant?->wholesale_price ?? $product->wholesale_price ?? $retailPrice), 2);
 
                 $batch = ProductBatch::query()->create([
                     'product_id' => $product->id,
@@ -75,10 +75,6 @@ class DirectBatchService
 
                 $product->update([
                     'cost_price' => $costPrice,
-                    'selling_price' => $retailPrice,
-                    'retail_price' => $retailPrice,
-                    'wholesale_price' => $wholesalePrice,
-                    'sale_price' => $retailPrice,
                     'stock_status' => 'in_stock',
                     'purchasable' => true,
                 ]);
@@ -86,10 +82,6 @@ class DirectBatchService
                 if ($variant) {
                     $variant->update([
                         'cost_price' => $costPrice,
-                        'price' => $retailPrice,
-                        'sale_price' => $retailPrice,
-                        'retail_price' => $retailPrice,
-                        'wholesale_price' => $wholesalePrice,
                         'in_stock' => true,
                         'purchasable' => true,
                         'available_for_purchase' => true,
@@ -124,6 +116,40 @@ class DirectBatchService
                 'received_at' => $receivedAt->toIso8601String(),
                 'items' => $received,
             ];
+        }, 3);
+    }
+
+    public function updatePrices(ProductBatch $batch, array $data): ProductBatch
+    {
+        return DB::transaction(function () use ($batch, $data): ProductBatch {
+            $batch = ProductBatch::query()->lockForUpdate()->findOrFail($batch->id);
+            $product = Product::query()->lockForUpdate()->findOrFail((int) $batch->product_id);
+            $variant = $batch->variant_id
+                ? ProductVariant::query()->lockForUpdate()->findOrFail((int) $batch->variant_id)
+                : null;
+
+            $costPrice = round((float) $data['cost_price'], 2);
+
+            $updates = [
+                'cost_price' => $costPrice,
+                'note' => array_key_exists('note', $data) ? $data['note'] : $batch->note,
+            ];
+            if (isset($data['retail_price'])) {
+                $updates['retail_price'] = round((float) $data['retail_price'], 2);
+                $updates['selling_price'] = $updates['retail_price'];
+            }
+            if (isset($data['wholesale_price'])) {
+                $updates['wholesale_price'] = round((float) $data['wholesale_price'], 2);
+            }
+
+            $batch->update($updates);
+
+            $product->update(['cost_price' => $costPrice]);
+            if ($variant) {
+                $variant->update(['cost_price' => $costPrice]);
+            }
+
+            return $batch->fresh(['product', 'variant', 'shop', 'creator']);
         }, 3);
     }
 

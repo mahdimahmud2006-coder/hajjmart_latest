@@ -39,5 +39,7 @@ class AppServiceProvider extends ServiceProvider
             Limit::perHour(80)->by($request->ip()),
         ]);
         RateLimiter::for('public-write', fn (Request $request) => Limit::perMinute(30)->by($request->ip()));
+        RateLimiter::for('offline-device-admin', fn (Request $request) => Limit::perMinute(10)->by(($request->user()?->id ?? 'guest').'|'.$request->ip()));
+        RateLimiter::for('offline-device-heartbeat', fn (Request $request) => Limit::perMinute(30)->by(($request->user()?->id ?? 'guest').'|'.(string) $request->header('X-HajjMart-Device-Id').'|'.$request->ip()));
     }
 }

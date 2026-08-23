@@ -52,12 +52,25 @@ class RiskController extends Controller
     {
         $query = FraudCase::query()->with(['shop:id,name,code','assignee:id,name','resolver:id,name','riskEvent','subject','notes.user:id,name'])
             ->when($request->integer('shop_id'), fn($q,$id)=>$q->where('shop_id',$id))
-            ->when($request->status, fn($q,$value)=>$q->where('status',$value))
+            ->when($request->status_group, function ($q, $group): void {
+                $statuses = match ($group) {
+                    'open' => ['open'],
+                    'in_review' => ['assigned', 'investigating', 'awaiting_information'],
+                    'resolved' => ['resolved', 'closed'],
+                    default => [],
+                };
+                if ($statuses) $q->whereIn('status', $statuses);
+            })
+            ->when(! $request->status_group && $request->status, fn($q,$value)=>$q->where('status',$value))
             ->when($request->severity, fn($q,$value)=>$q->where('severity',$value))
             ->when($request->q, function($q,$value): void {
                 $q->where(function($sub) use ($value): void {
                     $sub->where('case_number','like',"%{$value}%")
-                        ->orWhereHasMorph('subject',[Order::class],fn($o)=>$o->where('order_number','like',"%{$value}%")->orWhere('checkout_mobile_number','like',"%{$value}%"));
+                        ->orWhereHasMorph('subject',[Order::class],fn($o)=>$o->where(function ($orders) use ($value): void {
+                            $orders->where('order_number','like',"%{$value}%")
+                                ->orWhere('checkout_name','like',"%{$value}%")
+                                ->orWhere('checkout_mobile_number','like',"%{$value}%");
+                        }));
                 });
             })
             ->latest('opened_at');

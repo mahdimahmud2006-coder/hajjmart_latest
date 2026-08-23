@@ -64,6 +64,12 @@ class StockTransferController extends Controller
     public function approve(Request $request, StockTransfer $stockTransfer)
     {
         abort_unless($stockTransfer->status === 'draft', 422, 'Only draft transfers can be approved.');
+        try {
+            app(\App\Services\OfflineStockMutationGuard::class)->assertDecreaseAllowed($stockTransfer->from_shop_id, 'transfer_out');
+        } catch (\App\Exceptions\InventoryConflictException $exception) {
+            return $this->error($exception->getMessage(), 409, [], $exception->reasonCode);
+        }
+
         foreach ($stockTransfer->items as $item) {
             $row = $this->inventory->inventoryRow($item->product_id, $item->variant_id, $stockTransfer->from_shop_id);
             if ($row->available < $item->quantity_requested) throw new RuntimeException("Insufficient source stock for {$item->product?->name}.");
@@ -76,21 +82,26 @@ class StockTransferController extends Controller
     public function receive(Request $request, StockTransfer $stockTransfer)
     {
         abort_unless($stockTransfer->status === 'approved', 422, 'Only approved transfers can be received.');
-        DB::transaction(function () use ($stockTransfer, $request): void {
-            foreach ($stockTransfer->items as $item) {
-                $this->inventory->transfer(
-                    $stockTransfer->from_shop_id,
-                    $stockTransfer->to_shop_id,
-                    $item->product_id,
-                    $item->variant_id,
-                    $item->quantity_requested,
-                    $request->user()->id,
-                    $stockTransfer,
-                );
-                $item->update(['quantity_received' => $item->quantity_requested]);
-            }
-            $stockTransfer->update(['status' => 'received', 'received_by' => $request->user()->id, 'received_at' => now()]);
-        });
+        try {
+            app(\App\Services\OfflineStockMutationGuard::class)->assertDecreaseAllowed($stockTransfer->from_shop_id, 'transfer_out');
+            DB::transaction(function () use ($stockTransfer, $request): void {
+                foreach ($stockTransfer->items as $item) {
+                    $this->inventory->transfer(
+                        $stockTransfer->from_shop_id,
+                        $stockTransfer->to_shop_id,
+                        $item->product_id,
+                        $item->variant_id,
+                        $item->quantity_requested,
+                        $request->user()->id,
+                        $stockTransfer,
+                    );
+                    $item->update(['quantity_received' => $item->quantity_requested]);
+                }
+                $stockTransfer->update(['status' => 'received', 'received_by' => $request->user()->id, 'received_at' => now()]);
+            });
+        } catch (\App\Exceptions\InventoryConflictException $exception) {
+            return $this->error($exception->getMessage(), 409, [], $exception->reasonCode);
+        }
         $this->activities->record('inventory', 'transfer_received', "Received {$stockTransfer->transfer_number}", $stockTransfer, [], $stockTransfer->toArray(), request: $request);
         return $this->success($stockTransfer->fresh(['items.product', 'fromShop', 'toShop']), 'Stock transfer received.');
     }

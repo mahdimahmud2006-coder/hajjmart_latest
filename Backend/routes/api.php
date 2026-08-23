@@ -13,6 +13,8 @@ use App\Http\Controllers\StripeIdController;
 use App\Http\Controllers\StripeWebhookController;
 
 use Illuminate\Support\Facades\Route;
+use App\Http\Middleware\EnsureAdmin;
+use App\Http\Middleware\EnsureEmployee;
 
 /*
 |--------------------------------------------------------------------------
@@ -52,7 +54,7 @@ Route::post('/contact', [ContactMessageController::class, 'saveMessage'])->middl
 // Auth
 Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:login');
 
-Route::middleware(['auth:sanctum', 'role:admin,super_admin,employee,manager,moderator'])->group(function () {
+Route::middleware(['auth:sanctum', EnsureEmployee::class])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/order/{order_id}', [OrderController::class, 'getOrderById']);
     Route::post('/order/manual-payment', [OrderController::class, 'manualOrderPayment']);
@@ -66,14 +68,14 @@ Route::middleware(['auth:sanctum', 'role:admin,super_admin,employee,manager,mode
     Route::get('/category', [CategoryController::class, 'getAllCategories']);
     Route::get('/category/{id}', [CategoryController::class, 'getCategoryById']);
     Route::patch('/category/{id}', [CategoryController::class, 'updateCategoryName']);
-    Route::delete('/category/{id}', [CategoryController::class, 'deleteCategory']);
+    Route::delete('/category/{id}', [CategoryController::class, 'deleteCategory'])->middleware(EnsureAdmin::class);
     Route::delete('/category/{id}/image', [CategoryImageController::class, 'deleteImage']);
 
     // Admin Product
     Route::get('/admin/product', [ProductController::class, 'getAllProducts']);
     Route::get('/admin/product/paginated', [ProductController::class, 'getAllProductsPaginated']);
     Route::post('/product', [ProductController::class, 'createProduct']);
-    Route::delete('/product/{id}', [ProductController::class, 'deleteProductById']);
+    Route::delete('/product/{id}', [ProductController::class, 'deleteProductById'])->middleware(EnsureAdmin::class);
     
     Route::patch('/product/{id}/name', [ProductController::class, 'updateProductName']);
     Route::patch('/product/{id}/price', [ProductController::class, 'updateSellingPrice']);
@@ -93,7 +95,7 @@ Route::middleware(['auth:sanctum', 'role:admin,super_admin,employee,manager,mode
     Route::patch('/product/{id}/has-variations', [ProductController::class, 'updateHasVariations']);
     Route::post('/product/{id}/variation', [ProductController::class, 'createVariation']);
     Route::patch('/variation/{id}', [ProductController::class, 'updateVariation']);
-    Route::delete('/variation/{id}', [ProductController::class, 'deleteVariation']);
+    Route::delete('/variation/{id}', [ProductController::class, 'deleteVariation'])->middleware(EnsureAdmin::class);
     Route::post('/variation/{id}/images', [ProductController::class, 'addVariationImage']);
     Route::delete('/variation/{id}/images', [ProductController::class, 'deleteVariationImage']);
 
@@ -141,14 +143,15 @@ use App\Http\Controllers\Api\V1\HomepageController as V1HomepageController;
 use App\Http\Controllers\Api\V1\Admin\DashboardController as AdminDashboardController;
 use App\Http\Controllers\Api\V1\Admin\StoreController as AdminStoreController;
 use App\Http\Controllers\Api\V1\Admin\EmployeeController as AdminEmployeeController;
-use App\Http\Controllers\Api\V1\Admin\RoleController as AdminRoleController;
 use App\Http\Controllers\Api\V1\Admin\ActivityLogController as AdminActivityLogController;
-use App\Http\Controllers\Api\V1\Admin\OrderController as AdminUnifiedOrderController;
+use App\Http\Controllers\Api\V1\Admin\OrderController as AdminOrderController;
+use App\Http\Controllers\Api\V1\Admin\CustomerController as AdminCustomerController;
 use App\Http\Controllers\Api\V1\Admin\PosController as AdminPosController;
+use App\Http\Controllers\Api\V1\Admin\OfflineDeviceController as AdminOfflineDeviceController;
+use App\Http\Controllers\Api\V1\Admin\OfflineSessionController as AdminOfflineSessionController;
+use App\Http\Controllers\Api\V1\Admin\OfflineOperationsController as AdminOfflineOperationsController;
 use App\Http\Controllers\Api\V1\Admin\StockTransferController as AdminStockTransferController;
-use App\Http\Controllers\Api\V1\Admin\TransactionController as AdminTransactionController;
 use App\Http\Controllers\Api\V1\Admin\RiskController as AdminRiskController;
-use App\Http\Controllers\Api\V1\Admin\AccountingController as AdminAccountingController;
 
 Route::prefix('v1')->group(function () {
     Route::get('/homepage', [V1HomepageController::class, 'index']);
@@ -208,115 +211,134 @@ Route::prefix('v1')->group(function () {
         Route::get('/notifications', [V1NotificationController::class, 'index']);
         Route::put('/notifications/{id}/read', [V1NotificationController::class, 'read']);
 
-        Route::middleware(['role:admin,super_admin,employee,manager,moderator', 'shop.scope', 'no.store'])->prefix('admin')->group(function () {
+        Route::middleware([EnsureEmployee::class, 'no.store'])->prefix('admin')->group(function () {
             Route::get('/session', function (\Illuminate\Http\Request $request) {
-                return response()->json(['success' => true, 'message' => 'Admin session retrieved.', 'data' => $request->user()->load('roles.permissions', 'shop')]);
+                return response()->json(['success' => true, 'message' => 'Admin session retrieved.', 'data' => $request->user()->load('shop')]);
             });
-            Route::get('/dashboard', AdminDashboardController::class)->middleware('permission:dashboard.view');
+            Route::get('/dashboard', AdminDashboardController::class);
 
-            Route::get('/risk/dashboard', [AdminRiskController::class, 'dashboard'])->middleware('permission:risk.view');
-            Route::get('/risk/cases', [AdminRiskController::class, 'cases'])->middleware('permission:risk.view');
-            Route::put('/risk/cases/{fraudCase}', [AdminRiskController::class, 'updateCase'])->middleware('permission:risk.resolve');
-            Route::put('/risk/rules/{riskRule}', [AdminRiskController::class, 'updateRule'])->middleware('permission:risk.manage');
-            Route::post('/risk/rescan', [AdminRiskController::class, 'rescan'])->middleware('permission:risk.manage');
+            Route::get('/risk/dashboard', [AdminRiskController::class, 'dashboard']);
+            Route::get('/risk/cases', [AdminRiskController::class, 'cases']);
+            Route::put('/risk/cases/{fraudCase}', [AdminRiskController::class, 'updateCase']);
+            Route::put('/risk/rules/{riskRule}', [AdminRiskController::class, 'updateRule']);
+            Route::post('/risk/rescan', [AdminRiskController::class, 'rescan']);
 
-            Route::get('/homepage-sections', [V1HomepageController::class, 'adminIndex'])->middleware('permission:settings.manage');
-            Route::post('/homepage-sections', [V1HomepageController::class, 'store'])->middleware('permission:settings.manage');
-            Route::put('/homepage-sections/{homepageSection}', [V1HomepageController::class, 'update'])->middleware('permission:settings.manage');
-            Route::delete('/homepage-sections/{homepageSection}', [V1HomepageController::class, 'destroy'])->middleware('permission:settings.manage');
+            Route::get('/homepage-sections', [V1HomepageController::class, 'adminIndex']);
+            Route::post('/homepage-sections', [V1HomepageController::class, 'store']);
+            Route::put('/homepage-sections/{homepageSection}', [V1HomepageController::class, 'update']);
+            Route::delete('/homepage-sections/{homepageSection}', [V1HomepageController::class, 'destroy']);
 
-            Route::get('/categories', [V1CategoryController::class, 'index'])->middleware('permission:products.view,categories.manage');
-            Route::post('/categories', [V1CategoryController::class, 'store'])->middleware('permission:categories.manage');
-            Route::put('/categories/{category}', [V1CategoryController::class, 'update'])->middleware('permission:categories.manage');
-            Route::delete('/categories/{category}', [V1CategoryController::class, 'destroy'])->middleware('permission:categories.manage');
+            Route::get('/categories', [V1CategoryController::class, 'index']);
+            Route::post('/categories', [V1CategoryController::class, 'store']);
+            Route::put('/categories/{category}', [V1CategoryController::class, 'update']);
+            Route::delete('/categories/{category}', [V1CategoryController::class, 'destroy'])->middleware(EnsureAdmin::class);
 
-            Route::get('/products', [V1ProductController::class, 'index'])->middleware('permission:products.view');
-            Route::post('/products', [V1ProductController::class, 'store'])->middleware('permission:products.create');
-            Route::put('/products/{product}', [V1ProductController::class, 'update'])->middleware('permission:products.update');
-            Route::delete('/products/{product}', [V1ProductController::class, 'destroy'])->middleware('permission:products.delete');
+            Route::get('/products', [V1ProductController::class, 'index']);
+            Route::get('/products/{product}', [V1ProductController::class, 'show']);
+            Route::post('/products', [V1ProductController::class, 'store']);
+            Route::post('/products/images', [V1ProductController::class, 'uploadImage']);
+            Route::put('/products/bulk', [V1ProductController::class, 'bulkUpdate']);
+            Route::put('/products/{product}', [V1ProductController::class, 'update']);
+            Route::delete('/products/{product}', [V1ProductController::class, 'destroy'])->middleware(EnsureAdmin::class);
 
-            Route::get('/coupons', [V1CouponController::class, 'index'])->middleware('permission:promotions.view');
-            Route::post('/coupons', [V1CouponController::class, 'store'])->middleware('permission:promotions.manage');
-            Route::put('/coupons/{coupon}', [V1CouponController::class, 'update'])->middleware('permission:promotions.manage');
-            Route::delete('/coupons/{coupon}', [V1CouponController::class, 'destroy'])->middleware('permission:promotions.manage');
+            Route::get('/barcodes', [\App\Http\Controllers\Api\V1\Admin\BarcodeController::class, 'index']);
+            Route::put('/barcodes', [\App\Http\Controllers\Api\V1\Admin\BarcodeController::class, 'update']);
+            Route::post('/barcodes/generate', [\App\Http\Controllers\Api\V1\Admin\BarcodeController::class, 'generate']);
 
-            Route::get('/reviews', [V1ReviewQuestionController::class, 'adminIndex'])->middleware('permission:products.view');
-            Route::put('/reviews/{review}/moderate', [V1ReviewQuestionController::class, 'moderate'])->middleware('permission:products.update');
+            Route::get('/coupons', [V1CouponController::class, 'index']);
+            Route::post('/coupons', [V1CouponController::class, 'store']);
+            Route::put('/coupons/{coupon}', [V1CouponController::class, 'update']);
+            Route::delete('/coupons/{coupon}', [V1CouponController::class, 'destroy']);
 
-
-            Route::get('/pos/ping', [AdminPosController::class, 'ping'])->middleware('permission:orders.create');
-            Route::get('/pos/bootstrap', [AdminPosController::class, 'bootstrap'])->middleware('permission:products.view');
-            Route::post('/pos/sync', [AdminPosController::class, 'sync'])->middleware('permission:orders.create');
-
-            Route::get('/orders', [AdminUnifiedOrderController::class, 'index'])->middleware('permission:orders.view');
-            Route::post('/orders', [AdminUnifiedOrderController::class, 'store'])->middleware('permission:orders.create');
-            Route::get('/orders/{order}', [AdminUnifiedOrderController::class, 'show'])->middleware('permission:orders.view');
-            Route::put('/orders/{order}/status', [V1OrderController::class, 'updateStatus'])->middleware('permission:orders.update');
-            Route::post('/orders/{order}/payments', [AdminUnifiedOrderController::class, 'collectPayment'])->middleware('permission:orders.payment');
-            Route::post('/orders/{order}/return-exchange', [AdminUnifiedOrderController::class, 'createReturn'])->middleware('permission:returns.create');
-
-            Route::get('/inventory', [V1InventoryController::class, 'index'])->middleware('permission:inventory.view');
-            Route::get('/inventory/batches', [V1InventoryController::class, 'batches'])->middleware('permission:inventory.view');
-            Route::post('/inventory/batches', [V1InventoryController::class, 'storeBatch'])->middleware('permission:inventory.batch.create');
-            Route::post('/inventory/adjust', [V1InventoryController::class, 'adjust'])->middleware('permission:inventory.adjust');
-            Route::get('/inventory/movements', [V1InventoryController::class, 'movements'])->middleware('permission:inventory.history');
+            Route::get('/reviews', [V1ReviewQuestionController::class, 'adminIndex']);
+            Route::put('/reviews/{review}/moderate', [V1ReviewQuestionController::class, 'moderate']);
 
 
-            Route::get('/return-requests', [V1ReturnRequestController::class, 'index'])->middleware('permission:returns.view');
-            Route::get('/return-requests/{returnRequest}', [V1ReturnRequestController::class, 'show'])->middleware('permission:returns.view');
-            Route::post('/return-requests/{returnRequest}/approve', [V1ReturnRequestController::class, 'approve'])->middleware('permission:returns.approve');
-            Route::post('/return-requests/{returnRequest}/reject', [V1ReturnRequestController::class, 'reject'])->middleware('permission:returns.approve');
-            Route::post('/return-requests/{returnRequest}/receive', [V1ReturnRequestController::class, 'receive'])->middleware('permission:returns.receive');
-            Route::post('/return-requests/{returnRequest}/complete', [V1ReturnRequestController::class, 'complete'])->middleware('permission:refunds.process');
-            Route::post('/payments/{payment}/refund', [V1PaymentController::class, 'refund'])->middleware('permission:refunds.process');
+            Route::get('/pos/ping', [AdminPosController::class, 'ping']);
+            Route::get('/pos/bootstrap', [AdminPosController::class, 'bootstrap']);
+            Route::post('/pos/sync', [AdminPosController::class, 'sync']);
 
-            Route::get('/stores', [AdminStoreController::class, 'index'])->middleware('permission:stores.view');
-            Route::post('/stores', [AdminStoreController::class, 'store'])->middleware('permission:stores.manage');
-            Route::get('/stores/{store}', [AdminStoreController::class, 'show'])->middleware('permission:stores.view');
-            Route::put('/stores/{store}', [AdminStoreController::class, 'update'])->middleware('permission:stores.manage');
-            Route::delete('/stores/{store}', [AdminStoreController::class, 'destroy'])->middleware('permission:stores.manage');
+            Route::get('/offline-device', [AdminOfflineDeviceController::class, 'show']);
+            Route::post('/offline-device/register', [AdminOfflineDeviceController::class, 'register'])->middleware([EnsureAdmin::class, 'throttle:offline-device-admin']);
+            Route::post('/offline-device/heartbeat', [AdminOfflineDeviceController::class, 'heartbeat'])->middleware('throttle:offline-device-heartbeat');
+            Route::post('/offline-device/replace', [AdminOfflineDeviceController::class, 'replace'])->middleware([EnsureAdmin::class, 'throttle:offline-device-admin']);
+            Route::post('/offline-device/release', [AdminOfflineDeviceController::class, 'release'])->middleware([EnsureAdmin::class, 'throttle:offline-device-admin']);
 
-            Route::get('/employees', [AdminEmployeeController::class, 'index'])->middleware('permission:employees.view');
-            Route::post('/employees', [AdminEmployeeController::class, 'store'])->middleware('permission:employees.manage');
-            Route::get('/employees/{employee}', [AdminEmployeeController::class, 'show'])->middleware('permission:employees.view');
-            Route::put('/employees/{employee}', [AdminEmployeeController::class, 'update'])->middleware('permission:employees.manage');
-            Route::put('/employees/{employee}/toggle', [AdminEmployeeController::class, 'toggle'])->middleware('permission:employees.manage');
-            Route::delete('/employees/{employee}', [AdminEmployeeController::class, 'destroy'])->middleware('permission:employees.manage');
+            Route::get('/offline/bootstrap', [AdminOfflineSessionController::class, 'bootstrap']);
+            Route::get('/offline/session/{sessionId}/status', [AdminOfflineSessionController::class, 'status']);
+            Route::post('/offline/session/{sessionId}/sync', [AdminOfflineSessionController::class, 'sync'])->middleware('throttle:offline-device-heartbeat');
 
-            Route::get('/roles', [AdminRoleController::class, 'index'])->middleware('permission:roles.view');
-            Route::get('/permissions', [AdminRoleController::class, 'permissions'])->middleware('permission:roles.view');
-            Route::post('/roles', [AdminRoleController::class, 'store'])->middleware('permission:roles.manage');
-            Route::put('/roles/{role}', [AdminRoleController::class, 'update'])->middleware('permission:roles.manage');
-            Route::delete('/roles/{role}', [AdminRoleController::class, 'destroy'])->middleware('permission:roles.manage');
+            Route::get('/customers', [AdminCustomerController::class, 'index']);
+            Route::get('/customers/{customerKey}', [AdminCustomerController::class, 'show']);
 
-            Route::get('/activity-logs', AdminActivityLogController::class)->middleware('permission:activity.view');
+            Route::get('/orders', [AdminOrderController::class, 'index']);
+            Route::post('/orders', [AdminOrderController::class, 'store']);
+            Route::post('/orders/mark-printed', [AdminOrderController::class, 'markPrinted']);
+            Route::get('/orders/{order}', [AdminOrderController::class, 'show']);
+            Route::put('/orders/{order}/status', [V1OrderController::class, 'updateStatus']);
+            Route::post('/orders/{order}/payments', [AdminOrderController::class, 'collectPayment']);
+            Route::post('/orders/{order}/return-exchange', [AdminOrderController::class, 'createReturn']);
 
-            Route::get('/accounting/setup', [AdminAccountingController::class, 'setup'])->middleware('permission:accounting.view');
-            Route::get('/accounting/journals', [AdminAccountingController::class, 'journals'])->middleware('permission:accounting.view');
-            Route::get('/accounting/trial-balance', [AdminAccountingController::class, 'trialBalance'])->middleware('permission:accounting.view');
+            Route::get('/inventory', [V1InventoryController::class, 'index']);
+            Route::get('/inventory/batches', [V1InventoryController::class, 'batches']);
+            Route::post('/inventory/batches', [V1InventoryController::class, 'storeBatch']);
+            Route::patch('/inventory/batches/{productBatch}', [V1InventoryController::class, 'updateBatch']);
+            Route::post('/inventory/batches/{productBatch}/purge', [V1InventoryController::class, 'purgeBatch']);
+            Route::post('/inventory/adjust', [V1InventoryController::class, 'adjust']);
+            Route::get('/inventory/movements', [V1InventoryController::class, 'movements']);
 
-            Route::get('/transactions', [AdminTransactionController::class, 'index'])->middleware('permission:transactions.view');
-            Route::post('/transactions', [AdminTransactionController::class, 'store'])->middleware('permission:transactions.create');
-            Route::post('/transactions/{businessTransaction}/approve', [AdminTransactionController::class, 'approve'])->middleware('permission:transactions.approve');
-            Route::post('/transactions/{businessTransaction}/reject', [AdminTransactionController::class, 'reject'])->middleware('permission:transactions.approve');
-            Route::delete('/transactions/{businessTransaction}', [AdminTransactionController::class, 'destroy'])->middleware('permission:transactions.delete');
 
-            Route::get('/stock-transfers', [AdminStockTransferController::class, 'index'])->middleware('permission:inventory.transfer');
-            Route::post('/stock-transfers', [AdminStockTransferController::class, 'store'])->middleware('permission:inventory.transfer');
-            Route::post('/stock-transfers/{stockTransfer}/approve', [AdminStockTransferController::class, 'approve'])->middleware('permission:inventory.transfer');
-            Route::post('/stock-transfers/{stockTransfer}/receive', [AdminStockTransferController::class, 'receive'])->middleware('permission:inventory.transfer');
+            Route::get('/return-requests', [V1ReturnRequestController::class, 'index']);
+            Route::get('/return-requests/{returnRequest}', [V1ReturnRequestController::class, 'show']);
+            Route::post('/return-requests/{returnRequest}/approve', [V1ReturnRequestController::class, 'approve']);
+            Route::post('/return-requests/{returnRequest}/reject', [V1ReturnRequestController::class, 'reject']);
+            Route::post('/return-requests/{returnRequest}/receive', [V1ReturnRequestController::class, 'receive']);
+            Route::post('/return-requests/{returnRequest}/refund', [V1ReturnRequestController::class, 'refund']);
+            Route::post('/return-requests/{returnRequest}/complete', [V1ReturnRequestController::class, 'complete']);
+            Route::post('/payments/{payment}/refund', [V1PaymentController::class, 'refund']);
 
-            Route::get('/reports/performance', [V1ReportController::class, 'performance'])->middleware('permission:reports.view');
-            Route::get('/reports/sales', [V1ReportController::class, 'sales'])->middleware('permission:reports.view');
-            Route::get('/reports/orders', [V1ReportController::class, 'orders'])->middleware('permission:reports.view');
-            Route::get('/reports/products', [V1ReportController::class, 'products'])->middleware('permission:reports.view');
-            Route::get('/reports/categories', [V1ReportController::class, 'categories'])->middleware('permission:reports.view');
-            Route::get('/reports/districts', [V1ReportController::class, 'districts'])->middleware('permission:reports.view');
-            Route::get('/reports/months', [V1ReportController::class, 'months'])->middleware('permission:reports.view');
-            Route::get('/reports/inventory', [V1ReportController::class, 'inventory'])->middleware('permission:reports.view');
-            Route::get('/reports/returns', [V1ReportController::class, 'returns'])->middleware('permission:reports.view');
-            Route::get('/reports/promotions', [V1ReportController::class, 'promotions'])->middleware('permission:reports.view');
-            Route::get('/reports/transactions', [V1ReportController::class, 'transactions'])->middleware('permission:reports.view');
+            Route::get('/stores', [AdminStoreController::class, 'index']);
+            Route::post('/stores', [AdminStoreController::class, 'store']);
+            Route::get('/stores/{store}', [AdminStoreController::class, 'show']);
+            Route::put('/stores/{store}', [AdminStoreController::class, 'update']);
+            Route::delete('/stores/{store}', [AdminStoreController::class, 'destroy'])->middleware(EnsureAdmin::class);
+
+            Route::get('/employees', [AdminEmployeeController::class, 'index']);
+            Route::post('/employees', [AdminEmployeeController::class, 'store'])->middleware(EnsureAdmin::class);
+            Route::get('/employees/{employee}', [AdminEmployeeController::class, 'show']);
+            Route::put('/employees/{employee}', [AdminEmployeeController::class, 'update'])->middleware(EnsureAdmin::class);
+            Route::put('/employees/{employee}/password', [AdminEmployeeController::class, 'changePassword'])->middleware(EnsureAdmin::class);
+            Route::put('/employees/{employee}/toggle', [AdminEmployeeController::class, 'toggle'])->middleware(EnsureAdmin::class);
+            Route::delete('/employees/{employee}', [AdminEmployeeController::class, 'destroy'])->middleware(EnsureAdmin::class);
+
+
+            Route::get('/activity-logs', AdminActivityLogController::class);
+
+            Route::get('/offline-operations/status', [AdminOfflineOperationsController::class, 'status']);
+            Route::get('/offline-operations/sessions', [AdminOfflineOperationsController::class, 'sessions']);
+            Route::get('/offline-operations/actions', [AdminOfflineOperationsController::class, 'actions']);
+            Route::post('/offline-operations/actions/{id}/retry', [AdminOfflineOperationsController::class, 'retryAction']);
+            Route::get('/offline-operations/recovery-cases', [AdminOfflineOperationsController::class, 'recoveryCases']);
+            Route::post('/offline-operations/lost-device/initiate', [AdminOfflineOperationsController::class, 'initiateLostDevice']);
+            Route::post('/offline-operations/recovery/physical-count', [AdminOfflineOperationsController::class, 'recordPhysicalCount']);
+            Route::post('/offline-operations/recovery/manual-order', [AdminOfflineOperationsController::class, 'recordManualOrder']);
+            Route::post('/offline-operations/lost-device/resolve', [AdminOfflineOperationsController::class, 'resolveLostDevice']);
+
+            Route::get('/stock-transfers', [AdminStockTransferController::class, 'index']);
+            Route::post('/stock-transfers', [AdminStockTransferController::class, 'store']);
+            Route::post('/stock-transfers/{stockTransfer}/approve', [AdminStockTransferController::class, 'approve']);
+            Route::post('/stock-transfers/{stockTransfer}/receive', [AdminStockTransferController::class, 'receive']);
+
+            Route::get('/reports/performance', [V1ReportController::class, 'performance']);
+            Route::get('/reports/sales', [V1ReportController::class, 'sales']);
+            Route::get('/reports/orders', [V1ReportController::class, 'orders']);
+            Route::get('/reports/products', [V1ReportController::class, 'products']);
+            Route::get('/reports/categories', [V1ReportController::class, 'categories']);
+            Route::get('/reports/districts', [V1ReportController::class, 'districts']);
+            Route::get('/reports/months', [V1ReportController::class, 'months']);
+            Route::get('/reports/inventory', [V1ReportController::class, 'inventory']);
+            Route::get('/reports/returns', [V1ReportController::class, 'returns']);
+            Route::get('/reports/promotions', [V1ReportController::class, 'promotions']);
         });
     });
 });

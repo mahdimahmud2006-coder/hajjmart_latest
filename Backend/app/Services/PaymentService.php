@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Actions\CommitInventoryAction;
 use App\Contracts\PaymentGatewayInterface;
 use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
@@ -50,7 +49,7 @@ class PaymentService
     public function verifyCallback(array $payload): Payment
     {
         $payment = $this->resolvePayment($payload);
-        if ($payment->status === PaymentStatus::PAID->value) {
+        if ($payment->status === 'paid') {
             return $payment->fresh('order');
         }
 
@@ -62,13 +61,11 @@ class PaymentService
             return DB::transaction(function () use ($payment, $verified): Payment {
                 $order = Order::whereKey($payment->order_id)->lockForUpdate()->firstOrFail();
                 $locked = Payment::whereKey($payment->id)->lockForUpdate()->firstOrFail();
-                if ($locked->status === PaymentStatus::PAID->value) {
+                if ($locked->status === 'paid') {
                     return $locked->fresh('order');
                 }
-                CommitInventoryAction::run($order);
-
                 $locked->update([
-                    'status' => PaymentStatus::PAID->value,
+                    'status' => 'paid',
                     'gateway_transaction_id' => $verified['bank_transaction_id'] ?? $verified['transaction_id'] ?? null,
                     'gateway_response' => array_merge((array) $locked->gateway_response, ['verified' => $verified]),
                     'paid_at' => now(),
@@ -90,14 +87,14 @@ class PaymentService
             return DB::transaction(function () use ($payment, $verified): Payment {
                 $order = Order::whereKey($payment->order_id)->lockForUpdate()->firstOrFail();
                 $locked = Payment::whereKey($payment->id)->lockForUpdate()->firstOrFail();
-                if ($locked->status === PaymentStatus::PAID->value) {
+                if ($locked->status === 'paid') {
                     return $locked->fresh('order');
                 }
                 $locked->update([
-                    'status' => PaymentStatus::FAILED->value,
+                    'status' => 'failed',
                     'gateway_response' => array_merge((array) $locked->gateway_response, ['verified' => $verified]),
                 ]);
-                $order->update(['payment_status' => PaymentStatus::FAILED->value]);
+                $order->update(['payment_status' => PaymentStatus::DUE->value]);
                 if ($order->status === OrderStatus::PENDING->value) {
                     $this->orderService->cancel($order, null, 'Online payment failed or was cancelled');
                 }
@@ -124,7 +121,7 @@ class PaymentService
             $newRefunded = round($alreadyRefunded + $amount, 2);
             $isFull = $newRefunded >= (float) $payment->amount;
             $payment->update([
-                'status' => $isFull ? PaymentStatus::REFUNDED->value : PaymentStatus::PARTIAL->value,
+                'status' => $isFull ? 'refunded' : 'partially_refunded',
                 'refunded_amount' => $newRefunded,
                 'refund_status' => $isFull ? 'refunded' : 'partial_refund',
                 'gateway_response' => array_merge((array) $payment->gateway_response, ['latest_refund' => $response]),
@@ -134,11 +131,10 @@ class PaymentService
             if ($order) {
                 $totalRefunded = (float) $order->payments()->sum('refunded_amount');
                 $netCollected = max(0, (float) $order->paid_amount - $totalRefunded);
+                $netGrandTotal = round(max(0, (float) $order->grand_total - $totalRefunded), 2);
                 $order->update([
                     'refund_total' => $totalRefunded,
-                    'payment_status' => $totalRefunded >= (float) $order->paid_amount && (float) $order->paid_amount > 0
-                        ? PaymentStatus::REFUNDED->value
-                        : 'partially_refunded',
+                    'payment_status' => PaymentStatus::forOrder((float) $order->paid_amount, $netGrandTotal),
                 ]);
                 $this->activities->record('payments', 'refunded', "Refunded {$amount} for {$order->order_number}", $payment, [], ['amount' => $amount, 'net_collected' => $netCollected], $actorId, $order->shop_id);
             }

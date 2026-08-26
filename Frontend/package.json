@@ -3,10 +3,12 @@
   "version": "2.0.0",
   "private": true,
   "scripts": {
-    "dev": "node ./node_modules/next/dist/bin/next dev",
-    "build": "node ./node_modules/next/dist/bin/next build",
-    "start": "node ./node_modules/next/dist/bin/next start",
-    "typecheck": "tsc --noEmit"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "verify:admin-pagination": "node scripts/verify-admin-pagination.mjs",
+    "verify:i18n": "node scripts/verify-translations.mjs"
   },
   "dependencies": {
     "next": "^15.5.9",

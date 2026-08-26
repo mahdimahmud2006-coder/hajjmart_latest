@@ -5,6 +5,7 @@ import type { Product } from "@/lib/types";
 import { clientApi } from "@/lib/api";
 import { ProductCard } from "./product-card";
 import { Skeleton } from "./interaction-kit";
+import { Lang } from "./lang";
 
 export const RECENTLY_VIEWED_KEY = "hajjmart-recently-viewed-v1";
 
@@ -109,7 +110,7 @@ export function RecentlyViewedRail({ products = EMPTY_PRODUCTS, excludeId }: { p
   if (!recent.length && !loading) return null;
 
   return <section className="recently-viewed-rail">
-    <div className="mb-7"><p className="eyebrow">Picked up where you left off</p><h2 className="mt-2 font-serif text-3xl">Recently viewed</h2></div>
+    <div className="mb-7"><p className="eyebrow"><Lang bn="যেখান থেকে থেমেছিলেন" en="Picked up where you left off"/></p><h2 className="mt-2 font-serif text-3xl"><Lang bn="সম্প্রতি দেখা পণ্য" en="Recently viewed"/></h2></div>
     {recent.length
       ? <div className="grid grid-cols-2 gap-x-3 gap-y-8 md:grid-cols-4 md:gap-x-5">{recent.map((product) => <ProductCard key={product.id} product={product}/>)}</div>
       : loading

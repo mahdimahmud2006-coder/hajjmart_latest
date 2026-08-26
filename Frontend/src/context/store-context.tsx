@@ -3,9 +3,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { CartItem, User } from "@/lib/types";
 import { clientApi } from "@/lib/api";
+import { localizedField } from "@/lib/i18n";
 import { ToastMessage, type ToastTone } from "@/components/interaction-kit";
 import { useOverlayPrimitive } from "@/components/overlay-primitive";
 import { CloseIcon } from "@/components/icons";
+import { Lang } from "@/components/lang";
 
 type Toast = { id: number; message: string; tone?: ToastTone; actionLabel?: string; onAction?: () => void };
 type CartMergePrompt = { device: CartItem[]; account: CartItem[] };
@@ -64,12 +66,12 @@ function CartMergeDialog({ prompt, busy, onMerge, onUseAccount, onClose }: {
     <button type="button" className="store-modal-backdrop" onClick={onClose} aria-label="Close cart merge prompt"/>
     <section ref={panelRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="cart-merge-title" className="store-modal-panel">
       <button type="button" className="store-modal-close icon-button" onClick={onClose} aria-label="Close"><CloseIcon size={18}/></button>
-      <p className="eyebrow">Keep your preparation together</p>
-      <h2 id="cart-merge-title" className="mt-2 font-serif text-3xl">You have items on this device and in your account.</h2>
-      <p className="mt-3 text-sm leading-6 text-[var(--muted)]">This device has {deviceCount} {deviceCount === 1 ? "item" : "items"}; your account has {accountCount}. Merge them so nothing is lost, or continue with the account cart only.</p>
+      <p className="eyebrow"><Lang bn="আপনার প্রস্তুতির তালিকা একসাথে রাখুন" en="Keep your preparation together"/></p>
+      <h2 id="cart-merge-title" className="mt-2 font-serif text-3xl"><Lang bn="এই ডিভাইস ও আপনার অ্যাকাউন্ট—দুই জায়গাতেই পণ্য আছে।" en="You have items on this device and in your account."/></h2>
+      <p className="mt-3 text-sm leading-6 text-[var(--muted)]"><span className="lang-bn">এই ডিভাইসে {deviceCount}টি পণ্য এবং আপনার অ্যাকাউন্টে {accountCount}টি পণ্য আছে। কিছু হারিয়ে না যেতে দুই কার্ট একত্র করুন, অথবা শুধু অ্যাকাউন্টের কার্ট ব্যবহার করুন।</span><span className="lang-en">This device has {deviceCount} {deviceCount === 1 ? "item" : "items"}; your account has {accountCount}. Merge them so nothing is lost, or continue with the account cart only.</span></p>
       <div className="mt-6 grid gap-3 sm:grid-cols-2">
-        <button type="button" className="button-primary" disabled={busy} onClick={onMerge}>{busy ? "Merging…" : "Merge both carts"}</button>
-        <button type="button" className="button-quiet" disabled={busy} onClick={onUseAccount}>Use account cart</button>
+        <button type="button" className="button-primary" disabled={busy} onClick={onMerge}>{busy ? <Lang bn="একত্র করা হচ্ছে…" en="Merging…"/> : <Lang bn="দুই কার্ট একত্র করুন" en="Merge both carts"/>}</button>
+        <button type="button" className="button-quiet" disabled={busy} onClick={onUseAccount}><Lang bn="অ্যাকাউন্টের কার্ট ব্যবহার করুন" en="Use account cart"/></button>
       </div>
     </section>
   </div>;
@@ -189,7 +191,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }).catch(() => {
       if (sequence !== accountLoadSequence.current) return;
       setAccountStateReady(true);
-      notify("Your account could not be synchronized. Device data is still available.", "error");
+      notify(localizedField("অ্যাকাউন্টের তথ্য সিঙ্ক করা যায়নি। এই ডিভাইসের তথ্য এখনো আছে।", "Your account could not be synchronized. Device data is still available."), "error");
     });
   }, [hydrated, token, notify, syncCloudCart]);
 
@@ -202,7 +204,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (cartSignature(serverCart) !== cartSignature(cart) || JSON.stringify(serverCart) !== JSON.stringify(cart)) {
           setCart(serverCart);
         }
-      }).catch(() => notify("Your bag is saved on this device; account sync will retry after the next change.", "error"));
+      }).catch(() => notify(localizedField("আপনার কার্ট এই ডিভাইসে সংরক্ষিত আছে; পরের পরিবর্তনের পর অ্যাকাউন্ট সিঙ্ক আবার চেষ্টা করবে।", "Your bag is saved on this device; account sync will retry after the next change."), "error"));
     }, 450);
     return () => window.clearTimeout(timer);
   }, [cart, token, accountStateReady, mergePrompt, syncCloudCart, notify]);
@@ -253,7 +255,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           setUser(null);
           setSessionIssuedAt(0);
           localStorage.removeItem(AUTH_KEY);
-          notify("Your session expired. Please sign in again.", "neutral");
+          notify(localizedField("আপনার সেশন শেষ হয়েছে। আবার লগইন করুন।", "Your session expired. Please sign in again."), "neutral");
         }
       } finally {
         refreshingSession.current = false;
@@ -272,9 +274,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setCart(merged);
       setMergePrompt(null);
       setAccountStateReady(true);
-      notify("Your device and account carts were merged.");
+      notify(localizedField("এই ডিভাইস ও অ্যাকাউন্টের কার্ট একত্র হয়েছে।", "Your device and account carts were merged."));
     } catch (error) {
-      notify(error instanceof Error ? error.message : "We could not merge the carts.", "error");
+      notify(error instanceof Error ? error.message : localizedField("কার্ট দুটি একত্র করা যায়নি।", "We could not merge the carts."), "error");
     } finally {
       setMergeBusy(false);
     }
@@ -285,13 +287,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setCart(mergePrompt.account);
     setMergePrompt(null);
     setAccountStateReady(true);
-    notify("Using the cart saved to your account.", "neutral");
+    notify(localizedField("আপনার অ্যাকাউন্টে সংরক্ষিত কার্ট ব্যবহার করা হচ্ছে।", "Using the cart saved to your account."), "neutral");
   }, [mergePrompt, notify]);
 
   const keepDeviceCartForNow = useCallback(() => {
     setMergePrompt(null);
     setAccountStateReady(false);
-    notify("Account cart sync is paused until you sign in again.", "neutral");
+    notify(localizedField("আবার লগইন না করা পর্যন্ত অ্যাকাউন্ট কার্ট সিঙ্ক বন্ধ থাকবে।", "Account cart sync is paused until you sign in again."), "neutral");
   }, [notify]);
 
   const addToCart = useCallback((item: Omit<CartItem, "key">) => {
@@ -309,9 +311,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     });
     setCartOpen(true);
     if (requested > ceiling) {
-      notify(`Only ${ceiling} ${ceiling === 1 ? "piece is" : "pieces are"} currently available.`, "neutral", { actionLabel: "View bag", onAction: () => setCartOpen(true) });
+      notify(localizedField(`এখন মাত্র ${ceiling}টি পাওয়া যাচ্ছে।`, `Only ${ceiling} ${ceiling === 1 ? "piece is" : "pieces are"} currently available.`), "neutral", { actionLabel: localizedField("কার্ট দেখুন", "View bag"), onAction: () => setCartOpen(true) });
     } else {
-      notify(`${item.name} added to your bag.`, "success", { actionLabel: "View bag", onAction: () => setCartOpen(true) });
+      notify(localizedField(`${localizedField(item.name_bn, item.name)} কার্টে যোগ হয়েছে।`, `${item.name} added to your bag.`), "success", { actionLabel: localizedField("কার্ট দেখুন", "View bag"), onAction: () => setCartOpen(true) });
     }
   }, [notify]);
 
@@ -319,8 +321,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const removed = cartRef.current.find((item) => item.key === key);
     setCart((current) => current.filter((item) => item.key !== key));
     if (removed) {
-      notify(`${removed.name} removed from your bag.`, "neutral", {
-        actionLabel: "Undo",
+      notify(localizedField(`${localizedField(removed.name_bn, removed.name)} কার্ট থেকে সরানো হয়েছে।`, `${removed.name} removed from your bag.`), "neutral", {
+        actionLabel: localizedField("ফিরিয়ে আনুন", "Undo"),
         onAction: () => setCart((current) => current.some((item) => item.key === removed.key) ? current : [...current, removed]),
       });
     }
@@ -334,7 +336,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     const ceiling = Math.max(1, currentItem.maxStock || 99);
-    if (quantity > ceiling) notify(`Only ${ceiling} ${ceiling === 1 ? "piece is" : "pieces are"} currently available.`, "neutral");
+    if (quantity > ceiling) notify(localizedField(`এখন মাত্র ${ceiling}টি পাওয়া যাচ্ছে।`, `Only ${ceiling} ${ceiling === 1 ? "piece is" : "pieces are"} currently available.`), "neutral");
     setCart((current) => current.map((item) => item.key === key ? { ...item, quantity: Math.min(quantity, ceiling) } : item));
   }, [removeFromCart, notify]);
 
@@ -349,7 +351,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       ...(removing ? {} : { body: JSON.stringify({}) }),
     }, token).catch(() => {
       setWishlist((current) => removing ? Array.from(new Set([...current, productId])) : current.filter((id) => id !== productId));
-      notify("Wishlist sync failed. Your previous saved state was restored.", "error");
+      notify(localizedField("পছন্দের তালিকা সিঙ্ক করা যায়নি। আগের সংরক্ষিত অবস্থা ফিরিয়ে দেওয়া হয়েছে।", "Wishlist sync failed. Your previous saved state was restored."), "error");
     });
   }, [token, notify]);
 
@@ -374,7 +376,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setMergePrompt(null);
     localStorage.removeItem(AUTH_KEY);
     if (previousToken) void clientApi("/auth/logout", { method: "POST", body: JSON.stringify({}) }, previousToken).catch(() => undefined);
-    notify("You have been signed out.", "neutral");
+    notify(localizedField("আপনি লগআউট হয়েছেন।", "You have been signed out."), "neutral");
   }, [token, notify]);
 
   const value = useMemo<StoreContextValue>(() => ({

@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { CheckIcon, CloseIcon, MinusIcon, PlusIcon } from "./icons";
+import { Lang } from "./lang";
 
 export type ToastTone = "success" | "error" | "neutral";
 
@@ -9,7 +10,7 @@ export function Skeleton({ className = "" }: { className?: string }) {
   return <span className={`skeleton-shimmer ${className}`} aria-hidden="true" />;
 }
 
-export function EmptyState({ icon, title, description, action }: { icon?: ReactNode; title: string; description: string; action?: ReactNode }) {
+export function EmptyState({ icon, title, description, action }: { icon?: ReactNode; title: ReactNode; description: ReactNode; action?: ReactNode }) {
   return <div className="empty-state">
     {icon ? <span className="empty-state-icon">{icon}</span> : null}
     <h3>{title}</h3>
@@ -52,20 +53,22 @@ export function ToastMessage({ message, tone = "success", actionLabel, onAction,
 }
 
 export function InlineConfirm({ title, description, confirmLabel = "Confirm", cancelLabel = "Cancel", onConfirm, onCancel, busy = false, tone = "default" }: {
-  title: string;
-  description: string;
-  confirmLabel?: string;
-  cancelLabel?: string;
+  title: ReactNode;
+  description: ReactNode;
+  confirmLabel?: ReactNode;
+  cancelLabel?: ReactNode;
   onConfirm: () => void;
   onCancel: () => void;
   busy?: boolean;
   tone?: "default" | "danger";
 }) {
-  return <div className={`inline-confirm ${tone === "danger" ? "danger" : ""}`} role="alertdialog" aria-label={title}>
+  const resolvedConfirm = confirmLabel === "Confirm" ? <Lang bn="নিশ্চিত করুন" en="Confirm"/> : confirmLabel;
+  const resolvedCancel = cancelLabel === "Cancel" ? <Lang bn="বাতিল" en="Cancel"/> : cancelLabel;
+  return <div className={`inline-confirm ${tone === "danger" ? "danger" : ""}`} role="alertdialog" aria-label={typeof title === "string" ? title : "Confirmation"}>
     <div><strong>{title}</strong><p>{description}</p></div>
     <div className="inline-confirm-actions">
-      <button type="button" className="button-quiet" onClick={onCancel} disabled={busy}>{cancelLabel}</button>
-      <button type="button" className={tone === "danger" ? "inline-confirm-danger" : "button-primary"} onClick={onConfirm} disabled={busy}>{busy ? "Working…" : confirmLabel}</button>
+      <button type="button" className="button-quiet" onClick={onCancel} disabled={busy}>{resolvedCancel}</button>
+      <button type="button" className={tone === "danger" ? "inline-confirm-danger" : "button-primary"} onClick={onConfirm} disabled={busy}>{busy ? <Lang bn="কাজ চলছে…" en="Working…"/> : resolvedConfirm}</button>
     </div>
   </div>;
 }

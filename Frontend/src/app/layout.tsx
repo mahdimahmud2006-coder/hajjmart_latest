@@ -1,8 +1,23 @@
 import type { Metadata, Viewport } from "next";
+import { cookies } from "next/headers";
+import { Noto_Sans_Bengali, Noto_Serif_Bengali } from "next/font/google";
 import "./globals.css";
 import { StoreProvider } from "@/context/store-context";
-import { getCategories } from "@/lib/api";
+import { getCategories, getPublicPromotions } from "@/lib/api";
 import { SiteChrome } from "@/components/site-chrome";
+import { LANGUAGE_KEY, type Language } from "@/lib/i18n";
+
+const banglaSans = Noto_Sans_Bengali({
+  subsets: ["bengali"],
+  variable: "--font-bangla-sans",
+  display: "swap",
+});
+
+const banglaSerif = Noto_Serif_Bengali({
+  subsets: ["bengali"],
+  variable: "--font-bangla-serif",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://hajjmart.com.bd"),
@@ -16,12 +31,14 @@ export const metadata: Metadata = {
 export const viewport: Viewport = { themeColor: "#123f38", colorScheme: "light" };
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  const categories = await getCategories();
+  const [categories, promotions] = await Promise.all([getCategories(), getPublicPromotions()]);
+  const storedLanguage = (await cookies()).get(LANGUAGE_KEY)?.value;
+  const language: Language = storedLanguage === "en" ? "en" : "bn";
   return (
-    <html lang="en" className="scroll-smooth">
+    <html lang={language} data-language={language} className={`${banglaSans.variable} ${banglaSerif.variable} scroll-smooth`}>
       <body>
         <StoreProvider>
-          <SiteChrome categories={categories}>{children}</SiteChrome>
+          <SiteChrome categories={categories} promotions={promotions} language={language}>{children}</SiteChrome>
         </StoreProvider>
       </body>
     </html>

@@ -1,448 +1,121 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import type { HomepageSection } from "@/lib/types";
-import { ArrowRightIcon, ChevronLeftIcon, ChevronRightIcon } from "./icons";
+import { useEffect, useMemo, useState } from "react";
+import type { HomepageSection, PublicPromotion } from "@/lib/types";
 import { AppImage } from "./app-image";
+import { Lang } from "./lang";
+import { ArrowRightIcon, ChevronLeftIcon, ChevronRightIcon } from "./icons";
+import { banglaFallback, hasBangla } from "@/lib/i18n";
 
-type MosaicTile = {
-  src: string;
-  srcSetWidths: readonly number[];
-  width: number;
-  height: number;
-  alt: string;
-  gridArea: string;
-  position?: string;
-  sizes: string;
-  tabletHidden?: boolean;
-};
+const FALLBACK_IMAGE = "/images/decor/madina-watercolor.jpg";
 
-type MosaicSlide = {
-  id: string;
-  eyebrow: string;
-  title: string;
-  description: string;
-  ctaLabel: string;
-  ctaHref: string;
-  secondaryLabel: string;
-  secondaryHref: string;
-  layout: "layout-a" | "layout-b" | "layout-c";
-  tiles: MosaicTile[];
-  mobileTiles: MosaicTile[];
-};
 
-const MOSAIC_ASSETS = {
-  nabawiGoldenUmbrellas: {
-    src: "/images/hero-mosaic/nabawi-golden-umbrellas-1920.webp",
-    srcSetWidths: [640, 960, 1440, 1920],
-    width: 736,
-    height: 414,
-    alt: "Al-Masjid an-Nabawi at golden hour, framed by courtyard umbrellas",
-    position: "center center",
-    sizes: "(max-width: 640px) 100vw, (max-width: 1024px) 62vw, 34vw",
-  },
-  clocktowerBirdsPortrait: {
-    src: "/images/hero-mosaic/clocktower-birds-portrait-1080.webp",
-    srcSetWidths: [480, 720, 1080],
-    width: 736,
-    height: 1307,
-    alt: "Makkah Clock Tower rising into the sky with birds in flight",
-    position: "center 38%",
-    sizes: "(max-width: 640px) 100vw, (max-width: 1024px) 38vw, 28vw",
-  },
-  kaabaSkylineSquare: {
-    src: "/images/hero-mosaic/kaaba-skyline-square-1080.webp",
-    srcSetWidths: [480, 720, 1080],
-    width: 640,
-    height: 640,
-    alt: "The Kaaba before the Makkah Clock Tower skyline",
-    position: "center 55%",
-    sizes: "(max-width: 1024px) 62vw, 34vw",
-  },
-  nabawiBluehourReflection: {
-    src: "/images/hero-mosaic/nabawi-bluehour-reflection-1920.webp",
-    srcSetWidths: [640, 960, 1440, 1920],
-    width: 736,
-    height: 414,
-    alt: "Al-Masjid an-Nabawi illuminated at blue hour with reflections across the courtyard",
-    position: "center center",
-    sizes: "(max-width: 1024px) 62vw, 33vw",
-  },
-  kaabaArchwayCrowd: {
-    src: "/images/hero-mosaic/kaaba-archway-crowd-1080.webp",
-    srcSetWidths: [480, 720, 1080],
-    width: 720,
-    height: 615,
-    alt: "The Kaaba and pilgrims framed through the Grand Mosque arches",
-    position: "center 58%",
-    sizes: "32.5vw",
-  },
-  clocktowerMoonPortrait: {
-    src: "/images/hero-mosaic/clocktower-moon-portrait-1080.webp",
-    srcSetWidths: [480, 720, 1080],
-    width: 736,
-    height: 1241,
-    alt: "Makkah Clock Tower beneath a full moon",
-    position: "center 38%",
-    sizes: "(max-width: 640px) 100vw, (max-width: 1024px) 38vw, 35vw",
-  },
-  kaabaCalligraphyMacro1: {
-    src: "/images/hero-mosaic/kaaba-calligraphy-macro-1-1080.webp",
-    srcSetWidths: [480, 720, 1080],
-    width: 708,
-    height: 1280,
-    alt: "Close view of the Kaaba kiswa and its gold embroidered calligraphy",
-    position: "center 42%",
-    sizes: "(max-width: 640px) 100vw, (max-width: 1024px) 38vw, 32vw",
-  },
-  nabawiSunsetWide: {
-    src: "/images/hero-mosaic/nabawi-sunset-wide-1920.webp",
-    srcSetWidths: [640, 960, 1440, 1920],
-    width: 736,
-    height: 414,
-    alt: "Al-Masjid an-Nabawi and the Green Dome at sunset",
-    position: "center center",
-    sizes: "(max-width: 640px) 100vw, (max-width: 1024px) 62vw, 65vw",
-  },
-  kaabaCalligraphyMacro2: {
-    src: "/images/hero-mosaic/kaaba-calligraphy-macro-2-1080.webp",
-    srcSetWidths: [480, 720, 1080],
-    width: 1080,
-    height: 1920,
-    alt: "The Kaaba corner with intricate gold calligraphy and a minaret beyond",
-    position: "center 46%",
-    sizes: "(max-width: 640px) 100vw, 28vw",
-  },
-  nabawiSunbeamsBirds: {
-    src: "/images/hero-mosaic/nabawi-sunbeams-birds-1920.webp",
-    srcSetWidths: [640, 960, 1440, 1920],
-    width: 736,
-    height: 414,
-    alt: "Sunbeams and birds above Al-Masjid an-Nabawi",
-    position: "center center",
-    sizes: "(max-width: 640px) 100vw, (max-width: 1024px) 62vw, 44vw",
-  },
-  pilgrimKaabaSunset: {
-    src: "/images/hero-mosaic/pilgrim-kaaba-sunset-1920.webp",
-    srcSetWidths: [640, 960, 1440, 1920],
-    width: 735,
-    height: 420,
-    alt: "A pilgrim praying before the Kaaba at sunset",
-    position: "center center",
-    sizes: "(max-width: 640px) 100vw, 68vw",
-  },
-} as const;
-
-const MOSAIC_SLIDES: MosaicSlide[] = [
-  {
-    id: "nabawi-golden-hour",
-    eyebrow: "Madina · calm · reflection",
-    title: "Prepare with calm. Travel with purpose.",
-    description: "A quieter hero moment built around the sacred cities, with the same dependable products, search, pricing and checkout flows beneath.",
-    ctaLabel: "Shop essentials",
-    ctaHref: "/shop",
-    secondaryLabel: "Pilgrim journal",
-    secondaryHref: "/guides",
-    layout: "layout-a",
-    tiles: [
-      { ...MOSAIC_ASSETS.nabawiSunsetWide, gridArea: "wide" },
-      { ...MOSAIC_ASSETS.clocktowerMoonPortrait, gridArea: "tall" },
-      { ...MOSAIC_ASSETS.kaabaArchwayCrowd, gridArea: "med1", tabletHidden: true },
-      { ...MOSAIC_ASSETS.nabawiBluehourReflection, gridArea: "med2" },
-    ],
-    mobileTiles: [
-      { ...MOSAIC_ASSETS.nabawiSunsetWide, gridArea: "wide" },
-      { ...MOSAIC_ASSETS.clocktowerMoonPortrait, gridArea: "tall" },
-    ],
-  },
-  {
-    id: "kaaba-close-and-wide",
-    eyebrow: "Makkah · devotion · focus",
-    title: "Sacred travel essentials, curated with clarity.",
-    description: "An intimate view of the Kaaba paired with a wider sense of place for practical preparation grounded in purpose.",
-    ctaLabel: "Explore best sellers",
-    ctaHref: "/shop?sort=best_selling",
-    secondaryLabel: "Preparation guides",
-    secondaryHref: "/guides",
-    layout: "layout-b",
-    tiles: [
-      { ...MOSAIC_ASSETS.kaabaCalligraphyMacro1, gridArea: "tall" },
-      { ...MOSAIC_ASSETS.pilgrimKaabaSunset, gridArea: "wide" },
-      { ...MOSAIC_ASSETS.kaabaSkylineSquare, gridArea: "sq" },
-      { ...MOSAIC_ASSETS.nabawiGoldenUmbrellas, gridArea: "small", tabletHidden: true },
-    ],
-    mobileTiles: [
-      { ...MOSAIC_ASSETS.pilgrimKaabaSunset, gridArea: "wide" },
-      { ...MOSAIC_ASSETS.kaabaCalligraphyMacro1, gridArea: "tall" },
-    ],
-  },
-  {
-    id: "clocktower-and-sunbeams",
-    eyebrow: "Makkah · Madina · light",
-    title: "Useful preparation, presented with a quieter sense of place.",
-    description: "Landmarks, sacred detail and warm light come together while the core HajjMart journey stays familiar and functional.",
-    ctaLabel: "Browse collections",
-    ctaHref: "/shop",
-    secondaryLabel: "Our story",
-    secondaryHref: "/about",
-    layout: "layout-c",
-    tiles: [
-      { ...MOSAIC_ASSETS.clocktowerBirdsPortrait, gridArea: "tallA" },
-      { ...MOSAIC_ASSETS.nabawiSunbeamsBirds, gridArea: "wideMid" },
-      { ...MOSAIC_ASSETS.kaabaCalligraphyMacro2, gridArea: "tallB", tabletHidden: true },
-    ],
-    mobileTiles: [
-      { ...MOSAIC_ASSETS.nabawiSunbeamsBirds, gridArea: "wide" },
-      { ...MOSAIC_ASSETS.kaabaCalligraphyMacro2, gridArea: "tall" },
-    ],
-  },
-];
-
-const SCRAMBLE_GLYPHS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789·—";
-const TRANSITION_DURATION_MS = 1050;
-const ACTIVE_DURATION_MS = 5850;
-function mosaicSrcSet(src: string, widths: readonly number[]) {
-  const base = src.replace(/-\d+\.webp$/, "");
-  return widths.map((width) => `${base}-${width}.webp ${width}w`).join(", ");
+function heroBangla(value: string | null | undefined, fallback: string) {
+  if (!value) return fallback;
+  const translated = banglaFallback(value);
+  return hasBangla(translated) && !/[A-Za-z]{2,}/.test(translated) ? translated : fallback;
 }
 
-function useReducedMotion() {
-  const [reduced, setReduced] = useState(false);
-  useEffect(() => {
-    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const update = () => setReduced(media.matches);
-    update();
-    media.addEventListener?.("change", update);
-    return () => media.removeEventListener?.("change", update);
-  }, []);
-  return reduced;
-}
-
-function useIsMobile() {
-  const [isMobile, setIsMobile] = useState<boolean | null>(null);
-  useEffect(() => {
-    const media = window.matchMedia("(max-width: 640px)");
-    const update = () => setIsMobile(media.matches);
-    update();
-    media.addEventListener?.("change", update);
-    return () => media.removeEventListener?.("change", update);
-  }, []);
-  return isMobile;
-}
-
-function useTypewriter(value: string, key: string, reduced: boolean) {
-  const [text, setText] = useState(value);
-  useEffect(() => {
-    if (reduced) {
-      setText(value);
-      return;
-    }
-    setText("");
-    let index = 0;
-    let timer: number | undefined;
-    const start = window.setTimeout(() => {
-      timer = window.setInterval(() => {
-        index += 1;
-        setText(value.slice(0, index));
-        if (index >= value.length && timer !== undefined) window.clearInterval(timer);
-      }, 22);
-    }, 20);
-    return () => {
-      window.clearTimeout(start);
-      if (timer !== undefined) window.clearInterval(timer);
-    };
-  }, [value, key, reduced]);
-  return text;
-}
-
-function useScrambledText(value: string, key: string, reduced: boolean) {
-  const [text, setText] = useState(value);
-  useEffect(() => {
-    if (reduced) {
-      setText(value);
-      return;
-    }
-    let frame = 0;
-    const totalFrames = 8;
-    const timer = window.setInterval(() => {
-      frame += 1;
-      const reveal = Math.floor((frame / totalFrames) * value.length);
-      const next = Array.from(value)
-        .map((char, index) => {
-          if (char === " " || char === "·" || index < reveal) return char;
-          return SCRAMBLE_GLYPHS[Math.floor(Math.random() * SCRAMBLE_GLYPHS.length)];
-        })
-        .join("");
-      setText(frame >= totalFrames ? value : next);
-      if (frame >= totalFrames) window.clearInterval(timer);
-    }, 24);
-    return () => window.clearInterval(timer);
-  }, [value, key, reduced]);
-  return text;
-}
-
-export function HomeHero({ sections }: { sections: HomepageSection[] }) {
-  const primaryHero = sections.find((section) => section.kind === "hero");
-  const slides = useMemo(
-    () =>
-      MOSAIC_SLIDES.map((slide, index) =>
-        index === 0
-          ? {
-              ...slide,
-              ctaLabel: primaryHero?.cta_label || slide.ctaLabel,
-              ctaHref: primaryHero?.cta_url || slide.ctaHref,
-            }
-          : slide,
-      ),
-    [primaryHero],
-  );
+export function HomeHero({ sections, promotion }: { sections: HomepageSection[]; promotion?: PublicPromotion | null }) {
+  const slides = useMemo(() => sections.filter((section) => section.kind === "hero"), [sections]);
+  const usable = slides.length ? slides : sections.slice(0, 1);
   const [active, setActive] = useState(0);
-  const [outgoing, setOutgoing] = useState<number | null>(null);
-  const transitionTimer = useRef<number | null>(null);
-  const mediaRef = useRef<HTMLDivElement>(null);
-  const reducedMotion = useReducedMotion();
-  const isMobile = useIsMobile();
-
-  function handlePointerMove(event: ReactPointerEvent<HTMLElement>) {
-    if (reducedMotion || event.pointerType === "touch" || window.matchMedia("(pointer: coarse)").matches) return;
-    const media = mediaRef.current;
-    if (!media) return;
-    const rect = media.getBoundingClientRect();
-    const x = (event.clientX - rect.left) / rect.width - 0.5;
-    const y = (event.clientY - rect.top) / rect.height - 0.5;
-    media.style.transform = `perspective(1200px) rotateY(${x * 3}deg) rotateX(${-y * 3}deg) scale(1.025)`;
-  }
-
-  function resetTilt() {
-    if (mediaRef.current) mediaRef.current.style.transform = "";
-  }
-
-  const transitionTo = useCallback(
-    (next: number) => {
-      const normalized = (next + slides.length) % slides.length;
-      if (normalized === active) return;
-      if (transitionTimer.current !== null) window.clearTimeout(transitionTimer.current);
-      if (!reducedMotion) setOutgoing(active);
-      setActive(normalized);
-      transitionTimer.current = window.setTimeout(() => {
-        setOutgoing(null);
-        transitionTimer.current = null;
-      }, reducedMotion ? 0 : TRANSITION_DURATION_MS);
-    },
-    [active, slides.length, reducedMotion],
-  );
-
-  useEffect(
-    () => () => {
-      if (transitionTimer.current !== null) window.clearTimeout(transitionTimer.current);
-    },
-    [],
-  );
+  const [paused, setPaused] = useState(false);
+  const [now, setNow] = useState<number | null>(null);
 
   useEffect(() => {
-    if (slides.length < 2 || reducedMotion) return;
-    const timer = window.setTimeout(() => transitionTo(active + 1), ACTIVE_DURATION_MS);
-    return () => window.clearTimeout(timer);
-  }, [active, slides.length, reducedMotion, transitionTo]);
+    if (!promotion?.expires_at) return;
+    const tick = () => setNow(Date.now());
+    tick();
+    const timer = window.setInterval(tick, 60_000);
+    return () => window.clearInterval(timer);
+  }, [promotion?.expires_at]);
 
-  const slide = slides[active];
-  const typedTitle = useTypewriter(slide.title, slide.id, reducedMotion);
-  const scrambledEyebrow = useScrambledText(slide.eyebrow, slide.id, reducedMotion);
-  const typing = typedTitle.length < slide.title.length;
+  useEffect(() => {
+    if (usable.length < 2 || paused) return;
+    const timer = window.setInterval(() => setActive((value) => (value + 1) % usable.length), 7200);
+    return () => window.clearInterval(timer);
+  }, [paused, usable.length]);
+
+  const slide: HomepageSection = usable[active] || {
+    id: -1,
+    kind: "hero",
+    eyebrow: "Easy preparation",
+    eyebrow_bn: "সহজ প্রস্তুতি",
+    title: "Everything you need for Hajj and Umrah, in one place.",
+    title_bn: "হজ ও উমরাহর জন্য যা যা লাগবে, এক জায়গায়।",
+    description: "Ihram, bags, sandals and travel essentials, delivered across Bangladesh.",
+    description_bn: "ইহরাম, ব্যাগ, স্যান্ডেল ও ভ্রমণের প্রয়োজনীয় পণ্য—সারা বাংলাদেশে ডেলিভারি।",
+    cta_label: "Shop essentials",
+    cta_label_bn: "পণ্য দেখুন",
+    cta_url: "/shop",
+    image_url: FALLBACK_IMAGE,
+  };
+
+  const metadataOfferTag = typeof slide.metadata?.offer_tag === "string" ? slide.metadata.offer_tag : null;
+  const promotionLabel = promotion?.title || promotion?.code || null;
+  const offerTag = metadataOfferTag || promotionLabel;
+  let countdown: string | null = null;
+  let countdownBn: string | null = null;
+  if (promotion?.expires_at && now) {
+    const expiryValue = /^\d{4}-\d{2}-\d{2}$/.test(promotion.expires_at) ? `${promotion.expires_at}T23:59:59+06:00` : promotion.expires_at;
+    const remaining = Date.parse(expiryValue) - now;
+    if (remaining > 0) {
+      const hours = Math.ceil(remaining / 3_600_000);
+      const days = Math.floor(hours / 24);
+      countdown = days > 0 ? `${days}d ${hours % 24}h left` : `${hours}h left`;
+      countdownBn = days > 0 ? `${days} দিন ${hours % 24} ঘণ্টা বাকি` : `${hours} ঘণ্টা বাকি`;
+    }
+  }
 
   return (
-    <section className="hm-pan-hero hm-pan-hero-v12" onPointerMove={handlePointerMove} onPointerLeave={resetTilt}>
-      <div ref={mediaRef} className="hm-pan-media hm-pan-media-tilt">
-        {slides.map((item, index) => {
-          const state = index === active ? "is-active" : index === outgoing ? "is-outgoing" : "";
-          const tiles = isMobile === false ? item.tiles : item.mobileTiles;
-          return (
-            <div
-              key={item.id}
-              className={`hm-pan-frame ${state} hm-mosaic-${item.layout}`}
-              data-slide-id={item.id}
-              aria-hidden={index !== active}
-            >
-              <div className="hm-mosaic-grid">
-                {tiles.map((tile, tileIndex) => (
-                  <div
-                    key={`${tile.src}-${tile.gridArea}`}
-                    className="hm-mosaic-tile"
-                    style={{ gridArea: tile.gridArea }}
-                    data-tablet-hidden={tile.tabletHidden || undefined}
-                  >
-                    <AppImage
-                      src={tile.src}
-                      srcSet={mosaicSrcSet(tile.src, tile.srcSetWidths)}
-                      sizes={tile.sizes}
-                      width={tile.width}
-                      height={tile.height}
-                      loading={index === 0 ? "eager" : "lazy"}
-                      alt={tile.alt}
-                      className="hm-mosaic-image"
-                      style={{ objectPosition: tile.position ?? "center center" }}
-                      decoding="async"
-                      fetchPriority={index === 0 && tileIndex === 0 ? "high" : "auto"}
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-          );
-        })}
-        <div className="hm-pan-overlay" />
-      </div>
-
-      <div className="container-wide hm-pan-shell">
-        <div className="hm-pan-copy" key={slide.id}>
-          <p className="sunnah-hero-kicker hm-scramble-kicker" aria-label={slide.eyebrow}>
-            {scrambledEyebrow}
-          </p>
-          <h1 aria-label={slide.title}>
-            <span>{typedTitle}</span>
-            <span className={`hm-type-cursor ${typing ? "is-typing" : ""}`} aria-hidden="true">
-              |
-            </span>
-          </h1>
-          <p className="hm-hero-description-reveal">{slide.description}</p>
-          <div className="sunnah-hero-actions hm-hero-actions-reveal">
-            <Link href={slide.ctaHref} className="sunnah-solid-cta">
-              {slide.ctaLabel}
-              <ArrowRightIcon size={15} />
-            </Link>
-            <Link href={slide.secondaryHref} className="sunnah-text-cta">
-              {slide.secondaryLabel} →
-            </Link>
+    <section
+      className={`hero-shell theme-${slide.theme || "forest"}`}
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+      onFocusCapture={() => setPaused(true)}
+      onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setPaused(false); }}
+    >
+      <div className="hero-pattern" aria-hidden="true" />
+      <div className="hero-ring ring-one" aria-hidden="true" />
+      <div className="hero-ring ring-two" aria-hidden="true" />
+      <div className="container-wide relative z-10 grid min-h-[690px] items-center gap-6 py-12 lg:grid-cols-[1.03fr_.97fr] lg:py-16 xl:min-h-[740px]">
+        <div className="relative z-20 max-w-[680px] pt-6 lg:pt-0">
+          {offerTag ? <p className="hero-offer-tag"><Lang bn={banglaFallback(offerTag)} en={offerTag}/>{countdown ? <span> · <Lang bn={countdownBn || undefined} en={countdown}/></span> : null}</p> : null}
+          <p key={`${active}-eyebrow`} className="hero-eyebrow hero-enter"><Lang bn={slide.eyebrow_bn && hasBangla(slide.eyebrow_bn) ? slide.eyebrow_bn : heroBangla(slide.eyebrow, "সহজ প্রস্তুতি")} en={slide.eyebrow || "Easy preparation"}/></p>
+          <h1 key={`${active}-title`} className="hero-title hero-enter delay-1"><Lang bn={slide.title_bn && hasBangla(slide.title_bn) ? slide.title_bn : heroBangla(slide.title, "হজ ও উমরাহর প্রস্তুতির প্রয়োজনীয় পণ্য")} en={slide.title}/></h1>
+          <p key={`${active}-description`} className="hero-copy hero-enter delay-2"><Lang bn={slide.description_bn && hasBangla(slide.description_bn) ? slide.description_bn : heroBangla(slide.description, "বাংলাদেশি হজ ও উমরাহ যাত্রীদের জন্য যত্ন করে বাছাই করা প্রয়োজনীয় সামগ্রী।")} en={slide.description || ""}/></p>
+          <div key={`${active}-actions`} className="hero-enter delay-3 mt-8 flex flex-wrap items-center gap-3">
+            <Link href={slide.cta_url || "/shop"} className="button-gold"><Lang bn={slide.cta_label_bn && hasBangla(slide.cta_label_bn) ? slide.cta_label_bn : heroBangla(slide.cta_label, "পণ্য দেখুন")} en={slide.cta_label || "Shop essentials"}/><ArrowRightIcon size={17}/></Link>
+            <Link href="/faq" className="button-ghost-light"><Lang bn="হজ প্রস্তুতি গাইড" en="Pilgrim guide"/></Link>
           </div>
-          <div className="hm-pan-pills hm-hero-pills-reveal">
-            <span>Nationwide delivery</span>
-            <span>Retail &amp; wholesale</span>
-            <span>Support before &amp; after purchase</span>
+          <div className="mt-12 grid max-w-xl grid-cols-3 gap-5 border-t border-white/15 pt-6 text-white/72">
+            <div><strong className="hero-stat">500+</strong><span><Lang bn="প্রয়োজনীয় পণ্য" en="essential products"/></span></div>
+            <div><strong className="hero-stat">64</strong><span><Lang bn="জেলায় ডেলিভারি" en="districts delivered"/></span></div>
+            <div><strong className="hero-stat">01720</strong><span><Lang bn="ফোনে অর্ডার সহায়তা" en="phone order help"/></span></div>
           </div>
         </div>
 
-        <div className="hm-pan-controls" aria-label="Hero composition controls">
-          <button type="button" onClick={() => transitionTo(active - 1)} aria-label="Previous composition">
-            <ChevronLeftIcon size={16} />
-          </button>
-          <div className="hm-pan-dots">
-            {slides.map((item, index) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => transitionTo(index)}
-                className={index === active ? "is-active" : ""}
-                aria-label={`Show composition ${index + 1}`}
-                aria-pressed={index === active}
-              />
-            ))}
+        <div className="relative mx-auto h-[440px] w-full max-w-[570px] sm:h-[540px] lg:h-[590px]">
+          <div className="hero-image-frame">
+            <AppImage key={`${active}-image`} src={slide.image_url || FALLBACK_IMAGE} fallback={FALLBACK_IMAGE} alt={slide.title} className="hero-main-image hero-image-enter" />
+            <div className="hero-image-wash" />
           </div>
-          <button type="button" onClick={() => transitionTo(active + 1)} aria-label="Next composition">
-            <ChevronRightIcon size={16} />
-          </button>
+          <div className="hero-floating-card">
+            <span className="block text-xs font-bold text-[var(--gold-dark)]"><Lang bn="হজমার্ট সহায়তা" en="HajjMart support"/></span>
+            <strong className="mt-2 block text-lg font-bold text-[var(--ink)]"><Lang bn="কী কিনবেন বুঝতে না পারলে ফোন করুন—আমরা সাহায্য করব।" en="Not sure what to buy? Call us and we will help."/></strong>
+          </div>
+          <div className="hero-calligraphy" aria-hidden="true">لَبَّيْكَ</div>
         </div>
       </div>
+
+      {usable.length > 1 ? (
+        <div className="container-wide absolute inset-x-0 bottom-6 z-20 flex items-center justify-between">
+          <div className="flex gap-2">{usable.map((item, index) => <button key={item.id} onClick={() => setActive(index)} className={`hero-dot ${index === active ? "active" : ""}`} aria-label={`Show slide ${index + 1}`} />)}</div>
+          <div className="flex gap-2"><button className="hero-arrow" onClick={() => setActive((active - 1 + usable.length) % usable.length)} aria-label="Previous slide"><ChevronLeftIcon size={18}/></button><button className="hero-arrow" onClick={() => setActive((active + 1) % usable.length)} aria-label="Next slide"><ChevronRightIcon size={18}/></button></div>
+        </div>
+      ) : null}
     </section>
   );
 }

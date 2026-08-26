@@ -1,4 +1,4 @@
-import type { Category, Product, ProductImage, ProductVariant } from "./types";
+import type { Category, PackageType, Product, ProductAudience, ProductImage, ProductKind, ProductPackageItem, ProductVariant } from "./types";
 
 export const API_BASE_URL =
   (process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL)?.replace(/\/$/, "") ||
@@ -49,15 +49,14 @@ export function getProductImages(product: Product): string[] {
     ...sorted.map(imageUrl),
     ...(Array.isArray(product.image_src) ? product.image_src : []),
   ].filter((value): value is string => Boolean(value));
-  return [...new Set(values)];
+  const unique = [...new Set(values)];
+  // Bundled SVGs are fallbacks. If the catalogue supplies real photography,
+  // show that first without requiring a frontend code change.
+  return unique.sort((a, b) => Number(a.includes("/images/products/") && a.endsWith(".svg")) - Number(b.includes("/images/products/") && b.endsWith(".svg")));
 }
 
-export function getProductImage(product: Product): string;
-export function getProductImage(product: Product, index: number): string | null;
-export function getProductImage(product: Product, index = 0): string | null {
-  const image = getProductImages(product)[index];
-  if (image) return image;
-  return index === 0 ? "/images/products/ihram-package.svg" : null;
+export function getProductImage(product: Product): string {
+  return getProductImages(product)[0] || "/images/products/ihram-package.svg";
 }
 
 export function getCategoryImage(category: Category): string | null {
@@ -110,4 +109,57 @@ export function variantLabel(variant: ProductVariant): string {
   }
   if (variant.attributes_json) return Object.values(variant.attributes_json).join(" / ");
   return variant.sku || `Option ${variant.id}`;
+}
+
+export function packageItems(product: Product): ProductPackageItem[] {
+  return product.package_contents || product.packageContents || [];
+}
+
+function productClassificationText(product: Product): string {
+  return [
+    product.name,
+    product.name_bn,
+    product.short_description,
+    product.short_description_bn,
+    product.primary_category?.name,
+    product.primary_category?.name_bn,
+    product.primary_category?.slug,
+    product.primaryCategory?.name,
+    product.primaryCategory?.name_bn,
+    product.primaryCategory?.slug,
+    ...(product.categories || []).flatMap((category) => [category.name, category.name_bn, category.slug]),
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+
+export function productKind(product: Product): ProductKind {
+  if (product.product_kind) return product.product_kind;
+  if (packageItems(product).length) return "package";
+  const value = productClassificationText(product);
+  return /\b(package|bundle|kit)\b/i.test(value) || value.includes("প্যাকেজ") ? "package" : "single";
+}
+
+export function productAudience(product: Product): ProductAudience | null {
+  if (product.audience) return product.audience;
+  const value = productClassificationText(product);
+  if (/\b(female|women|woman|ladies)\b/i.test(value) || value.includes("নারী") || value.includes("মহিলা")) return "women";
+  if (/\b(kids?|children|child)\b/i.test(value) || value.includes("শিশু") || value.includes("বাচ্চা")) return "kids";
+  if (/\b(male|men|man)\b/i.test(value) || value.includes("পুরুষ")) return "men";
+  return null;
+}
+
+export function productPackageType(product: Product): PackageType | null {
+  if (product.package_type) return product.package_type;
+  const value = productClassificationText(product);
+  if (/\bumrah\b/i.test(value) || value.includes("উমরাহ")) return "umrah";
+  if (/\bhajj\b/i.test(value) || value.includes("হজ")) return "hajj";
+  return null;
+}
+
+export function packageItemCount(product: Product): number {
+  if (typeof product.item_count === "number" && product.item_count > 0) return product.item_count;
+  const structured = packageItems(product).reduce((total, item) => total + Math.max(1, item.quantity || 1), 0);
+  if (structured > 0) return structured;
+  const value = productClassificationText(product);
+  const match = value.match(/(\d{1,3})\s*(?:items?|pcs?|pieces?|products?|আইটেম|পণ্য)/i);
+  return match ? Number.parseInt(match[1], 10) : 0;
 }

@@ -129,7 +129,7 @@ function localProductPage(source: AdminProduct[], search: string, page: number, 
   return { data: sorted.slice((currentPage - 1) * perPage, currentPage * perPage), current_page: currentPage, last_page: lastPage, total: sorted.length, per_page: perPage };
 }
 
-export function ProductPicker({ cart, onAdd, priceMode = "retail", preferOffline = false }: { cart: CartLine[]; onAdd: (entry: ProductSelection) => void; priceMode?: PriceMode; preferOffline?: boolean }) {
+export function ProductPicker({ cart, onAdd, priceMode = "retail", preferOffline = false, storeId }: { cart: CartLine[]; onAdd: (entry: ProductSelection) => void; priceMode?: PriceMode; preferOffline?: boolean; storeId?: number | string | null }) {
   const { token, demoMode, selectedStoreId, stores } = useAdmin();
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -142,7 +142,8 @@ export function ProductPicker({ cart, onAdd, priceMode = "retail", preferOffline
   const [choices, setChoices] = useState<Record<number, number>>({});
   const [recentlyAdded, setRecentlyAdded] = useState<string | null>(null);
   const requestSequence = useRef(0);
-  const resolvedStore = selectedStoreId === "all" ? stores[0]?.id : selectedStoreId;
+  const contextStore = selectedStoreId === "all" ? stores[0]?.id : selectedStoreId;
+  const resolvedStore = storeId ?? contextStore;
   const perPage = 20;
 
   useEffect(() => {

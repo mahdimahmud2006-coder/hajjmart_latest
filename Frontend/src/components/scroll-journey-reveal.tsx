@@ -6,6 +6,8 @@ import type { Category } from "@/lib/types";
 import { getCategoryImage } from "@/lib/utils";
 import { AppImage } from "./app-image";
 import { ArrowRightIcon } from "./icons";
+import { Lang } from "./lang";
+import { hasBangla } from "@/lib/i18n";
 
 const FALLBACK_IMAGES = [
   "/images/products/ihram-package.svg",
@@ -150,12 +152,12 @@ export function ScrollJourneyReveal({ categories }: { categories: Category[] }) 
         <div className="container-wide journey-scroll-inner">
           <div className="journey-scroll-copy">
             <div>
-              <p ref={eyebrowRef} className="eyebrow journey-scroll-eyebrow">Shop by journey need</p>
-              <h2 ref={titleRef} id="journey-scroll-title" className="journey-scroll-title">Preparation, organised beautifully.</h2>
-              <p ref={descriptionRef} className="journey-scroll-description">A calmer way to build your list—from Ihram and travel documents to worship, comfort and care.</p>
+              <p ref={eyebrowRef} className="eyebrow journey-scroll-eyebrow"><Lang bn="যাত্রার প্রয়োজন অনুযায়ী কিনুন" en="Shop by journey need"/></p>
+              <h2 ref={titleRef} id="journey-scroll-title" className="journey-scroll-title"><Lang bn="প্রস্তুতি হোক সুন্দর ও গোছানো।" en="Preparation, organised beautifully."/></h2>
+              <p ref={descriptionRef} className="journey-scroll-description"><Lang bn="ইহরাম ও ভ্রমণের কাগজপত্র থেকে ইবাদত, আরাম ও যত্ন—শান্তভাবে তালিকা গুছিয়ে নিন।" en="A calmer way to build your list—from Ihram and travel documents to worship, comfort and care."/></p>
             </div>
             <Link ref={linkRef} href="/shop" className="journey-scroll-link">
-              View every category <ArrowRightIcon size={16} />
+              <Lang bn="সব ক্যাটাগরি দেখুন" en="View every category"/> <ArrowRightIcon size={16} />
             </Link>
           </div>
 
@@ -175,10 +177,10 @@ export function ScrollJourneyReveal({ categories }: { categories: Category[] }) 
                   <div className="journey-scroll-card-wash" />
                   <span className="journey-scroll-number">0{index + 1}</span>
                   <div className="journey-scroll-card-copy">
-                    <p className="journey-scroll-kicker">Journey essential</p>
-                    <h3>{category.name}</h3>
-                    <p>{category.description || "Thoughtfully chosen essentials for the sacred journey."}</p>
-                    <span className="journey-scroll-explore">Explore <ArrowRightIcon size={15} /></span>
+                    <p className="journey-scroll-kicker"><Lang bn="যাত্রার প্রয়োজনীয় সামগ্রী" en="Journey essential"/></p>
+                    <h3><Lang bn={category.name_bn} en={category.name}/></h3>
+                    <p><Lang bn={category.description_bn && hasBangla(category.description_bn) ? category.description_bn : "পবিত্র যাত্রার জন্য যত্ন করে বাছাই করা প্রয়োজনীয় সামগ্রী।"} en={category.description || "Thoughtfully chosen essentials for the sacred journey."}/></p>
+                    <span className="journey-scroll-explore"><Lang bn="দেখুন" en="Explore"/> <ArrowRightIcon size={15} /></span>
                   </div>
                 </Link>
               </div>
@@ -188,7 +190,7 @@ export function ScrollJourneyReveal({ categories }: { categories: Category[] }) 
           <div className="journey-scroll-progress" aria-hidden="true">
             <span />
           </div>
-          <p className="journey-scroll-hint">Scroll to reveal the collection</p>
+          <p className="journey-scroll-hint"><Lang bn="সংগ্রহ দেখতে স্ক্রল করুন" en="Scroll to reveal the collection"/></p>
         </div>
       </div>
     </section>

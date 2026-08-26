@@ -8,6 +8,7 @@ import { adminRequest, pageRows, queryString } from "@/lib/admin-api";
 import { demoOrders, demoProductsAdmin } from "@/lib/admin-demo";
 import type { AdminOrder, AdminProduct, AdminReturn, Paginated } from "@/lib/admin-types";
 import { formatPrice } from "@/lib/utils";
+import { exportOrdersCsv, exportOrdersPdf, exportOrdersWord } from "@/lib/orders-export";
 import { AdminButton, AdminIcon, AdminSelect, BulkActionBar, EmptyState, Field, FormGrid, Modal, PageHeader, Pagination, Panel, SearchField, StatusBadge, TableShell, formatDate } from "@/components/admin/admin-ui";
 import { OrderDetailPanel } from "@/components/admin/order-detail-panel";
 
@@ -30,6 +31,8 @@ export default function OrdersPage() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [source, setSource] = useState("all");
   const [status, setStatus] = useState("all");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(50);
   const [meta, setMeta] = useState({ currentPage: 1, lastPage: 1, total: 0, perPage: 50 });
@@ -38,6 +41,10 @@ export default function OrdersPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [returnOpen, setReturnOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportFrom, setExportFrom] = useState("");
+  const [exportTo, setExportTo] = useState("");
+  const [exporting, setExporting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,7 +55,7 @@ export default function OrdersPage() {
     return () => window.clearTimeout(timer);
   }, [search]);
 
-  useEffect(() => { setPage(1); }, [debouncedSearch, source, status, selectedStoreId, perPage]);
+  useEffect(() => { setPage(1); }, [debouncedSearch, source, status, fromDate, toDate, selectedStoreId, perPage]);
 
   useEffect(() => {
     const requestId = ++listRequest.current;
@@ -58,6 +65,8 @@ export default function OrdersPage() {
       shop_id: selectedStoreId === "all" ? undefined : selectedStoreId,
       source_channel: source === "all" ? undefined : source,
       status: status === "all" ? undefined : status,
+      from: fromDate || undefined,
+      to: toDate || undefined,
       page,
       per_page: perPage,
     };
@@ -68,7 +77,9 @@ export default function OrdersPage() {
         return (!debouncedSearch || haystack.includes(debouncedSearch.toLowerCase()))
           && (source === "all" || order.source_channel === source)
           && (status === "all" || order.status === status)
-          && (selectedStoreId === "all" || order.shop?.id === selectedStoreId);
+          && (!fromDate || String(order.order_date || order.created_at || "").slice(0, 10) >= fromDate)
+          && (!toDate || String(order.order_date || order.created_at || "").slice(0, 10) <= toDate)
+          && (selectedStoreId === "all" || Number(order.shop?.id) === Number(selectedStoreId));
       });
       const result = paginateDemo(filtered, page, perPage);
       setOrders(result.data);
@@ -95,7 +106,7 @@ export default function OrdersPage() {
         setError(reason instanceof Error ? reason.message : "Orders could not be loaded.");
       })
       .finally(() => { if (requestId === listRequest.current) setLoading(false); });
-  }, [token, demoMode, selectedStoreId, debouncedSearch, source, status, page, perPage]);
+  }, [token, demoMode, selectedStoreId, debouncedSearch, source, status, fromDate, toDate, page, perPage]);
 
   useEffect(() => {
     if (demoMode) { setProducts(demoProductsAdmin); return; }
@@ -216,17 +227,85 @@ export default function OrdersPage() {
     if (failed) setError(`${failed} selected order${failed === 1 ? "" : "s"} could not be advanced. Review those records individually.`);
   }
 
+
+  function openExport() {
+    const today = new Date().toISOString().slice(0, 10);
+    setExportFrom(fromDate || today);
+    setExportTo(toDate || today);
+    setError(null);
+    setExportOpen(true);
+  }
+
+  async function loadOrdersForExport(from: string, to: string): Promise<AdminOrder[]> {
+    if (from > to) throw new Error("Export start date must be on or before the end date.");
+
+    const matches = (order: AdminOrder) => {
+      const orderDate = String(order.order_date || order.created_at || "").slice(0, 10);
+      const haystack = `${order.order_number} ${order.checkout_name || ""} ${order.checkout_mobile_number || ""} ${order.source_reference || ""}`.toLowerCase();
+      return (!debouncedSearch || haystack.includes(debouncedSearch.toLowerCase()))
+        && (source === "all" || order.source_channel === source)
+        && (status === "all" || order.status === status)
+        && (selectedStoreId === "all" || Number(order.shop?.id) === Number(selectedStoreId))
+        && orderDate >= from && orderDate <= to;
+    };
+
+    if (demoMode) return demoOrders.filter(matches);
+    if (!token) throw new Error("Live export requires an authenticated employee session.");
+
+    const collected: AdminOrder[] = [];
+    const pageSize = 250;
+    for (let exportPage = 1; exportPage <= 40; exportPage += 1) {
+      const result = await adminRequest<Paginated<AdminOrder>>(`/orders${queryString({
+        q: debouncedSearch || undefined,
+        shop_id: selectedStoreId === "all" ? undefined : selectedStoreId,
+        source_channel: source === "all" ? undefined : source,
+        status: status === "all" ? undefined : status,
+        from,
+        to,
+        page: exportPage,
+        per_page: pageSize,
+      })}`, { token });
+      collected.push(...pageRows(result));
+      const lastPage = Number(result.last_page || 1);
+      if (exportPage >= lastPage) return collected;
+    }
+    throw new Error("This export exceeds 10,000 orders. Choose a narrower date range.");
+  }
+
+  async function runExport(format: "csv" | "word" | "pdf") {
+    if (!exportFrom || !exportTo) { setError("Choose both export dates."); return; }
+    const preparedPdfWindow = format === "pdf" ? window.open("", "_blank") : null;
+    if (format === "pdf" && !preparedPdfWindow) { setError("The browser blocked the PDF window. Allow pop-ups and try again."); return; }
+    setExporting(true); setError(null);
+    try {
+      const exportRows = await loadOrdersForExport(exportFrom, exportTo);
+      if (!exportRows.length) throw new Error("No orders match that date range and the current filters.");
+      const stem = `hajjmart-orders-${exportFrom}-to-${exportTo}`;
+      const rangeLabel = `${exportFrom} to ${exportTo} · ${source === "all" ? "all channels" : source.replaceAll("_", " ")} · ${status === "all" ? "all statuses" : status.replaceAll("_", " ")}`;
+      if (format === "csv") exportOrdersCsv(exportRows, stem);
+      if (format === "word") exportOrdersWord(exportRows, stem, rangeLabel);
+      if (format === "pdf") exportOrdersPdf(exportRows, rangeLabel, preparedPdfWindow);
+      if (fromDate !== exportFrom) setFromDate(exportFrom);
+      if (toDate !== exportTo) setToDate(exportTo);
+      notify(`${exportRows.length} order${exportRows.length === 1 ? "" : "s"} prepared for ${format === "word" ? "Word" : format.toUpperCase()}.`);
+      setExportOpen(false);
+    } catch (reason) {
+      preparedPdfWindow?.close();
+      setError(reason instanceof Error ? reason.message : "Order export could not be created.");
+    } finally { setExporting(false); }
+  }
+
   const pageTotal = useMemo(() => orders.reduce((sum, order) => sum + Number(order.grand_total || 0), 0), [orders]);
   const pageDue = useMemo(() => orders.reduce((sum, order) => sum + Number(order.due_amount || 0), 0), [orders]);
 
   return <>
-    <PageHeader title="Unified orders" description="Every POS, social-commerce and e-commerce order in one stable, paginated operational ledger. Viewing, fulfilment, payment and return workflows open in centred modals." actions={demoMode ? <span className="admin-demo-action-note">Demo view · actions are simulated</span> : <><AdminButton variant="secondary" icon="download" onClick={() => notify("Order export prepared.")}>Export</AdminButton><a href="/admin/social-commerce"><AdminButton icon="plus">Create order</AdminButton></a></>}/>
+    <PageHeader title="Unified orders" actions={demoMode ? <span className="admin-demo-action-note">Demo view · actions are simulated</span> : <><AdminButton variant="secondary" icon="download" onClick={openExport}>Export</AdminButton><a href="/admin/social-commerce"><AdminButton icon="plus">Create order</AdminButton></a></>}/>
     {error && <p className="admin-form-error">{error}</p>}
     <div className="admin-inline-metrics"><div><span>Total matching orders</span><strong>{meta.total}</strong></div><div><span>Current page value</span><strong>{formatPrice(pageTotal)}</strong></div><div><span>Current page due</span><strong>{formatPrice(pageDue)}</strong></div><div><span>Page requiring action</span><strong>{orders.filter((order) => !["delivered", "cancelled", "returned", "refunded"].includes(order.status)).length}</strong></div></div>
     <Panel>
-      <div className="admin-toolbar"><SearchField value={search} onChange={setSearch} placeholder="Order no., customer, phone or reference…"/><div className="admin-toolbar-filters"><AdminSelect value={source} onChange={setSource}><option value="all">All channels</option><option value="website">E-commerce</option><option value="social_commerce">Social commerce</option><option value="pos">POS</option></AdminSelect><AdminSelect value={status} onChange={setStatus}>{statuses.map((item) => <option key={item} value={item}>{item === "all" ? "All statuses" : item.replaceAll("_", " ")}</option>)}</AdminSelect></div></div>
+      <div className="admin-toolbar"><SearchField value={search} onChange={setSearch} placeholder="Order no., customer, phone or reference…"/><div className="admin-toolbar-filters"><div className="admin-date-filter"><label><span>From</span><input type="date" value={fromDate} max={toDate || undefined} onChange={(event) => setFromDate(event.target.value)}/></label><label><span>To</span><input type="date" value={toDate} min={fromDate || undefined} onChange={(event) => setToDate(event.target.value)}/></label>{(fromDate || toDate) && <button type="button" onClick={() => { setFromDate(""); setToDate(""); }}>Clear dates</button>}</div><AdminSelect value={source} onChange={setSource}><option value="all">All channels</option><option value="website">E-commerce</option><option value="social_commerce">Social commerce</option><option value="pos">POS</option></AdminSelect><AdminSelect value={status} onChange={setStatus}>{statuses.map((item) => <option key={item} value={item}>{item === "all" ? "All statuses" : item.replaceAll("_", " ")}</option>)}</AdminSelect></div></div>
       {loading && <div className="admin-list-loading"><span/><p>Loading orders without clearing the current ledger…</p></div>}
-      {orders.length ? <TableShell bulkAction={<BulkActionBar selected={selectedOrderIds.length} label="orders selected" onClear={() => setSelectedOrderIds([])}><button type="button" disabled={busy || demoMode} onClick={() => void bulkAdvanceOrders()}>{busy ? "Updating…" : "Advance workflow"}</button></BulkActionBar>}><thead><tr><th className="admin-select-cell"><input type="checkbox" aria-label="Select all orders on this page" checked={orders.length > 0 && orders.every((order) => selectedOrderIds.includes(order.id))} onChange={(event) => setSelectedOrderIds(event.target.checked ? orders.map((order) => order.id) : [])}/></th><th>Order</th><th>Customer</th><th>Channel</th><th>Store / owner</th><th>Status</th><th>Payment</th><th className="align-right">Total</th><th></th></tr></thead><tbody>{orders.map((order) => <tr key={order.id} onClick={() => void openOrder(order)} className="admin-clickable-row"><td className="admin-select-cell" onClick={(event) => event.stopPropagation()}><input type="checkbox" aria-label={`Select ${order.order_number}`} checked={selectedOrderIds.includes(order.id)} onChange={(event) => setSelectedOrderIds((current) => event.target.checked ? [...new Set([...current, order.id])] : current.filter((id) => id !== order.id))}/></td><td><span className="admin-primary-cell">{order.order_number}<small>{formatDate(order.order_date || order.created_at, true)}</small></span></td><td><strong>{order.checkout_name || "Walk-in customer"}</strong><small>{order.checkout_mobile_number || order.checkout_district || "No contact"}</small></td><td><span className="admin-source"><AdminIcon name={order.source_channel === "pos" ? "pos" : order.source_channel === "social_commerce" ? "social" : "bag"} size={16}/>{order.source_channel.replaceAll("_", " ")}</span>{order.price_mode === "wholesale" && <small>Wholesale pricing</small>}{order.source_reference && <small>{order.source_reference}</small>}</td><td>{order.shop?.name || "Default store"}<small>{order.assignee?.name || order.creator?.name || "Unassigned"}</small></td><td><StatusBadge value={order.status}/>{["high", "urgent"].includes(order.priority || "") && <small className="admin-urgent">{order.priority} priority</small>}</td><td><StatusBadge value={order.payment_status}/><small>{formatPrice(order.due_amount || 0)} due</small></td><td className="align-right"><strong>{formatPrice(order.grand_total)}</strong><small>{order.items.length} line{order.items.length === 1 ? "" : "s"}</small></td><td className="align-right"><button type="button" className="admin-icon-button" aria-label="View order"><AdminIcon name="eye"/></button></td></tr>)}</tbody></TableShell> : !loading && <EmptyState title="No orders match this view" description="Change the channel, status or search filter." icon="orders"/>}
+      {orders.length ? <TableShell bulkAction={<BulkActionBar selected={selectedOrderIds.length} label="orders selected" onClear={() => setSelectedOrderIds([])}><button type="button" disabled={busy || demoMode} onClick={() => void bulkAdvanceOrders()}>{busy ? "Updating…" : "Advance workflow"}</button></BulkActionBar>}><thead><tr><th className="admin-select-cell"><input type="checkbox" aria-label="Select all orders on this page" checked={orders.length > 0 && orders.every((order) => selectedOrderIds.includes(order.id))} onChange={(event) => setSelectedOrderIds(event.target.checked ? orders.map((order) => order.id) : [])}/></th><th>Order</th><th>Customer</th><th>Channel</th><th>Store / owner</th><th>Status</th><th>Payment</th><th className="align-right">Total</th><th></th></tr></thead><tbody>{orders.map((order) => <tr key={order.id} onClick={() => void openOrder(order)} className="admin-clickable-row"><td className="admin-select-cell" onClick={(event) => event.stopPropagation()}><input type="checkbox" aria-label={`Select ${order.order_number}`} checked={selectedOrderIds.includes(order.id)} onChange={(event) => setSelectedOrderIds((current) => event.target.checked ? [...new Set([...current, order.id])] : current.filter((id) => id !== order.id))}/></td><td><span className="admin-primary-cell">{order.order_number}<small>{formatDate(order.order_date || order.created_at, true)}</small></span></td><td><strong>{order.checkout_name || "Walk-in customer"}</strong><small>{order.checkout_mobile_number || order.checkout_district || "No contact"}</small></td><td><span className="admin-source"><AdminIcon name={order.source_channel === "pos" ? "pos" : order.source_channel === "social_commerce" ? "social" : "bag"} size={16}/>{order.source_channel.replaceAll("_", " ")}</span>{order.price_mode === "wholesale" && <small>Wholesale pricing</small>}{order.source_reference && <small>{order.source_reference}</small>}</td><td>{order.shop?.name || "Default store"}<small>{order.assignee?.name || order.creator?.name || "Unassigned"}</small></td><td><StatusBadge value={order.status}/>{["high", "urgent"].includes(order.priority || "") && <small className="admin-urgent">{order.priority} priority</small>}</td><td><StatusBadge value={order.payment_status}/><small>{formatPrice(order.due_amount || 0)} due</small></td><td className="align-right"><strong>{formatPrice(order.grand_total)}</strong><small>{order.items?.length || 0} line{(order.items?.length || 0) === 1 ? "" : "s"}</small></td><td className="align-right"><button type="button" className="admin-icon-button" aria-label="View order"><AdminIcon name="eye"/></button></td></tr>)}</tbody></TableShell> : !loading && <EmptyState title="No orders match this view" description="Change the channel, status or search filter." icon="orders"/>}
       <Pagination currentPage={meta.currentPage} lastPage={meta.lastPage} total={meta.total} perPage={perPage} onPageChange={setPage} onPerPageChange={setPerPage}/>
     </Panel>
 
@@ -234,8 +313,13 @@ export default function OrdersPage() {
       {selected && <OrderDetailPanel order={selected} loading={detailLoading} busy={busy} onCancel={demoMode ? undefined : () => void changeStatus("cancelled")} actions={<>{nextStatus[selected.status] && <AdminButton icon="check" disabled={busy || demoMode} onClick={() => changeStatus(nextStatus[selected.status]!)}>{demoMode ? "Demo only" : busy ? "Updating…" : `Move to ${nextStatus[selected.status]!.replaceAll("_", " ")}`}</AdminButton>}{Number(selected.due_amount || 0) > 0 && <AdminButton variant="secondary" icon="money" disabled={demoMode} onClick={() => { setError(null); setPaymentOpen(true); }}>Collect payment</AdminButton>}{["delivered", "return_requested"].includes(selected.status) && <AdminButton variant="ghost" icon="returns" disabled={demoMode} onClick={() => { setError(null); setReturnOpen(true); }}>Return / exchange</AdminButton>}</>}/>}
     </Modal>
 
+
+    <Modal open={exportOpen} onClose={() => !exporting && setExportOpen(false)} title="Export orders" subtitle="Choose a bounded date range so large exports stay fast and useful." size="medium">
+      <div className="admin-stack"><FormGrid><Field label="From date" required><input type="date" value={exportFrom} max={exportTo || undefined} onChange={(event) => setExportFrom(event.target.value)} required/></Field><Field label="To date" required><input type="date" value={exportTo} min={exportFrom || undefined} onChange={(event) => setExportTo(event.target.value)} required/></Field></FormGrid><p className="admin-export-note">The export includes every matching order in this range, not only the current page. Current search, channel, status and store filters are also applied. PDF opens the browser print view so you can save a Unicode-safe PDF.</p><div className="admin-export-grid"><button type="button" disabled={exporting} onClick={() => void runExport("csv")}><AdminIcon name="download" size={22}/>CSV<span>Spreadsheet-ready table</span></button><button type="button" disabled={exporting} onClick={() => void runExport("word")}><AdminIcon name="reports" size={22}/>Word<span>Editable .doc table</span></button><button type="button" disabled={exporting} onClick={() => void runExport("pdf")}><AdminIcon name="eye" size={22}/>PDF<span>Print / Save as PDF</span></button></div>{exporting && <p className="admin-export-note">Loading all matching order pages…</p>}</div>
+    </Modal>
+
     <Modal open={paymentOpen} onClose={() => !busy && setPaymentOpen(false)} title="Collect payment" subtitle={selected?.order_number} size="medium">{selected && <form className="admin-stack" onSubmit={collect}><FormGrid><Field label="Amount" required><input name="amount" type="number" min="0.01" step="0.01" max={Number(selected.due_amount || 0)} defaultValue={Number(selected.due_amount || 0)} required/></Field><Field label="Method" required><select name="payment_method" defaultValue="cash"><option value="cash">Cash</option><option value="bkash">bKash</option><option value="nagad">Nagad</option><option value="card">Card</option><option value="bank">Bank</option></select></Field></FormGrid><Field label="Reference"><input name="payment_reference" placeholder="Transaction ID or note"/></Field>{error && <p className="admin-form-error">{error}</p>}<AdminButton icon="money" disabled={busy}>{busy ? "Recording…" : "Record payment"}</AdminButton></form>}</Modal>
 
-    <Modal open={returnOpen} onClose={() => !busy && setReturnOpen(false)} title="Create return or exchange" subtitle={selected?.order_number} size="large">{selected && <form className="admin-stack" onSubmit={createReturn}><FormGrid><Field label="Workflow type"><select name="type"><option value="return">Return and refund</option><option value="exchange">Exchange</option></select></Field><Field label="Replacement product" hint="Required only for exchange"><select name="exchange_product_id"><option value="">Choose replacement</option>{products.map((product) => <option key={product.id} value={product.id}>{product.name} · {product.sku}</option>)}</select></Field></FormGrid><Panel title="Select quantities">{selected.items.map((item) => <FormGrid key={item.id}><Field label={`${item.product.name} · sold ${item.quantity}`}><input name={`qty-${item.id}`} type="number" min="0" max={Math.max(0, item.quantity - Number(item.refunded_quantity || 0) - Number(item.exchanged_quantity || 0))} defaultValue="0"/></Field></FormGrid>)}</Panel><Field label="Reason" required><textarea name="reason" rows={3} required/></Field><Field label="Condition / customer note"><textarea name="condition_note" rows={2}/></Field>{error && <p className="admin-form-error">{error}</p>}<AdminButton icon="returns" disabled={busy}>{busy ? "Creating…" : "Create request"}</AdminButton></form>}</Modal>
+    <Modal open={returnOpen} onClose={() => !busy && setReturnOpen(false)} title="Create return or exchange" subtitle={selected?.order_number} size="large">{selected && <form className="admin-stack" onSubmit={createReturn}><FormGrid><Field label="Workflow type"><select name="type"><option value="return">Return and refund</option><option value="exchange">Exchange</option></select></Field><Field label="Replacement product" hint="Required only for exchange"><select name="exchange_product_id"><option value="">Choose replacement</option>{products.map((product) => <option key={product.id} value={product.id}>{product.name} · {product.sku}</option>)}</select></Field></FormGrid><Panel title="Select quantities">{(selected.items || []).map((item) => <FormGrid key={item.id}><Field label={`${item.product?.name || `Product #${item.product_id}`} · sold ${item.quantity}`}><input name={`qty-${item.id}`} type="number" min="0" max={Math.max(0, item.quantity - Number(item.refunded_quantity || 0) - Number(item.exchanged_quantity || 0))} defaultValue="0"/></Field></FormGrid>)}</Panel><Field label="Reason" required><textarea name="reason" rows={3} required/></Field><Field label="Condition / customer note"><textarea name="condition_note" rows={2}/></Field>{error && <p className="admin-form-error">{error}</p>}<AdminButton icon="returns" disabled={busy}>{busy ? "Creating…" : "Create request"}</AdminButton></form>}</Modal>
   </>;
 }

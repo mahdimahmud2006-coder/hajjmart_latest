@@ -82,7 +82,7 @@ function normalizeSharePhone(value: string): string {
 
 export default function PosPage() {
   const searchParams = useSearchParams();
-  const { token, demoMode, selectedStoreId, stores } = useAdmin();
+  const { token, demoMode, selectedStoreId, stores, user } = useAdmin();
   const { t } = useAdminLanguage();
   const { notify } = useStore();
   const { state: offline, prepareForCommit, refresh: refreshOfflineState } = useOfflineCommerce();
@@ -117,11 +117,14 @@ export default function PosPage() {
   const lastCatalogRefresh = useRef(0);
   const lastAutoPrintedReceipt = useRef<string | null>(null);
 
-  const subtotal = useMemo(() => cart.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0), [cart]);
+  const itemSubtotalSum = useMemo(() => cart.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0), [cart]);
+  const totalItemDiscounts = useMemo(() => cart.reduce((sum, line) => sum + (line.discountAmount || 0), 0), [cart]);
+  const subtotal = useMemo(() => Math.max(0, itemSubtotalSum - totalItemDiscounts), [itemSubtotalSum, totalItemDiscounts]);
   const total = useMemo(() => Math.max(0, subtotal - discount), [subtotal, discount]);
   const splitTotal = useMemo(() => (splitAmounts.cash || 0) + (splitAmounts.bkash || 0) + (splitAmounts.nagad || 0) + (splitAmounts.card || 0), [splitAmounts]);
   const itemCount = useMemo(() => cart.reduce((sum, line) => sum + line.quantity, 0), [cart]);
-  const contextStore = selectedStoreId === "all" ? stores[0]?.id : selectedStoreId;
+  const defaultUserStore = user?.shop_id || user?.shop?.id || stores.find((s) => s.is_default)?.id || stores[0]?.id;
+  const contextStore = selectedStoreId === "all" ? defaultUserStore : selectedStoreId;
   const resolvedStore = offline.registeredDevice && offline.boundShopId ? offline.boundShopId : (sellingStoreId ?? (contextStore ? Number(contextStore) : null));
   const currentStore = stores.find((store) => Number(store.id) === Number(resolvedStore));
   const needsAttentionCount = useMemo(() => queueSales.filter((sale) => ["conflict", "rejected", "failed", "needs_review"].includes(sale.status)).length, [queueSales]);
@@ -262,13 +265,26 @@ export default function PosPage() {
   useEffect(() => { setDiscount((current) => Math.min(current, subtotal)); }, [subtotal]);
   useEffect(() => { setAmountReceived(total); }, [paymentMethod, total]);
 
+  function changeLinePriceMode(lineKey: string, nextMode: PriceMode) {
+    setCart((current) => current.map((line) => {
+      if (line.key !== lineKey) return line;
+      return {
+        ...line,
+        priceMode: nextMode,
+        unitPrice: salePrice(line.product, line.variant, nextMode),
+      };
+    }));
+  }
+
   function add(entry: ProductSelection) {
     setError(null);
+    const lineMode = entry.priceMode || priceMode;
+    const entryWithMode = { ...entry, priceMode: lineMode, unitPrice: salePrice(entry.product, entry.variant, lineMode) };
     setCart((current) => {
       const found = current.find((line) => line.key === entry.key);
       return found
         ? current.map((line) => line.key === entry.key ? { ...line, quantity: Math.min(line.quantity + 1, entry.available || 99) } : line)
-        : [...current, { ...entry, quantity: 1 }];
+        : [...current, { ...entryWithMode, quantity: 1 }];
     });
   }
 
@@ -497,7 +513,7 @@ export default function PosPage() {
         grand_total: total,
         paid_amount: total,
         due_amount: 0,
-        discount_total: discount,
+        discount_total: discount + totalItemDiscounts,
         shipping_total: 0,
         order_date: new Date().toISOString(),
         invoice_printed_at: new Date().toISOString(),
@@ -512,7 +528,7 @@ export default function PosPage() {
           quantity: line.quantity,
           unit_price: line.unitPrice,
           price_mode: priceMode,
-          line_grand_total: line.unitPrice * line.quantity,
+          line_grand_total: Math.max(0, line.unitPrice * line.quantity - (line.discountAmount || 0)),
           product: line.product,
           variant: line.variant || null,
         })),
@@ -650,8 +666,7 @@ export default function PosPage() {
       setDiscount={setDiscount}
       title={t("pos.cart")}
       allowDiscount
-      priceMode={priceMode}
-      onPriceModeChange={setPriceMode}
+      onItemPriceModeChange={changeLinePriceMode}
       onRemove={removeLine}
     />
     <section className="admin-pos-payment-panel">

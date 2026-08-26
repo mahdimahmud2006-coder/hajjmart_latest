@@ -9,6 +9,7 @@ use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\OrderItemBatch;
 use App\Models\OrderList;
 use App\Models\OrderStatusHistory;
 use App\Models\Payment;
@@ -19,10 +20,10 @@ use RuntimeException;
 
 class OrderService
 {
+    // guestWebsiteCod support
     public function __construct(
         private InventoryService $inventoryService,
         private PromotionService $promotionService,
-        private RiskEngine $riskEngine,
         private StoreAllocationService $allocationService,
     ) {}
 
@@ -218,7 +219,7 @@ class OrderService
                 $order = Order::create([
                     'order_list_id' => $orderList->id,
                     'order_id' => (string) random_int(1000000, 9999999),
-                    'order_number' => $this->nextOrderNumber(),
+                    'order_number' => $this->nextOrderNumber($sourceChannel),
                     'customer_id' => $customerId,
                     'shop_id' => $shopId,
                     'created_by' => $actorId,
@@ -333,14 +334,29 @@ class OrderService
                     ]);
 
                     if ($physicalSale) {
-                        $cogsTotal = $this->inventoryService->decrement($row['inventory'], $row['quantity'], $item, $actorId);
+                        $detailedCost = $this->inventoryService->decrementDetailed($row['inventory'], $row['quantity'], $item, $actorId);
+                        $cogsTotal = (float) $detailedCost['total_cost'];
+                        $allocations = $detailedCost['allocations'] ?? [];
                         $unitCost = $row['quantity'] > 0 ? round($cogsTotal / $row['quantity'], 2) : 0.0;
                         $lineProfit = round($lineGrand - $cogsTotal, 2);
+                        $firstBatchId = ! empty($allocations) ? $allocations[0]['batch_id'] : null;
+
                         $item->update([
+                            'batch_id' => $firstBatchId,
                             'unit_cost' => $unitCost,
                             'cogs_total' => $cogsTotal,
                             'gross_profit' => $lineProfit,
                         ]);
+
+                        foreach ($allocations as $alloc) {
+                            OrderItemBatch::create([
+                                'order_item_id' => $item->id,
+                                'product_batch_id' => $alloc['batch_id'],
+                                'quantity' => $alloc['quantity'],
+                                'cost_price' => $alloc['cost_price'],
+                            ]);
+                        }
+
                         $totalCogs += $cogsTotal;
                         $grossProfit += $lineProfit;
                     }
@@ -408,9 +424,13 @@ class OrderService
                     'created_at' => now(),
                 ]);
 
-                $fresh = $order->fresh(['items.product', 'payments', 'statusHistory', 'couponApplications', 'reservedProducts']);
-                $this->riskEngine->evaluateOrder($fresh);
-                return $fresh->fresh(['items.product', 'payments', 'statusHistory', 'couponApplications', 'reservedProducts']);
+                $finalOrder = $order->fresh(['items.product', 'payments', 'statusHistory', 'couponApplications', 'reservedProducts']);
+
+                if (in_array(strtolower((string) $finalOrder->source_channel), ['website', 'social_commerce'], true)) {
+                    \App\Jobs\CheckOrderFraudJob::dispatch($finalOrder->id);
+                }
+
+                return $finalOrder;
             });
         } catch (QueryException $exception) {
             if ($idempotencyKey) {
@@ -437,7 +457,7 @@ class OrderService
                 );
             }
 
-            if ($from === $toStatus) {
+            if ($from === $toStatus && ! ($toStatus === OrderStatus::CONFIRMED->value && $order->is_potential_fraud)) {
                 return $order->fresh(['items.product', 'payments', 'statusHistory']);
             }
 
@@ -448,7 +468,10 @@ class OrderService
             $this->commitInventoryIfPhysicallyLeaving($order, $toStatus);
 
             $timestamps = [];
-            if ($toStatus === OrderStatus::CONFIRMED->value) $timestamps['confirmed_at'] = now();
+            if ($toStatus === OrderStatus::CONFIRMED->value) {
+                $timestamps['confirmed_at'] = $order->confirmed_at ?: now();
+                $timestamps['is_potential_fraud'] = false;
+            }
             if ($toStatus === OrderStatus::SHIPPED->value) {
                 $timestamps['shipped_at'] = now();
                 if ($actorId && ! $order->packed_by) {
@@ -712,8 +735,30 @@ class OrderService
         return $existing->fresh(['items.product', 'payments', 'statusHistory', 'couponApplications', 'reservedProducts']);
     }
 
-    private function nextOrderNumber(): string
+    private function nextOrderNumber(string $sourceChannel = 'website'): string
     {
-        return 'HM' . now()->format('Ymd') . random_int(1000, 9999);
+        $prefixLetter = match ($sourceChannel) {
+            'pos' => 'P',
+            'social_commerce', 'social' => 'S',
+            default => 'W',
+        };
+
+        $numbers = DB::table('orders')
+            ->where('order_number', 'like', 'ORD-%')
+            ->pluck('order_number');
+
+        $maxSeq = 0;
+        foreach ($numbers as $num) {
+            if (preg_match('/^ORD-[PSW]-(\d+)$/i', (string) $num, $matches)) {
+                $val = (int) $matches[1];
+                if ($val > $maxSeq) {
+                    $maxSeq = $val;
+                }
+            }
+        }
+
+        $nextSeq = $maxSeq + 1;
+
+        return "ORD-{$prefixLetter}-{$nextSeq}";
     }
 }

@@ -73,7 +73,7 @@ namespace App\Actions {
 namespace App\Services {
     class InventoryService {}
     class PromotionService {}
-    class RiskEngine {}
+    class StoreAllocationService {}
 }
 
 namespace {
@@ -96,7 +96,7 @@ namespace {
     $service = new \App\Services\OrderService(
         new \App\Services\InventoryService(),
         new \App\Services\PromotionService(),
-        new \App\Services\RiskEngine(),
+        new \App\Services\StoreAllocationService(),
     );
     $method = new \ReflectionMethod($service, 'commitInventoryIfPhysicallyLeaving');
     $method->setAccessible(true);

@@ -82,11 +82,6 @@ class AdminAccessSeeder extends Seeder
                 ['employees.view', 'View employees'], ['employees.manage', 'Create and edit employees'],
                 ['roles.view', 'View roles'], ['roles.manage', 'Create roles and assign page access'],
             ],
-            'Risk & Control' => [
-                ['risk.view', 'View risk dashboard and fraud cases'],
-                ['risk.resolve', 'Investigate and resolve fraud cases'],
-                ['risk.manage', 'Manage fraud rules and rescan transactions'],
-            ],
             'Accounting' => [
                 ['accounting.view', 'View journals, accounts and trial balance'],
             ],
@@ -115,7 +110,7 @@ class AdminAccessSeeder extends Seeder
                 'description' => 'Protected system administrator role. It is not shown in mutable role management.',
             ],
             'Store Manager' => [
-                'permissions' => array_values(array_diff(array_keys($permissionIds), ['roles.manage', 'stores.manage', 'risk.manage', 'settings.manage'])),
+                'permissions' => array_values(array_diff(array_keys($permissionIds), ['roles.manage', 'stores.manage', 'settings.manage'])),
                 'is_system' => false,
                 'description' => 'Runs store operations, staff, sales, direct stock receiving, finance records and reports.',
             ],
@@ -123,7 +118,7 @@ class AdminAccessSeeder extends Seeder
                 'permissions' => [
                     'dashboard.view', 'orders.view', 'orders.create', 'orders.update', 'orders.payment', 'orders.discount',
                     'returns.view', 'returns.create', 'products.view', 'inventory.view', 'promotions.view',
-                    'transactions.view', 'transactions.create', 'risk.view',
+                    'transactions.view', 'transactions.create',
                 ],
                 'is_system' => false,
                 'description' => 'Handles POS, social-commerce, unified orders, payments and customer returns.',
@@ -132,7 +127,7 @@ class AdminAccessSeeder extends Seeder
                 'permissions' => [
                     'dashboard.view', 'products.view', 'products.create', 'products.update', 'categories.manage',
                     'inventory.view', 'inventory.batch.create', 'inventory.adjust', 'inventory.transfer', 'inventory.history',
-                    'transactions.view', 'transactions.create', 'reports.view', 'activity.view', 'risk.view',
+                    'transactions.view', 'transactions.create', 'reports.view', 'activity.view',
                 ],
                 'is_system' => false,
                 'description' => 'Manages product masters, direct batches, stock accuracy, transfers and inventory reporting.',

@@ -25,7 +25,7 @@ type SearchResults = { orders: AdminOrder[]; customers: AdminCustomer[]; product
 type SearchEntry = { type: "order" | "customer" | "product"; id: string; href: string; label: string; secondary: string; icon: AdminIconName };
 
 const emptySearch: SearchResults = { orders: [], customers: [], products: [] };
-const moreRoutes = ["/admin/more", "/admin/social-commerce", "/admin/returns", "/admin/promotions", "/admin/stores", "/admin/employees", "/admin/reports", "/admin/risk", "/admin/activity", "/admin/offline-operations"];
+const moreRoutes = ["/admin/more", "/admin/social-commerce", "/admin/returns", "/admin/promotions", "/admin/stores", "/admin/employees", "/admin/reports", "/admin/activity", "/admin/offline-operations"];
 
 const navItems: NavItem[] = [
   { href: "/admin", labelKey: "nav.dashboard", icon: "dashboard" },

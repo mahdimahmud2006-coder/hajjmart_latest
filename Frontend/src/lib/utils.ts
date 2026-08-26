@@ -99,11 +99,32 @@ export function stripHtml(value?: string | null): string {
   return value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
 }
 
+export function formatAttributeKey(key: string): string {
+  const cleaned = key.replace(/^(attribute_|attr_)/i, "").replaceAll("_", " ");
+  if (!cleaned) return key;
+  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+}
+
+export function formatVariantLabel(label?: string | null): string {
+  if (!label) return "";
+  return label.replace(/(?:attribute_|attr_)([a-zA-Z0-9_]+):/gi, (_, key) => {
+    return `${formatAttributeKey(key)}:`;
+  });
+}
+
 export function variantLabel(variant: ProductVariant): string {
-  if (Array.isArray(variant.attribute_values)) return variant.attribute_values.join(" / ");
-  if (variant.attribute_values && typeof variant.attribute_values === "object") {
-    return Object.values(variant.attribute_values).join(" / ");
+  if (Array.isArray(variant.attribute_values)) {
+    return variant.attribute_values.map((v) => formatVariantLabel(String(v))).join(" / ");
   }
-  if (variant.attributes_json) return Object.values(variant.attributes_json).join(" / ");
+  if (variant.attribute_values && typeof variant.attribute_values === "object") {
+    return Object.entries(variant.attribute_values)
+      .map(([k, v]) => `${formatAttributeKey(k)}: ${v}`)
+      .join(" / ");
+  }
+  if (variant.attributes_json) {
+    return Object.entries(variant.attributes_json)
+      .map(([k, v]) => `${formatAttributeKey(k)}: ${v}`)
+      .join(" / ");
+  }
   return variant.sku || `Option ${variant.id}`;
 }

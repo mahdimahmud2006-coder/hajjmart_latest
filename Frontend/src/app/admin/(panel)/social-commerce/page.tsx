@@ -8,7 +8,7 @@ import { useOfflineCommerce } from "@/context/offline-commerce-context";
 import { OfflineCommerceStatus } from "@/components/admin/offline-commerce-status";
 import { ProductPicker, SaleCart, salePrice, type CartLine, type PriceMode, type ProductSelection } from "@/components/admin/sales-builder";
 import { CustomerLookup } from "@/components/admin/customer-lookup";
-import { AdminButton, AdminIcon, Field, PageHeader, Panel, useAdminToast } from "@/components/admin/admin-ui";
+import { AdminButton, AdminIcon, Field, PageHeader, Panel, Sheet, useAdminToast } from "@/components/admin/admin-ui";
 import { adminRequest } from "@/lib/admin-api";
 import { demoCustomers } from "@/lib/admin-demo";
 import type { AdminCustomer } from "@/lib/admin-types";
@@ -74,7 +74,8 @@ export default function SocialCommercePage() {
   const { t } = useAdminLanguage();
   const { showToast } = useAdminToast();
   const { state: offline, prepareForCommit, refresh: refreshOfflineState } = useOfflineCommerce();
-  const resolvedStore = selectedStoreId === "all" ? (user?.shop_id || stores[0]?.id || null) : selectedStoreId;
+  const defaultUserStore = user?.shop_id || user?.shop?.id || stores.find((s) => s.is_default)?.id || stores[0]?.id || null;
+  const resolvedStore = offline.registeredDevice && offline.boundShopId ? offline.boundShopId : (selectedStoreId === "all" ? defaultUserStore : selectedStoreId);
   const draftKey = user?.id ? `v2-social-draft:${user.id}` : null;
 
   const [cart, setCart] = useState<CartLine[]>([]);
@@ -103,11 +104,15 @@ export default function SocialCommercePage() {
   const [restorableDraft, setRestorableDraft] = useState<SocialDraft | null>(null);
   const [draftReady, setDraftReady] = useState(false);
   const [queue, setQueue] = useState<OfflineSocialOrder[]>([]);
+  const [cartOpen, setCartOpen] = useState(false);
   const retryClientId = useRef<string | null>(null);
   const discardedDraft = useRef<SocialDraft | null>(null);
 
-  const subtotal = useMemo(() => cart.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0), [cart]);
+  const itemSubtotalSum = useMemo(() => cart.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0), [cart]);
+  const totalItemDiscounts = useMemo(() => cart.reduce((sum, line) => sum + (line.discountAmount || 0), 0), [cart]);
+  const subtotal = useMemo(() => Math.max(0, itemSubtotalSum - totalItemDiscounts), [itemSubtotalSum, totalItemDiscounts]);
   const total = useMemo(() => Math.max(0, subtotal - discount + delivery), [subtotal, discount, delivery]);
+  const itemCount = useMemo(() => cart.reduce((sum, line) => sum + line.quantity, 0), [cart]);
 
   useEffect(() => { if (!shopId && resolvedStore) setShopId(Number(resolvedStore)); }, [resolvedStore, shopId]);
   useEffect(() => { if (!assignedTo && user?.id) setAssignedTo(user.id); }, [assignedTo, user?.id]);
@@ -198,12 +203,26 @@ export default function SocialCommercePage() {
     return () => window.clearInterval(timer);
   }, [created, resolvedStore, shopId]);
 
+  function changeLinePriceMode(lineKey: string, nextMode: PriceMode) {
+    setCart((current) => current.map((line) => {
+      if (line.key !== lineKey) return line;
+      return {
+        ...line,
+        priceMode: nextMode,
+        unitPrice: salePrice(line.product, line.variant, nextMode),
+      };
+    }));
+  }
+
   function add(entry: ProductSelection) {
+    setError(null);
+    const lineMode = entry.priceMode || priceMode;
+    const entryWithMode = { ...entry, priceMode: lineMode, unitPrice: salePrice(entry.product, entry.variant, lineMode) };
     setCart((current) => {
       const found = current.find((line) => line.key === entry.key);
       return found
-        ? current.map((line) => line.key === entry.key ? { ...line, quantity: Math.min(line.quantity + 1, entry.available || 1) } : line)
-        : [...current, { ...entry, quantity: 1 }];
+        ? current.map((line) => line.key === entry.key ? { ...line, quantity: Math.min(line.quantity + 1, entry.available || 99) } : line)
+        : [...current, { ...entryWithMode, quantity: 1 }];
     });
   }
 
@@ -221,7 +240,7 @@ export default function SocialCommercePage() {
     setCreated(null); setCart([]); setDiscount(0); setPriceMode("retail"); setDelivery(120); setPaymentMethod("cod"); setAdvance(0);
     setPaymentReference(""); setSourceSubSource("Facebook"); setSourceReference(""); setCustomerNote(""); setAdminNote(""); setPriority("normal");
     setAssignedTo(user?.id || null); setShopId(resolvedStore ? Number(resolvedStore) : null); setCustomerId(null); setCustomerName(""); setCustomerPhone("");
-    setCustomerEmail(""); setCustomerAddress(""); setCustomerDistrict(""); setError(null); retryClientId.current = null; clearDraft();
+    setCustomerEmail(""); setCustomerAddress(""); setCustomerDistrict(""); setError(null); retryClientId.current = null; setCartOpen(false); clearDraft();
   }
 
   function buildPayload(clientTransactionId: string): SocialOrderPayload {
@@ -257,7 +276,9 @@ export default function SocialCommercePage() {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!customerPhone.trim() && !customerName.trim()) { setError(t("social.identityError")); return; }
+    if (!customerName.trim()) { setError("Customer Name is required."); return; }
+    if (!customerPhone.trim()) { setError("Customer Phone Number is required."); return; }
+    if (!customerAddress.trim()) { setError("Delivery Address is required."); return; }
     if (!cart.length) { setError(t("social.itemsError")); return; }
     const selectedShop = Number(shopId || resolvedStore || 0);
     if (!selectedShop) { setError(t("social.storeError")); return; }
@@ -286,7 +307,7 @@ export default function SocialCommercePage() {
             terminal_id: undefined,
           },
         });
-        clearDraft(); retryClientId.current = null;
+        clearDraft(); retryClientId.current = null; setCartOpen(false);
         const orderNumber = res?.order?.order_number || res?.data?.order_number || `SC-ONLINE`;
         const orderId = res?.order?.id || res?.data?.id || null;
         setCreated({ kind: "server", orderNumber, orderId, total, customer: customerName || customerPhone });
@@ -300,7 +321,7 @@ export default function SocialCommercePage() {
         const draft = { ...snapshot(), clientTransactionId };
         await saveV2SocialDraft(user.id, selectedShop, draft);
         const saved = await commitCommerceEvent({ clientTransactionId, shopId: selectedShop, deviceUuid: ready.device.deviceUuid, bindingVersion: ready.bindingVersion!, sessionId: ready.currentSessionId, snapshotId: ready.currentSnapshotId, type: "social_order", items: cart.map((line) => ({ productId: line.product.id, variantId: line.variant?.id || null, quantity: line.quantity })), payload, createdAtDevice: payload.offline_created_at });
-        clearDraft(); retryClientId.current = null;
+        clearDraft(); retryClientId.current = null; setCartOpen(false);
         let orderNumber = `LOCAL-SC-${saved.localSequence || 0}`; let orderId:number|null=null; let kind:"server"|"device"="device";
         await refreshOfflineState();
         setCreated({ kind, orderNumber, orderId, clientTransactionId: kind==="device"?clientTransactionId:undefined, total, customer: customerName || customerPhone });
@@ -341,60 +362,272 @@ export default function SocialCommercePage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  function paymentLabel(method: string) {
+    if (method === "cod") return t("social.cod");
+    if (method === "cash") return t("social.cash");
+    if (method === "bkash") return "bKash";
+    if (method === "nagad") return "Nagad";
+    if (method === "bank") return t("social.bank");
+    return method;
+  }
+
   const pendingCount = queue.filter((item) => item.status === "pending" || item.status === "syncing").length;
   const attention = queue.filter((item) => item.status === "needs_attention");
 
-  return <div className="admin-social-fast-page">
-    <PageHeader title={t("social.title")} description={t("social.description")}/><OfflineCommerceStatus/>
-
-    {restorableDraft && <div className="admin-social-draft-banner"><AdminIcon name="activity"/><div><strong>{t("social.unfinished")}</strong><span>{t("social.unfinishedFrom")} {draftAge(restorableDraft.updatedAt)} {t("social.ago")}.</span></div><AdminButton type="button" onClick={continueDraft}>{t("social.continueOrder")}</AdminButton><AdminButton type="button" variant="ghost" onClick={discardDraft}>{t("social.discardDraft")}</AdminButton></div>}
-
-    {(pendingCount > 0 || attention.length > 0) && <div className="admin-social-sync-strip" role="status" aria-live="polite"><AdminIcon name={attention.length ? "warning" : "transfer"}/><span>{attention.length ? `${attention.length} ${t("social.needsAttention")}` : `${pendingCount} ${t("social.waitingSync")}`}</span></div>}
-
-    {attention.length > 0 && <Panel title={t("social.needsAttention")} description={t("social.needsAttentionCopy")}><div className="admin-social-attention-list">{attention.map((record) => <div key={record.clientTransactionId}><span><strong>{record.payload.customer_name || record.payload.mobile_number || t("social.unknownCustomer")}</strong><small>{record.lastError || t("social.syncRejected")}</small></span><AdminButton type="button" variant="secondary" onClick={() => fixQueuedOrder(record)}>{t("social.fixOrder")}</AdminButton></div>)}</div></Panel>}
-
-    {created ? <section className="admin-social-success"><span><AdminIcon name={created.kind === "device" ? "transfer" : "check"} size={28}/></span><p className="admin-eyebrow">{created.kind === "device" ? t("social.savedOnDevice") : t("social.orderCreated")}</p><h2>{created.orderNumber}</h2><dl><div><dt>{t("social.total")}</dt><dd>{formatPrice(created.total)}</dd></div><div><dt>{t("social.customer")}</dt><dd>{created.customer || t("social.unknownCustomer")}</dd></div><div><dt>{t("social.channel")}</dt><dd>{t("social.channelName")}</dd></div></dl>{created.kind === "device" && <p>{t("social.deviceCopy")}</p>}<div><AdminButton type="button" icon="plus" onClick={resetForm}>{t("social.createAnother")}</AdminButton>{created.kind === "server" && created.orderId && <a href={`/admin/orders?order=${created.orderId}`}><AdminButton type="button" variant="secondary" icon="orders">{t("social.viewOrder")}</AdminButton></a>}</div></section> :
-      <form onSubmit={submit} className="admin-social-fast-form">
-        <div className="admin-social-entry-column">
-          <Panel title={t("social.customerTitle")} description={t("social.customerCopy")}>
-            <CustomerLookup token={token} demoMode={demoMode} value={customerPhone} onChange={(value) => { setCustomerPhone(value); setCustomerId(null); }} onSelect={applyCustomer}/>
-            <Field label={t("social.customerName")}><input value={customerName} onChange={(event) => { setCustomerName(event.target.value); setCustomerId(null); }} placeholder={t("social.namePlaceholder")}/></Field>
-            {(customerId || customerAddress || customerDistrict) && <div className="admin-social-customer-card"><AdminIcon name="customers"/><span><strong>{customerName || customerPhone}</strong><small>{[customerDistrict, customerAddress].filter(Boolean).join(" · ") || t("social.noSavedAddress")}</small></span></div>}
-          </Panel>
-
-          <Panel title={t("social.productsTitle")} description={t("social.productsCopy")}>
-            <ProductPicker cart={cart} onAdd={add} priceMode={priceMode} commerceV2={Boolean(offline.currentSessionId && offline.boundShopId === Number(shopId || resolvedStore || 0))} storeId={shopId || resolvedStore} showPopular channel="social"/>
-          </Panel>
-
-          <Panel title={t("social.detailsTitle")} description={t("social.detailsCopy")}>
-            <div className="admin-social-fields">
-              <Field label={t("social.address")}><textarea rows={3} value={customerAddress} onChange={(event) => setCustomerAddress(event.target.value)} placeholder={t("social.addressPlaceholder")}/></Field>
-              <Field label={t("social.district")}><select value={customerDistrict} onChange={(event) => setCustomerDistrict(event.target.value)}><option value="">{t("social.notSet")}</option>{!['Dhaka','Chattogram','Sylhet','Rajshahi','Khulna','Other',''].includes(customerDistrict) && <option value={customerDistrict}>{customerDistrict}</option>}<option value="Dhaka">{t("social.districtDhaka")}</option><option value="Chattogram">{t("social.districtChattogram")}</option><option value="Sylhet">{t("social.districtSylhet")}</option><option value="Rajshahi">{t("social.districtRajshahi")}</option><option value="Khulna">{t("social.districtKhulna")}</option><option value="Other">{t("social.districtOther")}</option></select></Field>
-              <Field label={t("social.deliveryCharge")}><input inputMode="decimal" type="number" min="0" value={delivery} onChange={(event) => setDelivery(Number(event.target.value) || 0)}/></Field>
-              <Field label={t("social.payment")}><select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)}><option value="cod">{t("social.cod")}</option><option value="cash">{t("social.cash")}</option><option value="bkash">bKash</option><option value="nagad">Nagad</option><option value="bank">{t("social.bank")}</option></select></Field>
-              <Field label={t("social.advance")}><input inputMode="decimal" type="number" min="0" max={total} value={advance} onChange={(event) => setAdvance(Math.min(total, Number(event.target.value) || 0))}/></Field>
-              <Field label={t("social.source")}><select value={sourceSubSource} onChange={(event) => setSourceSubSource(event.target.value)}><option value="Facebook">{t("social.sourceFacebook")}</option><option value="WhatsApp">{t("social.sourceWhatsApp")}</option><option value="Phone">{t("social.sourcePhone")}</option><option value="Other">{t("social.sourceOther")}</option></select></Field>
-              <Field label={t("social.customerNote")}><textarea rows={2} value={customerNote} onChange={(event) => setCustomerNote(event.target.value)} placeholder={t("social.notePlaceholder")}/></Field>
+  const cartAndPayment = (
+    <div className="admin-pos-cart-payment">
+      <SaleCart
+        cart={cart}
+        setCart={setCart}
+        discount={discount}
+        setDiscount={setDiscount}
+        delivery={delivery}
+        title={t("social.cartTitle")}
+        allowDiscount
+        priceMode={priceMode}
+        onPriceModeChange={setPriceMode}
+        onItemPriceModeChange={changeLinePriceMode}
+        onRemove={removeLine}
+      />
+      <section className="admin-pos-payment-panel">
+        <div className="admin-social-payment-details" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid #e2e8f0", paddingBottom: "8px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px", fontWeight: 700, fontSize: "14px", color: "#1e293b" }}>
+              <AdminIcon name="customers" size={18} />
+              <span>Customer Details</span>
             </div>
+            {(customerName || customerPhone || customerAddress) && (
+              <button
+                type="button"
+                style={{ fontSize: "12px", color: "#64748b", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}
+                onClick={() => {
+                  setCustomerName("");
+                  setCustomerPhone("");
+                  setCustomerAddress("");
+                  setCustomerEmail("");
+                  setCustomerDistrict("");
+                  setCustomerId(null);
+                }}
+              >
+                Clear Details
+              </button>
+            )}
+          </div>
 
-            <details className="admin-social-more"><summary>{t("social.moreDetails")}</summary><div className="admin-social-fields">
-              <Field label={t("social.email")}><input type="email" value={customerEmail} onChange={(event) => setCustomerEmail(event.target.value)} placeholder={t("social.optional")}/></Field>
-              <Field label={t("social.sourceReference")}><input value={sourceReference} onChange={(event) => setSourceReference(event.target.value)} placeholder={t("social.optional")}/></Field>
-              <Field label={t("social.paymentReference")}><input value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} placeholder={t("social.optional")}/></Field>
-              <Field label={t("social.priority")}><select value={priority} onChange={(event) => setPriority(event.target.value)}><option value="normal">{t("social.normal")}</option><option value="high">{t("social.high")}</option><option value="urgent">{t("social.urgent")}</option><option value="low">{t("social.low")}</option></select></Field>
-              <Field label={t("social.employee")}><select value={assignedTo || ""} onChange={(event) => setAssignedTo(event.target.value ? Number(event.target.value) : null)}><option value="">{t("social.unassigned")}</option>{user?.id && <option value={user.id}>{user.name}</option>}</select></Field>
-              <Field label={t("social.store")}><select value={shopId || ""} onChange={(event) => setShopId(event.target.value ? Number(event.target.value) : null)}>{stores.map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}</select></Field>
-              <Field label={t("social.internalNote")}><textarea rows={2} value={adminNote} onChange={(event) => setAdminNote(event.target.value)} placeholder={t("social.optional")}/></Field>
-            </div></details>
-          </Panel>
+          <CustomerLookup
+            token={token}
+            demoMode={demoMode}
+            value={customerPhone}
+            onChange={(val) => { setCustomerPhone(val); setCustomerId(null); }}
+            onSelect={applyCustomer}
+            required
+          />
+
+          <label className="admin-field" style={{ margin: 0 }}>
+            <span>{t("social.customerName")} <strong style={{ color: "#e11d48" }}>*</strong></span>
+            <input
+              value={customerName}
+              onChange={(e) => { setCustomerName(e.target.value); setCustomerId(null); }}
+              placeholder={t("social.namePlaceholder")}
+              required
+            />
+          </label>
+
+          <label className="admin-field" style={{ margin: 0 }}>
+            <span>{t("social.address")} <strong style={{ color: "#e11d48" }}>*</strong></span>
+            <textarea
+              rows={2}
+              value={customerAddress}
+              onChange={(e) => setCustomerAddress(e.target.value)}
+              placeholder={t("social.addressPlaceholder")}
+              required
+            />
+          </label>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+            <label className="admin-field" style={{ margin: 0 }}>
+              <span>{t("social.district")}</span>
+              <select value={customerDistrict} onChange={(e) => setCustomerDistrict(e.target.value)}>
+                <option value="">{t("social.notSet")}</option>
+                {!['Dhaka','Chattogram','Sylhet','Rajshahi','Khulna','Other',''].includes(customerDistrict) && <option value={customerDistrict}>{customerDistrict}</option>}
+                <option value="Dhaka">{t("social.districtDhaka")}</option>
+                <option value="Chattogram">{t("social.districtChattogram")}</option>
+                <option value="Sylhet">{t("social.districtSylhet")}</option>
+                <option value="Rajshahi">{t("social.districtRajshahi")}</option>
+                <option value="Khulna">{t("social.districtKhulna")}</option>
+                <option value="Other">{t("social.districtOther")}</option>
+              </select>
+            </label>
+            <label className="admin-field" style={{ margin: 0 }}>
+              <span>{t("social.deliveryCharge")} (৳)</span>
+              <input type="number" inputMode="decimal" min="0" value={delivery} onChange={(e) => setDelivery(Number(e.target.value) || 0)} />
+            </label>
+          </div>
+
+          <div className="admin-pos-payment-methods" role="group" aria-label={t("pos.paymentMethod")}>
+            {(["cod", "cash", "bkash", "nagad", "bank"] as string[]).map((method) => (
+              <button
+                key={method}
+                type="button"
+                className={paymentMethod === method ? "active" : ""}
+                aria-pressed={paymentMethod === method}
+                onClick={() => setPaymentMethod(method)}
+              >
+                {paymentLabel(method)}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+            <label className="admin-field" style={{ margin: 0 }}>
+              <span>{t("social.advance")} (৳)</span>
+              <input type="number" inputMode="decimal" min="0" max={total} value={advance} onChange={(e) => setAdvance(Math.min(total, Number(e.target.value) || 0))} />
+            </label>
+            <label className="admin-field" style={{ margin: 0 }}>
+              <span>{t("social.source")}</span>
+              <select value={sourceSubSource} onChange={(e) => setSourceSubSource(e.target.value)}>
+                <option value="Facebook">{t("social.sourceFacebook")}</option>
+                <option value="WhatsApp">{t("social.sourceWhatsApp")}</option>
+                <option value="Phone">{t("social.sourcePhone")}</option>
+                <option value="Other">{t("social.sourceOther")}</option>
+              </select>
+            </label>
+          </div>
+
+          <label className="admin-field" style={{ margin: 0 }}>
+            <span>{t("social.customerNote")}</span>
+            <textarea rows={2} value={customerNote} onChange={(e) => setCustomerNote(e.target.value)} placeholder={t("social.notePlaceholder")} />
+          </label>
+
+          <details className="admin-social-more">
+            <summary>{t("social.moreDetails")}</summary>
+            <div className="admin-social-fields">
+              <Field label={t("social.email")}><input type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder={t("social.optional")}/></Field>
+              <Field label={t("social.sourceReference")}><input value={sourceReference} onChange={(e) => setSourceReference(e.target.value)} placeholder={t("social.optional")}/></Field>
+              <Field label={t("social.paymentReference")}><input value={paymentReference} onChange={(e) => setPaymentReference(e.target.value)} placeholder={t("social.optional")}/></Field>
+              <Field label={t("social.priority")}><select value={priority} onChange={(e) => setPriority(e.target.value)}><option value="normal">{t("social.normal")}</option><option value="high">{t("social.high")}</option><option value="urgent">{t("social.urgent")}</option><option value="low">{t("social.low")}</option></select></Field>
+              <Field label={t("social.employee")}><select value={assignedTo || ""} onChange={(e) => setAssignedTo(e.target.value ? Number(e.target.value) : null)}><option value="">{t("social.unassigned")}</option>{user?.id && <option value={user.id}>{user.name}</option>}</select></Field>
+              <Field label={t("social.store")}><select value={shopId || ""} onChange={(e) => setShopId(e.target.value ? Number(e.target.value) : null)}>{stores.map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}</select></Field>
+              <Field label={t("social.internalNote")}><textarea rows={2} value={adminNote} onChange={(e) => setAdminNote(e.target.value)} placeholder={t("social.optional")}/></Field>
+            </div>
+          </details>
+
+          {error && (
+            <div className="admin-pos-error" style={{ margin: "4px 0" }}>
+              <AdminIcon name="warning" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <AdminButton
+            type="submit"
+            className="admin-pos-charge admin-checkout-button"
+            icon="check"
+            disabled={busy || !cart.length}
+          >
+            {busy ? t("social.saving") : `${t("social.saveOrder")} — ${formatPrice(total)}`}
+          </AdminButton>
+          <p className="admin-submit-note" style={{ margin: 0, textAlign: "center" }}>{t("social.saveCopy")}</p>
         </div>
+      </section>
+    </div>
+  );
 
-        <aside className="admin-social-cart-column">
-          <SaleCart cart={cart} setCart={setCart} discount={discount} setDiscount={setDiscount} delivery={delivery} title={t("social.cartTitle")} allowDiscount priceMode={priceMode} onPriceModeChange={setPriceMode} onRemove={removeLine}/>
-          {error && <p className="admin-form-error">{error}</p>}
-          <AdminButton className="admin-checkout-button" icon="check" disabled={busy || !cart.length}>{busy ? t("social.saving") : `${t("social.saveOrder")} — ${formatPrice(total)}`}</AdminButton>
-          <p className="admin-submit-note">{t("social.saveCopy")}</p>
-        </aside>
-      </form>}
-  </div>;
+  return (
+    <div className="admin-social-fast-page admin-pos-page">
+      <PageHeader title={t("social.title")} description={t("social.description")} />
+      <OfflineCommerceStatus />
+
+      {restorableDraft && (
+        <div className="admin-social-draft-banner">
+          <AdminIcon name="activity" />
+          <div>
+            <strong>{t("social.unfinished")}</strong>
+            <span>{t("social.unfinishedFrom")} {draftAge(restorableDraft.updatedAt)} {t("social.ago")}.</span>
+          </div>
+          <AdminButton type="button" onClick={continueDraft}>{t("social.continueOrder")}</AdminButton>
+          <AdminButton type="button" variant="ghost" onClick={discardDraft}>{t("social.discardDraft")}</AdminButton>
+        </div>
+      )}
+
+      {(pendingCount > 0 || attention.length > 0) && (
+        <div className="admin-social-sync-strip" role="status" aria-live="polite">
+          <AdminIcon name={attention.length ? "warning" : "transfer"} />
+          <span>{attention.length ? `${attention.length} ${t("social.needsAttention")}` : `${pendingCount} ${t("social.waitingSync")}`}</span>
+        </div>
+      )}
+
+      {attention.length > 0 && (
+        <Panel title={t("social.needsAttention")} description={t("social.needsAttentionCopy")}>
+          <div className="admin-social-attention-list">
+            {attention.map((record) => (
+              <div key={record.clientTransactionId}>
+                <span>
+                  <strong>{record.payload.customer_name || record.payload.mobile_number || t("social.unknownCustomer")}</strong>
+                  <small>{record.lastError || t("social.syncRejected")}</small>
+                </span>
+                <AdminButton type="button" variant="secondary" onClick={() => fixQueuedOrder(record)}>{t("social.fixOrder")}</AdminButton>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      )}
+
+      {created ? (
+        <section className="admin-social-success">
+          <span>
+            <AdminIcon name={created.kind === "device" ? "transfer" : "check"} size={28} />
+          </span>
+          <p className="admin-eyebrow">{created.kind === "device" ? t("social.savedOnDevice") : t("social.orderCreated")}</p>
+          <h2>{created.orderNumber}</h2>
+          <dl>
+            <div><dt>{t("social.total")}</dt><dd>{formatPrice(created.total)}</dd></div>
+            <div><dt>{t("social.customer")}</dt><dd>{created.customer || t("social.unknownCustomer")}</dd></div>
+            <div><dt>{t("social.channel")}</dt><dd>{t("social.channelName")}</dd></div>
+          </dl>
+          {created.kind === "device" && <p>{t("social.deviceCopy")}</p>}
+          <div>
+            <AdminButton type="button" icon="plus" onClick={resetForm}>{t("social.createAnother")}</AdminButton>
+            {created.kind === "server" && created.orderId && (
+              <a href={`/admin/orders?order=${created.orderId}`}>
+                <AdminButton type="button" variant="secondary" icon="orders">{t("social.viewOrder")}</AdminButton>
+              </a>
+            )}
+          </div>
+        </section>
+      ) : (
+        <form onSubmit={submit} className="admin-pos-workspace">
+          <section className="admin-pos-products">
+            <ProductPicker
+              cart={cart}
+              onAdd={add}
+              priceMode={priceMode}
+              commerceV2={Boolean(offline.currentSessionId && offline.boundShopId === Number(shopId || resolvedStore || 0))}
+              storeId={shopId || resolvedStore}
+              showPopular
+              channel="social"
+            />
+          </section>
+
+          <aside className="admin-pos-cart-desktop">
+            {cartAndPayment}
+          </aside>
+        </form>
+      )}
+
+      <div className="admin-pos-mobile-cart-summary">
+        <button type="button" disabled={!cart.length} onClick={() => setCartOpen(true)}>
+          <span>
+            <strong>{itemCount} {t("pos.items")}</strong>
+            <small>{formatPrice(total)}</small>
+          </span>
+          <b>{t("pos.viewCart")}</b>
+        </button>
+      </div>
+
+      <Sheet open={cartOpen} onClose={() => !busy && setCartOpen(false)} title={t("social.cartTitle")} subtitle={`${itemCount} ${t("pos.items")} · ${formatPrice(total)}`}>
+        {cartAndPayment}
+      </Sheet>
+    </div>
+  );
 }

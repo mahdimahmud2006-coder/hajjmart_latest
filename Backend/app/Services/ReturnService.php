@@ -9,6 +9,7 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\Payment;
+use App\Models\ProductBatch;
 use App\Models\ReturnRequest;
 use App\Models\ReturnRequestItem;
 use App\Models\ReturnStatusHistory;
@@ -31,7 +32,7 @@ class ReturnService
                 'rr_number' => 'RR-' . now()->format('YmdHis') . random_int(10, 99),
                 'order_id' => $order->id,
                 'customer_id' => $customerId ?? $order->customer_id,
-                'shop_id' => $order->shop_id,
+                'shop_id' => $data['shop_id'] ?? $order->shop_id,
                 'created_by' => $actorId ?? $customerId,
                 'type' => $type,
                 'status' => 'completed',
@@ -207,23 +208,32 @@ class ReturnService
     {
         return DB::transaction(function () use ($returnRequest, $actorId, $restockReturnedItems, $note): ReturnRequest {
             $fromStatus = $returnRequest->status;
-            if (! in_array($returnRequest->status, ['approved', 'requested', 'pending'], true)) {
+            if (! in_array($returnRequest->status, ['approved', 'requested', 'pending', 'completed'], true)) {
                 throw new RuntimeException('Only pending or approved return/exchange requests can be received.');
             }
 
             foreach ($returnRequest->items()->with('orderItem')->get() as $item) {
                 $orderItem = $item->orderItem;
                 if ($restockReturnedItems) {
-                    $inventory = $this->inventoryService->inventoryRow($orderItem->product_id, $orderItem->variant_id, $returnRequest->shop_id ?? $returnRequest->order?->shop_id);
-                    $this->inventoryService->increment(
-                        $inventory,
+                    $targetShopId = (int) ($returnRequest->shop_id ?? $returnRequest->order?->shop_id);
+                    $unitCost = (float) ($orderItem->unit_cost ?? 0);
+                    $originalBatchId = $orderItem->batch_id;
+
+                    $revivedBatch = ProductBatch::reviveOrRestockForReturn(
+                        (int) $orderItem->product_id,
+                        $orderItem->variant_id ? (int) $orderItem->variant_id : null,
+                        $targetShopId,
                         (int) $item->quantity,
-                        'return',
-                        $item,
-                        $actorId,
-                        'customer_return',
-                        (float) $orderItem->unit_cost,
+                        $unitCost,
+                        $originalBatchId ? (int) $originalBatchId : null,
+                        $actorId
                     );
+
+                    $inventory = $this->inventoryService->inventoryRow($orderItem->product_id, $orderItem->variant_id, $targetShopId);
+                    $inventory->increment('quantity', (int) $item->quantity);
+                    $inventory->touch();
+                    $this->inventoryService->bumpShopRevision($targetShopId);
+                    $this->inventoryService->movement($inventory, 'return', (int) $item->quantity, 'Stock increased from return', $revivedBatch, $actorId, 'customer_return');
                 }
 
                 if ($returnRequest->type === 'return') {

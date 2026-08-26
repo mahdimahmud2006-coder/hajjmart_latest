@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Models\FraudCase;
 use App\Models\Inventory;
 use App\Models\Order;
 use App\Models\Product;
@@ -95,20 +94,6 @@ class DashboardController extends Controller
                 'product_name' => $row->product?->name,
                 'sku' => $row->variant?->sku ?: $row->product?->sku,
                 'available' => $available,
-            ]);
-        }
-
-        $criticalRiskCases = FraudCase::query()
-            ->when($shopId, fn ($query) => $query->where('shop_id', $shopId))
-            ->where('severity', 'critical')
-            ->where('status', 'open')
-            ->count();
-
-        if ($criticalRiskCases > 0) {
-            $attention->push([
-                'type' => 'critical_risk',
-                'urgency' => 1,
-                'count' => $criticalRiskCases,
             ]);
         }
 

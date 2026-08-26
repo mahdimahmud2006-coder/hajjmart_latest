@@ -11,6 +11,9 @@ Schedule::call(function () {
 
 Schedule::job(new \App\Jobs\GenerateDailySalesSummary())->dailyAt('00:05');
 
+Schedule::command('pathao:sync-statuses')->everyFourHours();
+
+
 Artisan::command('hajjmart:verify-seed', function (): int {
     $jsonPath = database_path('seeders/data/hajjmart_endpoint_seed_data.json');
     $fixture = file_exists($jsonPath)

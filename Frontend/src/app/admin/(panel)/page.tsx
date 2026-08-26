@@ -97,7 +97,6 @@ export default function AdminDashboardPage() {
     if (item.type === "pos_sync") return { href: "/admin/pos?queue=1", icon: "warning" as const, text: `${item.count} ${t("dashboard.posSync")}` };
     if (item.type === "pending_orders") return { href: "/admin/orders?status=pending", icon: "orders" as const, text: `${item.count || 0} ${t("dashboard.pendingOrders")}` };
     if (item.type === "confirmed_orders") return { href: "/admin/orders?status=confirmed", icon: "box" as const, text: `${item.count || 0} ${t("dashboard.confirmedOrders")}` };
-    if (item.type === "critical_risk") return { href: "/admin/risk?severity=critical", icon: "warning" as const, text: `${item.count || 0} ${t("dashboard.criticalRisk")}` };
     if (item.type === "out_of_stock") return { href: `/admin/products?product=${item.product_id}`, icon: "inventory" as const, text: `${item.product_name || item.sku || t("dashboard.productFallback")} ${t("dashboard.outOfStock")}` };
     return { href: `/admin/products?product=${item.product_id}`, icon: "inventory" as const, text: `${item.product_name || item.sku || t("dashboard.productFallback")}: ${item.available || 0} ${t("dashboard.piecesLeft")}` };
   }

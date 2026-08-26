@@ -36,6 +36,9 @@ export type CartLine = {
   unitPrice: number;
   available: number;
   key: string;
+  priceMode?: PriceMode;
+  discountPercent?: number;
+  discountAmount?: number;
 };
 
 export type ProductSelection = {
@@ -46,6 +49,7 @@ export type ProductSelection = {
   key: string;
   sku: string;
   label?: string;
+  priceMode?: PriceMode;
 };
 
 function variantLabel(variant?: AdminProductVariant | null): string {
@@ -145,7 +149,7 @@ function localProductPage(source: AdminProduct[], search: string, page: number, 
 }
 
 export function ProductPicker({ cart, onAdd, priceMode = "retail", preferOffline = false, commerceV2 = false, storeId, showPopular = false, channel }: { cart: CartLine[]; onAdd: (entry: ProductSelection) => void; priceMode?: PriceMode; preferOffline?: boolean; commerceV2?: boolean; storeId?: number | string | null; showPopular?: boolean; channel?: "social" | "pos" }) {
-  const { token, demoMode, selectedStoreId, stores } = useAdmin();
+  const { token, demoMode, selectedStoreId, stores, user } = useAdmin();
   const { t } = useAdminLanguage();
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -160,7 +164,8 @@ export function ProductPicker({ cart, onAdd, priceMode = "retail", preferOffline
   const [recentlyAdded, setRecentlyAdded] = useState<string | null>(null);
   const [offlineRevision, setOfflineRevision] = useState(0);
   const requestSequence = useRef(0);
-  const contextStore = selectedStoreId === "all" ? stores[0]?.id : selectedStoreId;
+  const defaultUserStore = user?.shop_id || user?.shop?.id || stores.find((s) => s.is_default)?.id || stores[0]?.id;
+  const contextStore = selectedStoreId === "all" ? defaultUserStore : selectedStoreId;
   const resolvedStore = storeId ?? contextStore;
   const perPage = channel === "pos" ? 15 : 20;
 
@@ -327,9 +332,200 @@ export function ProductPicker({ cart, onAdd, priceMode = "retail", preferOffline
   </div>;
 }
 
-export function SaleCart({ cart, setCart, discount, setDiscount, delivery = 0, title = "Current sale", allowDiscount = true, priceMode, onPriceModeChange, onRemove }: { cart: CartLine[]; setCart: React.Dispatch<React.SetStateAction<CartLine[]>>; discount: number; setDiscount: (value: number) => void; delivery?: number; title?: string; allowDiscount?: boolean; priceMode?: PriceMode; onPriceModeChange?: (mode: PriceMode) => void; onRemove?: (line: CartLine) => void }) {
+export function SaleCart({
+  cart,
+  setCart,
+  discount,
+  setDiscount,
+  delivery = 0,
+  title = "Cart",
+  allowDiscount = true,
+  priceMode,
+  onPriceModeChange,
+  onItemPriceModeChange,
+  onRemove,
+}: {
+  cart: CartLine[];
+  setCart: React.Dispatch<React.SetStateAction<CartLine[]>>;
+  discount: number;
+  setDiscount: (value: number) => void;
+  delivery?: number;
+  title?: string;
+  allowDiscount?: boolean;
+  priceMode?: PriceMode;
+  onPriceModeChange?: (mode: PriceMode) => void;
+  onItemPriceModeChange?: (lineKey: string, nextMode: PriceMode) => void;
+  onRemove?: (line: CartLine) => void;
+}) {
   const { t } = useAdminLanguage();
+  const totalItemCount = cart.reduce((sum, line) => sum + line.quantity, 0);
   const subtotal = cart.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0);
   const grand = Math.max(0, subtotal - discount + delivery);
-  return <aside className="admin-sale-cart"><div className="admin-sale-cart-head"><div className="admin-sale-cart-title"><p className="admin-eyebrow">{t("sales.orderBuilder")}</p><h2>{title}</h2></div><span className="admin-sale-cart-count">{cart.reduce((sum, line) => sum + line.quantity, 0)} {t("sales.items")}</span>{priceMode && onPriceModeChange && <div className="admin-sale-cart-price-mode"><PriceModeSelector value={priceMode} onChange={onPriceModeChange} /></div>}</div><div className="admin-sale-lines">{cart.length ? cart.map((line) => <div key={line.key}><span><AdminProductImage product={line.product} /></span><div><strong>{line.product.name}</strong><small>{line.variant?.sku || line.product.sku}{line.variant ? ` · ${variantLabel(line.variant)}` : ""} · {formatPrice(line.unitPrice)}</small><QuantityStepper size="admin" value={line.quantity} max={line.available || 1} onChange={(value) => setCart((current) => current.map((item) => item.key === line.key ? { ...item, quantity: value } : item))} /></div><div><b key={line.quantity} className="value-pop">{formatPrice(line.unitPrice * line.quantity)}</b><button type="button" aria-label={`${t("sales.remove")} ${line.product.name}`} onClick={() => { if (onRemove) onRemove(line); else setCart((current) => current.filter((item) => item.key !== line.key)); }}><AdminIcon name="trash" size={16} /></button></div></div>) : <div className="admin-cart-empty"><AdminIcon name="bag" size={30} /><strong>{t("sales.noProducts")}</strong><small>{t("sales.noProductsCopy")}</small></div>}</div>{allowDiscount && <div className="admin-sale-adjust"><label><span>{t("sales.discount")}</span><input type="number" min="0" max={subtotal} value={discount} onChange={(event) => setDiscount(Math.min(subtotal, Number(event.target.value) || 0))} /></label></div>}<div className="admin-sale-totals"><p><span>{t("sales.subtotal")}</span><b>{formatPrice(subtotal)}</b></p>{delivery > 0 && <p><span>{t("sales.delivery")}</span><b>{formatPrice(delivery)}</b></p>}{discount > 0 && <p><span>{t("sales.discount")}</span><b>− {formatPrice(discount)}</b></p>}<p className="grand"><span>{t("sales.totalPayable")}</span><b>{formatPrice(grand)}</b></p></div></aside>;
+
+  return (
+    <aside className="admin-sale-cart admin-pos-cart-tabular">
+      <div className="admin-sale-cart-head">
+        <div className="admin-sale-cart-title">
+          <p className="admin-eyebrow">{t("sales.orderBuilder")}</p>
+          <h2>{title} ({totalItemCount} {t("sales.items") || "items"})</h2>
+        </div>
+        {priceMode && onPriceModeChange && (
+          <div className="admin-sale-cart-price-mode">
+            <PriceModeSelector value={priceMode} onChange={onPriceModeChange} />
+          </div>
+        )}
+      </div>
+
+      <div className="admin-pos-cart-table-wrapper">
+        {cart.length ? (
+          <table className="admin-pos-cart-table">
+            <thead>
+              <tr>
+                <th className="col-product">{t("pos.productCol")}</th>
+                <th className="col-quantity text-center">{t("pos.quantityCol")}</th>
+                <th className="col-price text-right">{t("pos.priceCol")}</th>
+                <th className="col-total text-right">{t("pos.totalCol")}</th>
+                <th className="col-action text-center">{t("pos.actionCol")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {cart.map((line) => {
+                const lineTotal = line.unitPrice * line.quantity;
+                const rawCode = line.variant?.barcode || line.variant?.sku || line.product.barcode || line.product.sku;
+                const variantText = line.variant ? variantLabel(line.variant) : null;
+                const isGenericVariant = !variantText || variantText === "Standard" || variantText === "Variation";
+                const isDuplicateVariant = rawCode && variantText && variantText.toLowerCase().trim() === rawCode.toLowerCase().trim();
+                const displayVariant = !isGenericVariant && !isDuplicateVariant ? variantText : null;
+                const displayCode = rawCode || null;
+
+                return (
+                  <tr key={line.key}>
+                    <td className="col-product">
+                      <div className="admin-pos-table-product">
+                        <strong className="product-name">{line.product.name}</strong>
+                        {displayVariant && <span className="product-variant">{displayVariant}</span>}
+                        {displayCode && <span className="product-code">Batch: {displayCode}</span>}
+                      </div>
+                    </td>
+
+                    <td className="col-quantity text-center">
+                      <div className="admin-pos-table-qty-stepper">
+                        <button
+                          type="button"
+                          className="qty-btn"
+                          disabled={line.quantity <= 1}
+                          onClick={() => setCart((current) => current.map((item) => item.key === line.key ? { ...item, quantity: Math.max(1, item.quantity - 1) } : item))}
+                          aria-label="Decrease quantity"
+                        >
+                          −
+                        </button>
+                        <input
+                          type="number"
+                          min="1"
+                          max={line.available || 9999}
+                          value={line.quantity}
+                          onChange={(e) => {
+                            const val = Math.max(1, Math.min(line.available || 9999, parseInt(e.target.value) || 1));
+                            setCart((current) => current.map((item) => item.key === line.key ? { ...item, quantity: val } : item));
+                          }}
+                          className="qty-input"
+                        />
+                        <button
+                          type="button"
+                          className="qty-btn"
+                          disabled={line.quantity >= (line.available || 9999)}
+                          onClick={() => setCart((current) => current.map((item) => item.key === line.key ? { ...item, quantity: Math.min(line.available || 9999, item.quantity + 1) } : item))}
+                          aria-label="Increase quantity"
+                        >
+                          +
+                        </button>
+                      </div>
+                      <small className="stock-hint">Stock: {line.available}</small>
+                    </td>
+
+                    <td className="col-price text-right">
+                      <span className="unit-price">{formatPrice(line.unitPrice)}</span>
+                    </td>
+
+                    <td className="col-total text-right">
+                      <strong className="total-val">{formatPrice(lineTotal)}</strong>
+                    </td>
+
+                    <td className="col-action text-center">
+                      <div className="admin-pos-table-action-group">
+                        {onItemPriceModeChange && (
+                          <button
+                            type="button"
+                            className={`admin-line-price-mode ${(line.priceMode || priceMode || "retail") === "wholesale" ? "wholesale" : "retail"}`}
+                            onClick={() => onItemPriceModeChange(line.key, (line.priceMode || priceMode || "retail") === "wholesale" ? "retail" : "wholesale")}
+                          >
+                            {(line.priceMode || priceMode || "retail") === "wholesale" ? t("sales.wholesale") : t("sales.retail")}
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="delete-line-btn"
+                          aria-label={`${t("sales.remove")} ${line.product.name}`}
+                          onClick={() => {
+                            if (onRemove) onRemove(line);
+                            else setCart((current) => current.filter((item) => item.key !== line.key));
+                          }}
+                        >
+                          <AdminIcon name="trash" size={14} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        ) : (
+          <div className="admin-cart-empty">
+            <AdminIcon name="bag" size={30} />
+            <strong>{t("sales.noProducts")}</strong>
+            <small>{t("sales.noProductsCopy")}</small>
+          </div>
+        )}
+      </div>
+
+      {allowDiscount && (
+        <div className="admin-sale-adjust">
+          <label>
+            <span>{t("sales.discount")}</span>
+            <input
+              type="number"
+              min="0"
+              max={subtotal}
+              value={discount}
+              onChange={(event) => setDiscount(Math.min(subtotal, Number(event.target.value) || 0))}
+            />
+          </label>
+        </div>
+      )}
+
+      <div className="admin-sale-totals">
+        <p>
+          <span>{t("sales.subtotal")}</span>
+          <b>{formatPrice(subtotal)}</b>
+        </p>
+        {delivery > 0 && (
+          <p>
+            <span>{t("sales.delivery")}</span>
+            <b>{formatPrice(delivery)}</b>
+          </p>
+        )}
+        {discount > 0 && (
+          <p>
+            <span>{t("sales.discount")}</span>
+            <b>− {formatPrice(discount)}</b>
+          </p>
+        )}
+        <p className="grand">
+          <span>{t("sales.totalPayable")}</span>
+          <b>{formatPrice(grand)}</b>
+        </p>
+      </div>
+    </aside>
+  );
 }

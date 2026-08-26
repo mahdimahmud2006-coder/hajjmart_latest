@@ -79,9 +79,9 @@ class InventoryService
         });
     }
 
-    public function commitReserved(Inventory $inventory, int $quantity, ?object $reference = null, ?int $actorId = null): float
+    public function commitReservedDetailed(Inventory $inventory, int $quantity, ?object $reference = null, ?int $actorId = null): array
     {
-        return DB::transaction(function () use ($inventory, $quantity, $reference, $actorId): float {
+        return DB::transaction(function () use ($inventory, $quantity, $reference, $actorId): array {
             $row = Inventory::whereKey($inventory->id)->lockForUpdate()->firstOrFail();
             if ($row->reserved < $quantity || $row->quantity < $quantity) {
                 throw new InventoryConflictException('reservation_counter_inconsistent', 'Reserved stock could not be committed because inventory is inconsistent.');
@@ -93,7 +93,7 @@ class InventoryService
             $row->save();
             $this->bumpShopRevision((int) $row->shop_id);
 
-            $totalCost = ProductBatch::consumeForInventory(
+            $consumed = ProductBatch::consumeForInventoryDetailed(
                 (int) $row->product_id,
                 $row->variant_id ? (int) $row->variant_id : null,
                 (int) $row->shop_id,
@@ -101,13 +101,18 @@ class InventoryService
             );
 
             $this->movement($row, StockMovementType::SALE->value, -$quantity, 'Committed reserved stock', $reference, $actorId, 'sale');
-            return $totalCost;
+            return $consumed;
         });
     }
 
-    public function decrement(Inventory $inventory, int $quantity, ?object $reference = null, ?int $actorId = null): float
+    public function commitReserved(Inventory $inventory, int $quantity, ?object $reference = null, ?int $actorId = null): float
     {
-        return DB::transaction(function () use ($inventory, $quantity, $reference, $actorId): float {
+        return (float) $this->commitReservedDetailed($inventory, $quantity, $reference, $actorId)['total_cost'];
+    }
+
+    public function decrementDetailed(Inventory $inventory, int $quantity, ?object $reference = null, ?int $actorId = null): array
+    {
+        return DB::transaction(function () use ($inventory, $quantity, $reference, $actorId): array {
             $row = Inventory::whereKey($inventory->id)->lockForUpdate()->firstOrFail();
             if (($row->quantity - $row->reserved) < $quantity) throw new InventoryConflictException('inventory_insufficient_available', 'Insufficient stock in the selected store.');
             $row->quantity -= $quantity;
@@ -115,7 +120,7 @@ class InventoryService
             $row->save();
             $this->bumpShopRevision((int) $row->shop_id);
 
-            $totalCost = ProductBatch::consumeForInventory(
+            $consumed = ProductBatch::consumeForInventoryDetailed(
                 (int) $row->product_id,
                 $row->variant_id ? (int) $row->variant_id : null,
                 (int) $row->shop_id,
@@ -123,8 +128,13 @@ class InventoryService
             );
 
             $this->movement($row, StockMovementType::SALE->value, -$quantity, 'Stock deducted', $reference, $actorId, 'sale');
-            return $totalCost;
+            return $consumed;
         });
+    }
+
+    public function decrement(Inventory $inventory, int $quantity, ?object $reference = null, ?int $actorId = null): float
+    {
+        return (float) $this->decrementDetailed($inventory, $quantity, $reference, $actorId)['total_cost'];
     }
 
     public function increment(
@@ -316,12 +326,12 @@ class InventoryService
         });
     }
 
-    private function bumpShopRevision(int $shopId): void
+    public function bumpShopRevision(int $shopId): void
     {
         Shop::query()->whereKey($shopId)->increment('inventory_revision');
     }
 
-    private function movement(Inventory $inventory, string $type, int $quantityChange, string $note, ?object $reference, ?int $actorId, ?string $reasonCode = null): void
+    public function movement(Inventory $inventory, string $type, int $quantityChange, string $note, ?object $reference, ?int $actorId, ?string $reasonCode = null): void
     {
         StockMovement::create([
             'inventory_id' => $inventory->id,

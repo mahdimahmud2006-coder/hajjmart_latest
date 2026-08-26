@@ -16,6 +16,9 @@ export type PersistedCartLine = {
   unitPrice: number;
   available: number;
   key: string;
+  priceMode?: PriceMode;
+  discountPercent?: number;
+  discountAmount?: number;
 };
 
 export type PosCartSnapshot = {

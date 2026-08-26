@@ -151,7 +151,7 @@ use App\Http\Controllers\Api\V1\Admin\OfflineDeviceController as AdminOfflineDev
 use App\Http\Controllers\Api\V1\Admin\OfflineSessionController as AdminOfflineSessionController;
 use App\Http\Controllers\Api\V1\Admin\OfflineOperationsController as AdminOfflineOperationsController;
 use App\Http\Controllers\Api\V1\Admin\StockTransferController as AdminStockTransferController;
-use App\Http\Controllers\Api\V1\Admin\RiskController as AdminRiskController;
+use App\Http\Controllers\Api\V1\Admin\ExternalAccountController as AdminExternalAccountController;
 
 Route::prefix('v1')->group(function () {
     Route::get('/homepage', [V1HomepageController::class, 'index']);
@@ -217,12 +217,6 @@ Route::prefix('v1')->group(function () {
             });
             Route::get('/dashboard', AdminDashboardController::class);
 
-            Route::get('/risk/dashboard', [AdminRiskController::class, 'dashboard']);
-            Route::get('/risk/cases', [AdminRiskController::class, 'cases']);
-            Route::put('/risk/cases/{fraudCase}', [AdminRiskController::class, 'updateCase']);
-            Route::put('/risk/rules/{riskRule}', [AdminRiskController::class, 'updateRule']);
-            Route::post('/risk/rescan', [AdminRiskController::class, 'rescan']);
-
             Route::get('/homepage-sections', [V1HomepageController::class, 'adminIndex']);
             Route::post('/homepage-sections', [V1HomepageController::class, 'store']);
             Route::put('/homepage-sections/{homepageSection}', [V1HomepageController::class, 'update']);
@@ -271,9 +265,14 @@ Route::prefix('v1')->group(function () {
             Route::get('/customers', [AdminCustomerController::class, 'index']);
             Route::get('/customers/{customerKey}', [AdminCustomerController::class, 'show']);
 
+            Route::get('/external-accounts', [AdminExternalAccountController::class, 'show']);
+            Route::post('/external-accounts/pathao', [AdminExternalAccountController::class, 'updatePathao']);
+
             Route::get('/orders', [AdminOrderController::class, 'index']);
             Route::post('/orders', [AdminOrderController::class, 'store']);
             Route::post('/orders/mark-printed', [AdminOrderController::class, 'markPrinted']);
+            Route::post('/orders/bulk-send-pathao', [AdminOrderController::class, 'bulkSendToPathao']);
+            Route::post('/orders/{order}/send-pathao', [AdminOrderController::class, 'sendToPathao']);
             Route::get('/orders/{order}', [AdminOrderController::class, 'show']);
             Route::put('/orders/{order}/status', [V1OrderController::class, 'updateStatus']);
             Route::post('/orders/{order}/payments', [AdminOrderController::class, 'collectPayment']);

@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Pathao Customer Lookup</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+    background: #f4f4f6; margin: 0; padding: 32px 16px;
+    display: flex; justify-content: center;
+  }
+  .card {
+    background: #fff; border-radius: 14px; box-shadow: 0 6px 24px rgba(0,0,0,.08);
+    padding: 24px; width: 100%; max-width: 420px;
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; color: #222; }
+  .sub { font-size: 12.5px; color: #888; margin-bottom: 18px; }
+  label { font-size: 12.5px; color: #555; display: block; margin-bottom: 4px; margin-top: 12px; }
+  input {
+    width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px;
+    font-size: 14px;
+  }
+  textarea {
+    width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px;
+    font-size: 12px; font-family: monospace; height: 64px; resize: vertical;
+  }
+  .row { display: flex; gap: 8px; align-items: flex-end; }
+  .row > div { flex: 1; }
+  button {
+    margin-top: 16px; width: 100%; padding: 11px; background: #E8261C; color: #fff;
+    border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  button:disabled { opacity: .6; cursor: default; }
+  .remember { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #777; margin-top: 8px; }
+  #result { margin-top: 18px; }
+  .msg { font-size: 13px; color: #888; text-align: center; padding: 8px 0; }
+  .msg.error { color: #C0392B; }
+  .rating {
+    display: inline-block; padding: 4px 12px; border-radius: 20px;
+    font-size: 12.5px; font-weight: 700; margin-bottom: 12px;
+  }
+  .rating.excellent { background: #E6F7EC; color: #1E7E34; }
+  .rating.good { background: #E6F0FA; color: #1D5FA8; }
+  .rating.average { background: #FFF6DA; color: #A67300; }
+  .rating.poor { background: #FDE7E7; color: #C0392B; }
+  .stats { display: flex; gap: 10px; margin-bottom: 14px; }
+  .stat { flex: 1; background: #F7F7F8; border-radius: 8px; padding: 10px; text-align: center; }
+  .stat b { display: block; font-size: 19px; color: #222; }
+  .stat span { font-size: 11px; color: #777; }
+  .addr { border-top: 1px solid #eee; padding: 10px 0; font-size: 12.5px; color: #333; }
+  .addr b { display: block; font-size: 13px; }
+  .addr small { color: #888; }
+  .warn {
+    background: #FFF6DA; color: #7a5c00; font-size: 11.5px; padding: 8px 10px;
+    border-radius: 8px; margin-top: 14px; line-height: 1.4;
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>Customer Lookup</h1>
+    <div class="sub">Pathao merchant delivery success rate checker</div>
+
+    <label for="phone">Phone number</label>
+    <input id="phone" type="tel" placeholder="01610608881" maxlength="11" />
+
+    <button id="searchBtn">Check Customer</button>
+
+    <div id="result"><div class="msg">Enter a phone number to begin.</div></div>
+
+    <div class="warn">
+      <b>Requires the local proxy running first:</b> open a terminal, run <code>node proxy.js</code> from the folder
+      containing that file (with your token set in <code>config.json</code>), and leave it running. This tool then talks
+      to <code>localhost:8787</code>, which forwards to Pathao with your token attached — that's what avoids the
+      browser's CORS block and keeps the token out of this HTML file.
+    </div>
+  </div>
+
+<script>
+const API_URL = 'http://localhost:8787/api/user/success';
+const phoneEl = document.getElementById('phone');
+const btn = document.getElementById('searchBtn');
+const resultEl = document.getElementById('result');
+
+function ratingClass(r) {
+  if (!r) return 'average';
+  if (r.includes('excellent')) return 'excellent';
+  if (r.includes('good')) return 'good';
+  if (r.includes('poor') || r.includes('bad')) return 'poor';
+  return 'average';
+}
+function ratingLabel(r) {
+  return (r || 'unknown').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+btn.addEventListener('click', async () => {
+  const phone = phoneEl.value.trim();
+
+  if (!/^01\d{9}$/.test(phone)) {
+    resultEl.innerHTML = '<div class="msg error">Enter a valid 11-digit BD number.</div>';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Checking...';
+  resultEl.innerHTML = `<div class="msg">Looking up ${phone}...</div>`;
+
+  try {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone })
+    });
+
+    if (res.status === 401 || res.status === 403) {
+      resultEl.innerHTML = '<div class="msg error">Token rejected (expired or invalid). Grab a fresh one from DevTools.</div>';
+      return;
+    }
+
+    const json = await res.json();
+    if (json.code !== 200 || !json.data) {
+      resultEl.innerHTML = '<div class="msg">No record found, or an error occurred.</div>';
+      return;
+    }
+
+    const d = json.data;
+    const cust = d.customer || {};
+    const total = cust.total_delivery ?? 0;
+    const success = cust.successful_delivery ?? 0;
+    const rate = total > 0 ? Math.round((success / total) * 100) : 0;
+
+    let addrHtml = '';
+    (d.address_book || []).forEach(a => {
+      addrHtml += `
+        <div class="addr">
+          <b>${a.customer_name || '-'}</b>
+          ${a.customer_address || '-'}
+          <br><small>${a.customer_zone_name || ''} · Hub: ${a.customer_hub_name || '-'}</small>
+        </div>`;
+    });
+
+    resultEl.innerHTML = `
+      <span class="rating ${ratingClass(d.customer_rating)}">${ratingLabel(d.customer_rating)}</span>
+      <div class="stats">
+        <div class="stat"><b>${total}</b><span>Total Orders</span></div>
+        <div class="stat"><b>${success}</b><span>Delivered</span></div>
+        <div class="stat"><b>${rate}%</b><span>Success Rate</span></div>
+      </div>
+      ${addrHtml || '<div class="msg">No saved addresses.</div>'}
+    `;
+  } catch (err) {
+    resultEl.innerHTML = `<div class="msg error">Request failed. Make sure the proxy is running (<code>node proxy.js</code> in a terminal), then try again.<br><br><code>${err.message}</code></div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Check Customer';
+  }
+});
+</script>
+</body>
+</html>

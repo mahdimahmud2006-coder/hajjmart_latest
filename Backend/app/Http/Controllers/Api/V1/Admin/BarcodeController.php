@@ -50,7 +50,12 @@ class BarcodeController extends Controller
                         'product_id' => $product->id,
                         'variant_id' => $variant->id,
                         'name' => $product->name,
-                        'variant_label' => $variant->attribute_values ? (is_array($variant->attribute_values) ? implode(' / ', $variant->attribute_values) : (string) $variant->attribute_values) : 'Variant',
+                        'variant_label' => $variant->attribute_values ? (is_array($variant->attribute_values) ? implode(' / ', array_map(function($v, $k) {
+                            $str = is_string($k) && !is_numeric($k) ? ucfirst(str_replace(['attribute_', 'attr_'], '', $k)) . ': ' . $v : (string) $v;
+                            return preg_replace_callback('/(?:attribute_|attr_)([a-zA-Z0-9_]+):/i', function($m) {
+                                return ucfirst(str_replace('_', ' ', $m[1])) . ':';
+                            }, $str);
+                        }, $variant->attribute_values, array_keys($variant->attribute_values))) : (string) $variant->attribute_values) : 'Variant',
                         'sku' => $variant->sku ?: $product->sku,
                         'barcode' => $variant->barcode ?: $product->barcode,
                         'retail_price' => (float) ($variant->retail_price ?? $variant->sale_price ?? $variant->price ?? $product->selling_price ?? 0),

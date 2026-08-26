@@ -24,7 +24,8 @@ class Order extends Model
         'admin_note', 'shop_id', 'created_by', 'assigned_to', 'packed_by', 'order_date', 'paid_amount', 'due_amount',
         'source_reference', 'terminal_id', 'client_transaction_id', 'offline_inventory_session_id', 'local_sequence', 'reconciliation_status', 'preempted_by_session_id', 'cancellation_reason_code', 'checkout_idempotency_key', 'offline_created_at', 'synced_at', 'priority', 'delivery_status', 'placed_at', 'confirmed_at', 'shipped_at', 'delivered_at', 'cancelled_at',
         'offline_recovery_case_id', 'manual_outage_reference', 'manual_outage_occurred_at',
-        'ordered_products', 'customer_details', 'address', 'delivery_charge', 'total_price', 'invoice_printed_at',
+        'ordered_products', 'customer_details', 'address', 'delivery_charge', 'total_price', 'invoice_printed_at', 'pathao_consignment_id',
+        'is_potential_fraud', 'fraud_score', 'fraud_reasons', 'fraud_checked_at',
     ];
 
     protected $casts = [
@@ -64,6 +65,10 @@ class Order extends Model
         'delivered_at' => 'datetime',
         'cancelled_at' => 'datetime',
         'invoice_printed_at' => 'datetime',
+        'is_potential_fraud' => 'boolean',
+        'fraud_score' => 'integer',
+        'fraud_reasons' => 'array',
+        'fraud_checked_at' => 'datetime',
     ];
 
     public function orderList(): BelongsTo
@@ -161,15 +166,22 @@ class Order extends Model
         });
     }
 
+    public function scopePotentialFraud(Builder $query): void
+    {
+        $query->where('is_potential_fraud', true);
+    }
+
     public function confirm(): bool
     {
-        if ($this->order_status === 'Confirmed' && $this->payment_status === 'Paid') {
+        if ($this->order_status === 'Confirmed' && $this->status === 'confirmed' && ! $this->is_potential_fraud) {
             return false;
         }
 
         return $this->update([
+            'status' => 'confirmed',
             'order_status' => 'Confirmed',
-            'payment_status' => 'Paid',
+            'is_potential_fraud' => false,
+            'confirmed_at' => $this->confirmed_at ?: now(),
         ]);
     }
 

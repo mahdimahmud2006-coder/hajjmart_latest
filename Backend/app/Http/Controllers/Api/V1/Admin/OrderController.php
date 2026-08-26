@@ -44,11 +44,23 @@ class OrderController extends Controller
             })
             ->when($request->shop_id, fn ($q, $shopId) => $q->where('shop_id', $shopId))
             ->when($request->source_channel, function ($q, $source): void {
-                $source === 'website'
-                    ? $q->whereIn('source_channel', ['website', 'ecommerce'])
-                    : $q->where('source_channel', $source);
+                if ($source === 'online') {
+                    $q->whereIn('source_channel', ['website', 'ecommerce', 'social_commerce']);
+                } elseif ($source === 'website') {
+                    $q->whereIn('source_channel', ['website', 'ecommerce']);
+                } else {
+                    $q->where('source_channel', $source);
+                }
             })
-            ->when($request->status_group, function ($q, $group): void {
+            ->when($request->status || $request->status_group, function ($q) use ($request): void {
+                $st = (string) ($request->status ?: $request->status_group);
+                if ($st === 'all' || $st === '') {
+                    return;
+                }
+                if ($st === 'potential_fraud') {
+                    $q->where('is_potential_fraud', true);
+                    return;
+                }
                 $groups = [
                     'pending' => ['pending'],
                     'confirmed' => ['confirmed'],
@@ -56,11 +68,15 @@ class OrderController extends Controller
                     'delivered' => ['delivered'],
                     'returned' => ['returned'],
                 ];
-                if (isset($groups[$group])) {
-                    $q->whereIn(DB::raw("LOWER(COALESCE(NULLIF(status, ''), order_status, ''))"), $groups[$group]);
+                if (isset($groups[$st])) {
+                    $q->whereIn(DB::raw("LOWER(COALESCE(NULLIF(status, ''), order_status, ''))"), $groups[$st]);
+                } else {
+                    $q->where('status', $st);
                 }
             })
-            ->when($request->status && ! $request->status_group, fn ($q, $status) => $q->where('status', $status))
+            ->when($request->boolean('potential_fraud') || $request->get('potential_fraud') === '1' || $request->get('potential_fraud') === 'true', function ($q): void {
+                $q->where('is_potential_fraud', true);
+            })
             ->when($request->payment_status, fn ($q, $status) => $q->where('payment_status', $status))
             ->when($request->printed_status, function ($q, $printed): void {
                 if ($printed === 'printed') {
@@ -288,5 +304,52 @@ class OrderController extends Controller
             'updated_ids' => $data['order_ids'],
             'invoice_printed_at' => $now->toIso8601String(),
         ], 'Invoices marked as printed.');
+    }
+
+    public function sendToPathao(Request $request, Order $order, \App\Services\PathaoService $pathao)
+    {
+        try {
+            $result = $pathao->sendOrderToPathao($order);
+            return $this->success($result, $result['message']);
+        } catch (\Throwable $exception) {
+            return $this->error($exception->getMessage(), 422);
+        }
+    }
+
+    public function bulkSendToPathao(Request $request, \App\Services\PathaoService $pathao)
+    {
+        $data = $request->validate([
+            'order_ids' => ['required', 'array', 'min:1'],
+            'order_ids.*' => ['required', 'integer', 'exists:orders,id'],
+        ]);
+
+        $orders = Order::query()->whereIn('id', $data['order_ids'])->with('shop')->get();
+        $results = [];
+
+        foreach ($orders as $index => $order) {
+            try {
+                $res = $pathao->sendOrderToPathao($order);
+                $results[] = [
+                    'order_id' => $order->id,
+                    'order_number' => $order->order_number,
+                    'success' => true,
+                    'consignment_id' => $res['consignment_id'],
+                    'message' => $res['message'],
+                ];
+            } catch (\Throwable $exception) {
+                $results[] = [
+                    'order_id' => $order->id,
+                    'order_number' => $order->order_number,
+                    'success' => false,
+                    'error' => $exception->getMessage(),
+                ];
+            }
+
+            if ($index < count($orders) - 1) {
+                usleep(3200000); // 3.2s pacing (19 requests / min)
+            }
+        }
+
+        return $this->success($results, 'Bulk send to Pathao completed.');
     }
 }

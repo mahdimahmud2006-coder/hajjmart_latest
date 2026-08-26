@@ -455,23 +455,21 @@ class Product extends Model
 
     public function getAvailableStockAttribute(): int
     {
-        // The upgraded admin and checkout workflows use store-aware inventory rows.
-        // When that relationship has been explicitly loaded (and optionally scoped
-        // to one store), prefer it over the legacy product-batch stock calculation.
-        if ($this->relationLoaded('inventory') && $this->inventory->isNotEmpty()) {
-            return (int) $this->inventory->sum(fn ($row) => max(0, (int) $row->quantity - (int) $row->reserved));
-        }
-
         if ($this->relationLoaded('productVariants') && $this->productVariants->isNotEmpty()) {
             $variantStock = $this->productVariants->sum(function ($variant): int {
-                if ($variant->relationLoaded('inventory') && $variant->inventory) {
-                    return max(0, (int) $variant->inventory->quantity - (int) $variant->inventory->reserved);
+                if ($variant->relationLoaded('inventories')) {
+                    return (int) $variant->inventories->sum(fn ($row) => max(0, (int) $row->quantity - (int) $row->reserved));
                 }
-                return 0;
+                if ($variant->relationLoaded('inventory')) {
+                    return $variant->inventory ? max(0, (int) $variant->inventory->quantity - (int) $variant->inventory->reserved) : 0;
+                }
+                return (int) ($variant->available_stock ?? 0);
             });
-            if ($variantStock > 0) {
-                return (int) $variantStock;
-            }
+            return (int) $variantStock;
+        }
+
+        if ($this->relationLoaded('inventory')) {
+            return (int) $this->inventory->sum(fn ($row) => max(0, (int) $row->quantity - (int) $row->reserved));
         }
 
         return $this->getAvailableStock();

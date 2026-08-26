@@ -3,9 +3,8 @@
 namespace App\Actions;
 
 use App\Models\Order;
-use App\Models\ReservedProduct;
+use App\Models\OrderItemBatch;
 use App\Services\InventoryService;
-use Exception;
 use Illuminate\Support\Facades\DB;
 
 class CommitInventoryAction
@@ -20,64 +19,49 @@ class CommitInventoryAction
 
             $inventoryService = app(InventoryService::class);
             $matchedOrderItemIds = [];
+
             foreach ($reservedItems as $item) {
-                if ($item->shop_id) {
-                    $inventory = $inventoryService->inventoryRow(
-                        (int) $item->product_id,
-                        $item->variant_id ? (int) $item->variant_id : null,
-                        (int) $item->shop_id,
-                    );
+                $inventory = $inventoryService->inventoryRow(
+                    (int) $item->product_id,
+                    $item->variant_id ? (int) $item->variant_id : null,
+                    (int) $item->shop_id,
+                );
 
-                    // Older installations can contain reservation rows created before
-                    // the store-aware reserved counter was introduced. Reconcile the
-                    // counter from the active reservation ledger before committing so a
-                    // valid historical reservation can still complete fulfilment safely.
-                    if ((int) $inventory->reserved < (int) $item->qty && (int) $inventory->quantity >= (int) $item->qty) {
-                        $reservationQuery = ReservedProduct::query()
-                            ->active()
-                            ->where('product_id', $item->product_id)
-                            ->where('shop_id', $item->shop_id);
-                        $item->variant_id
-                            ? $reservationQuery->where('variant_id', $item->variant_id)
-                            : $reservationQuery->whereNull('variant_id');
-                        $expectedReserved = min((int) $inventory->quantity, (int) $reservationQuery->sum('qty'));
-                        if ($expectedReserved >= (int) $item->qty) {
-                            $inventory = $inventoryService->reconcileReservedCounter($inventory, $expectedReserved);
-                        }
-                    }
+                $detailedCost = $inventoryService->commitReservedDetailed($inventory, (int) $item->qty, $item, $order->created_by);
+                $cogsTotal = (float) $detailedCost['total_cost'];
+                $allocations = $detailedCost['allocations'] ?? [];
 
-                    $cogsTotal = $inventoryService->commitReserved($inventory, (int) $item->qty, $item, $order->created_by);
-                    $orderItem = $item->order_item_id
-                        ? $order->items()->whereKey($item->order_item_id)->first()
-                        : $order->items()
-                            ->where('product_id', $item->product_id)
-                            ->when($item->variant_id, fn ($query) => $query->where('variant_id', $item->variant_id), fn ($query) => $query->whereNull('variant_id'))
-                            ->when($matchedOrderItemIds, fn ($query) => $query->whereNotIn('id', $matchedOrderItemIds))
-                            ->first();
-                    if ($orderItem) {
-                        $matchedOrderItemIds[] = $orderItem->id;
-                        $unitCost = $item->qty > 0 ? round($cogsTotal / $item->qty, 2) : 0.0;
-                        $lineGrand = (float) ($orderItem->line_grand_total ?: $orderItem->line_total);
-                        $orderItem->update([
-                            'unit_cost' => $unitCost,
-                            'cogs_total' => $cogsTotal,
-                            'gross_profit' => round($lineGrand - $cogsTotal, 2),
+                $orderItem = $item->order_item_id
+                    ? $order->items()->whereKey($item->order_item_id)->first()
+                    : $order->items()
+                        ->where('product_id', $item->product_id)
+                        ->when($item->variant_id, fn ($query) => $query->where('variant_id', $item->variant_id), fn ($query) => $query->whereNull('variant_id'))
+                        ->when($matchedOrderItemIds, fn ($query) => $query->whereNotIn('id', $matchedOrderItemIds))
+                        ->first();
+
+                if ($orderItem) {
+                    $matchedOrderItemIds[] = $orderItem->id;
+                    $unitCost = $item->qty > 0 ? round($cogsTotal / $item->qty, 2) : 0.0;
+                    $lineGrand = (float) ($orderItem->line_grand_total ?: $orderItem->line_total);
+                    $firstBatchId = ! empty($allocations) ? $allocations[0]['batch_id'] : null;
+
+                    $orderItem->update([
+                        'batch_id' => $firstBatchId,
+                        'unit_cost' => $unitCost,
+                        'cogs_total' => $cogsTotal,
+                        'gross_profit' => round($lineGrand - $cogsTotal, 2),
+                    ]);
+
+                    foreach ($allocations as $alloc) {
+                        OrderItemBatch::create([
+                            'order_item_id' => $orderItem->id,
+                            'product_batch_id' => $alloc['batch_id'],
+                            'quantity' => $alloc['quantity'],
+                            'cost_price' => $alloc['cost_price'],
                         ]);
                     }
-                    $item->update([
-                        'status' => 'committed',
-                        'committed_at' => now(),
-                    ]);
-                    continue;
                 }
 
-                // Legacy reservation rows do not participate in the modern
-                // inventory.reserved counter, so keep their original behavior.
-                $product = $item->product;
-                $result = $product->sellProduct($item->qty, $item->variation_id);
-                if (! $result['success']) {
-                    throw new Exception("Failed to commit inventory for product: {$product->name}. Error: " . ($result['message'] ?? 'Unknown error'));
-                }
                 $item->update([
                     'status' => 'committed',
                     'committed_at' => now(),

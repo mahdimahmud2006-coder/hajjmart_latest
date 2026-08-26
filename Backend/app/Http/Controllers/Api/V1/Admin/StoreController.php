@@ -42,6 +42,11 @@ class StoreController extends Controller
         $data = $this->validateData($request);
         $data['slug'] = $data['slug'] ?? Str::slug($data['name']);
         $data['code'] = strtoupper($data['code'] ?? Str::upper(Str::substr(Str::slug($data['name'], ''), 0, 6)));
+        if ($request->has('pathao_store_id')) {
+            $settings = $data['settings'] ?? [];
+            $settings['pathao_store_id'] = $request->pathao_store_id ? (string) $request->pathao_store_id : null;
+            $data['settings'] = $settings;
+        }
         if (! Shop::exists()) $data['is_default'] = true;
         if (! empty($data['is_default'])) Shop::query()->update(['is_default' => false]);
         $store = Shop::create($data);
@@ -66,6 +71,11 @@ class StoreController extends Controller
     {
         $before = $store->toArray();
         $data = $this->validateData($request, true, $store);
+        if ($request->has('pathao_store_id')) {
+            $settings = $data['settings'] ?? ($store->settings ?? []);
+            $settings['pathao_store_id'] = $request->pathao_store_id ? (string) $request->pathao_store_id : null;
+            $data['settings'] = $settings;
+        }
         if (! empty($data['is_default'])) Shop::where('id', '!=', $store->id)->update(['is_default' => false]);
         $store->update($data);
         $this->activities->record('stores', 'updated', "Updated store {$store->name}", $store, $before, $store->fresh()->toArray(), request: $request);
@@ -95,6 +105,7 @@ class StoreController extends Controller
             'is_active' => ['nullable', 'boolean'],
             'is_default' => ['nullable', 'boolean'],
             'settings' => ['nullable', 'array'],
+            'pathao_store_id' => ['nullable', 'string', 'max:100'],
         ]);
     }
 }

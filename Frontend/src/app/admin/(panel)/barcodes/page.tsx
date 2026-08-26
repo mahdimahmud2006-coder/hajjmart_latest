@@ -15,6 +15,7 @@ import { ProductsInventoryNav } from "@/components/admin/products-inventory-nav"
 import {
   AdminButton,
   AdminIcon,
+  AdminSelect,
   DataList,
   EmptyState,
   Field,
@@ -27,6 +28,18 @@ import {
   useAdminToast,
 } from "@/components/admin/admin-ui";
 
+function getCookie(name: string): string | null {
+  if (typeof document === "undefined") return null;
+  const match = document.cookie.match(new RegExp("(?:^|; )" + name.replace(/([\.$?*|{}\(\)\[\]\\\/\+^])/g, "\\$1") + "=([^;]*)"));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function setCookie(name: string, value: string, days = 365): void {
+  if (typeof document === "undefined") return;
+  const expires = new Date(Date.now() + days * 864e5).toUTCString();
+  document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/; SameSite=Lax`;
+}
+
 export default function BarcodesPage() {
   const { token, selectedStore, demoMode } = useAdmin();
   const { t } = useAdminLanguage();
@@ -36,7 +49,8 @@ export default function BarcodesPage() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(1);
-  const [meta, setMeta] = useState({ currentPage: 1, lastPage: 1, total: 0, perPage: 20 });
+  const [perPage, setPerPage] = useState(15);
+  const [meta, setMeta] = useState({ currentPage: 1, lastPage: 1, total: 0, perPage: 15 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -49,6 +63,49 @@ export default function BarcodesPage() {
   const [printingItem, setPrintingItem] = useState<AdminBarcodeItem | null>(null);
   const [labelCopies, setLabelCopies] = useState(1);
   const [labelSize, setLabelSize] = useState<"38x25" | "50x25">("38x25");
+  const [showStoreName, setShowStoreName] = useState(true);
+  const [showProductName, setShowProductName] = useState(true);
+  const [showMrpPrice, setShowMrpPrice] = useState(true);
+
+  // Load cached label preferences from cookies
+  useEffect(() => {
+    const savedSize = getCookie("hajjmart_label_size");
+    if (savedSize === "38x25" || savedSize === "50x25") {
+      setLabelSize(savedSize);
+    }
+    const savedStore = getCookie("hajjmart_label_show_store");
+    if (savedStore !== null) {
+      setShowStoreName(savedStore === "1");
+    }
+    const savedProduct = getCookie("hajjmart_label_show_product");
+    if (savedProduct !== null) {
+      setShowProductName(savedProduct === "1");
+    }
+    const savedPrice = getCookie("hajjmart_label_show_price");
+    if (savedPrice !== null) {
+      setShowMrpPrice(savedPrice === "1");
+    }
+  }, []);
+
+  const updateLabelSize = (size: "38x25" | "50x25") => {
+    setLabelSize(size);
+    setCookie("hajjmart_label_size", size);
+  };
+
+  const updateShowStoreName = (show: boolean) => {
+    setShowStoreName(show);
+    setCookie("hajjmart_label_show_store", show ? "1" : "0");
+  };
+
+  const updateShowProductName = (show: boolean) => {
+    setShowProductName(show);
+    setCookie("hajjmart_label_show_product", show ? "1" : "0");
+  };
+
+  const updateShowMrpPrice = (show: boolean) => {
+    setShowMrpPrice(show);
+    setCookie("hajjmart_label_show_price", show ? "1" : "0");
+  };
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 280);
@@ -57,7 +114,7 @@ export default function BarcodesPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch]);
+  }, [debouncedSearch, perPage]);
 
   // Load Barcodes List
   useEffect(() => {
@@ -83,8 +140,14 @@ export default function BarcodesPage() {
           });
         }
       });
-      setItems(demoList);
-      setMeta({ currentPage: 1, lastPage: 1, total: demoList.length, perPage: 20 });
+      const total = demoList.length;
+      const lastPage = Math.max(1, Math.ceil(total / perPage));
+      const validPage = Math.min(page, lastPage);
+      const start = (validPage - 1) * perPage;
+      const sliced = demoList.slice(start, start + perPage);
+
+      setItems(sliced);
+      setMeta({ currentPage: validPage, lastPage, total, perPage });
       setLoading(false);
       return;
     }
@@ -99,7 +162,7 @@ export default function BarcodesPage() {
     const query = queryString({
       q: debouncedSearch || undefined,
       page,
-      per_page: 20,
+      per_page: perPage,
     });
 
     adminRequest<Paginated<AdminBarcodeItem>>(`/barcodes${query}`, { token, signal: controller.signal })
@@ -111,7 +174,7 @@ export default function BarcodesPage() {
           currentPage: result.current_page || page,
           lastPage: result.last_page || 1,
           total: typeof result.total === "number" ? result.total : rows.length,
-          perPage: result.per_page || 20,
+          perPage: result.per_page || perPage,
         });
       })
       .catch(() => {
@@ -122,7 +185,7 @@ export default function BarcodesPage() {
       });
 
     return () => controller.abort();
-  }, [token, demoMode, debouncedSearch, page, t]);
+  }, [token, demoMode, debouncedSearch, page, perPage, t]);
 
   const openEditModal = (item: AdminBarcodeItem) => {
     setEditingItem(item);
@@ -185,7 +248,6 @@ export default function BarcodesPage() {
   const openPrintModal = (item: AdminBarcodeItem) => {
     setPrintingItem(item);
     setLabelCopies(1);
-    setLabelSize("38x25");
   };
 
   const handlePrintSubmit = () => {
@@ -198,10 +260,10 @@ export default function BarcodesPage() {
 
     const htmlContent = `
       <div class="thermal-label-page ${labelSize === "50x25" ? "size-50x25" : ""}">
-        <div class="thermal-store-name">${escapeHtml(storeName)}</div>
-        <div class="thermal-prod-name">${escapeHtml(prodTitle)}</div>
+        ${showStoreName ? `<div class="thermal-store-name">${escapeHtml(storeName)}</div>` : ""}
+        ${showProductName ? `<div class="thermal-prod-name">${escapeHtml(prodTitle)}</div>` : ""}
         <div class="thermal-barcode-svg">${barcodeSvg}</div>
-        <div class="thermal-price">MRP: ${priceFormatted}</div>
+        ${showMrpPrice ? `<div class="thermal-price">MRP: ${priceFormatted}</div>` : ""}
       </div>
     `;
 
@@ -217,8 +279,15 @@ export default function BarcodesPage() {
       <ProductsInventoryNav />
 
       <Panel className="admin-barcodes-inbox">
-        <div className="admin-filter-bar">
+        <div className="admin-toolbar">
           <SearchField value={search} onChange={setSearch} placeholder={t("products.search")} />
+          <div className="admin-toolbar-filters">
+            <AdminSelect value={perPage} onChange={(val) => { setPerPage(Number(val)); setPage(1); }} label="Rows">
+              <option value={15}>15</option>
+              <option value={20}>20</option>
+              <option value={50}>50</option>
+            </AdminSelect>
+          </div>
         </div>
 
         {loading && <div className="admin-list-loading"><span /><p>{t("products.loading")}</p></div>}
@@ -231,11 +300,11 @@ export default function BarcodesPage() {
                 <thead>
                   <tr>
                     <th>{t("products.product")}</th>
-                    <th>{t("products.noSku")}</th>
+                    <th>{t("products.sku")}</th>
                     <th>Barcode Graphic</th>
                     <th>{t("products.barcode")}</th>
                     <th className="align-right">{t("products.price")}</th>
-                    <th className="align-right">Actions</th>
+                    <th className="align-right admin-actions-col">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -246,8 +315,8 @@ export default function BarcodesPage() {
                     return (
                       <tr key={`${item.product_id}-${item.variant_id || 0}-${idx}`}>
                         <td>
-                          <div className="admin-item-cell">
-                            <span className="admin-line-image">
+                          <div className="admin-product-cell">
+                            <span>
                               <AdminProductImage product={{ name: item.name, image_src: item.product_image } as any} />
                             </span>
                             <div>
@@ -270,13 +339,13 @@ export default function BarcodesPage() {
                         <td className="align-right">
                           <strong>{formatPrice(item.retail_price)}</strong>
                         </td>
-                        <td className="align-right">
+                        <td className="align-right admin-actions-col">
                           <div className="admin-row-actions">
                             <AdminButton type="button" variant="ghost" onClick={() => openEditModal(item)}>
-                              <AdminIcon name="edit" /> {t("barcodes.editBarcode")}
+                              <AdminIcon name="edit" /> Edit
                             </AdminButton>
                             <AdminButton type="button" variant="secondary" onClick={() => openPrintModal(item)}>
-                              <AdminIcon name="print" /> {t("barcodes.printLabel")}
+                              <AdminIcon name="print" /> Print
                             </AdminButton>
                           </div>
                         </td>
@@ -290,10 +359,15 @@ export default function BarcodesPage() {
               <div className="admin-barcode-cards">
                 {items.map((item, idx) => (
                   <div className="admin-barcode-card" key={`${item.product_id}-${item.variant_id || 0}-${idx}`}>
-                    <div>
-                      <strong>{item.name}</strong>
-                      {item.variant_label && <small>{item.variant_label}</small>}
-                      <small>{item.sku || "No SKU"} · {formatPrice(item.retail_price)}</small>
+                    <div className="admin-product-cell">
+                      <span>
+                        <AdminProductImage product={{ name: item.name, image_src: item.product_image } as any} />
+                      </span>
+                      <div>
+                        <strong>{item.name}</strong>
+                        {item.variant_label && <small className="admin-badge">{item.variant_label}</small>}
+                        <small>{item.sku || "No SKU"} · {formatPrice(item.retail_price)}</small>
+                      </div>
                     </div>
                     <b>{item.barcode || "No Barcode"}</b>
                     <div className="admin-card-actions">
@@ -313,7 +387,13 @@ export default function BarcodesPage() {
           <EmptyState title="No barcodes found" description="No products or barcodes match your search." icon="products" />
         )}
 
-        <Pagination currentPage={meta.currentPage} lastPage={meta.lastPage} total={meta.total} perPage={meta.perPage} onPageChange={setPage} />
+        <Pagination
+          currentPage={meta.currentPage}
+          lastPage={meta.lastPage}
+          total={meta.total}
+          perPage={perPage}
+          onPageChange={setPage}
+        />
       </Panel>
 
       {/* Edit Barcode Modal */}
@@ -365,10 +445,10 @@ export default function BarcodesPage() {
                   className={`thermal-label-page ${labelSize === "50x25" ? "size-50x25" : ""}`}
                   dangerouslySetInnerHTML={{
                     __html: `
-                      <div class="thermal-store-name">${escapeHtml(selectedStore?.name || "HajjMart")}</div>
-                      <div class="thermal-prod-name">${escapeHtml(printingItem.name + (printingItem.variant_label ? ` (${printingItem.variant_label})` : ""))}</div>
+                      ${showStoreName ? `<div class="thermal-store-name">${escapeHtml(selectedStore?.name || "HajjMart")}</div>` : ""}
+                      ${showProductName ? `<div class="thermal-prod-name">${escapeHtml(printingItem.name + (printingItem.variant_label ? ` (${printingItem.variant_label})` : ""))}</div>` : ""}
                       <div class="thermal-barcode-svg">${generateBarcodeSVG(printingItem.barcode || "000000000000", { height: 30, barWidth: 1.6, showText: true })}</div>
-                      <div class="thermal-price">MRP: ${formatPrice(printingItem.retail_price)}</div>
+                      ${showMrpPrice ? `<div class="thermal-price">MRP: ${formatPrice(printingItem.retail_price)}</div>` : ""}
                     `,
                   }}
                 />
@@ -386,12 +466,41 @@ export default function BarcodesPage() {
                 />
               </Field>
               <Field label="Sticker Size">
-                <select value={labelSize} onChange={(e) => setLabelSize(e.target.value as any)}>
+                <select value={labelSize} onChange={(e) => updateLabelSize(e.target.value as any)}>
                   <option value="38x25">38mm × 25mm (Standard)</option>
                   <option value="50x25">50mm × 25mm (Wide)</option>
                 </select>
               </Field>
             </div>
+
+            <Field label="Included Content">
+              <div style={{ display: "flex", gap: "16px", flexWrap: "wrap", alignItems: "center", paddingTop: "4px" }}>
+                <label className="admin-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={showStoreName}
+                    onChange={(e) => updateShowStoreName(e.target.checked)}
+                  />
+                  <span>Store Name</span>
+                </label>
+                <label className="admin-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={showProductName}
+                    onChange={(e) => updateShowProductName(e.target.checked)}
+                  />
+                  <span>Product Name</span>
+                </label>
+                <label className="admin-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={showMrpPrice}
+                    onChange={(e) => updateShowMrpPrice(e.target.checked)}
+                  />
+                  <span>MRP Price</span>
+                </label>
+              </div>
+            </Field>
 
             <AdminButton type="button" icon="print" onClick={handlePrintSubmit}>
               Print {labelCopies} Sticker Copy/Copies

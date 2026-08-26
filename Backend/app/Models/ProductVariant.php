@@ -63,11 +63,11 @@ class ProductVariant extends Model
 
     public function getAvailableStockAttribute(): int
     {
-        if ($this->relationLoaded('inventories') && $this->inventories->isNotEmpty()) {
+        if ($this->relationLoaded('inventories')) {
             return (int) $this->inventories->sum(fn ($row) => max(0, (int) $row->quantity - (int) $row->reserved));
         }
-        if ($this->relationLoaded('inventory') && $this->inventory) {
-            return max(0, (int) $this->inventory->quantity - (int) $this->inventory->reserved);
+        if ($this->relationLoaded('inventory')) {
+            return $this->inventory ? max(0, (int) $this->inventory->quantity - (int) $this->inventory->reserved) : 0;
         }
         $inv = (int) Inventory::query()->where('variant_id', $this->id)->sum(\Illuminate\Support\Facades\DB::raw('GREATEST(0, quantity - reserved)'));
         if ($inv > 0) {

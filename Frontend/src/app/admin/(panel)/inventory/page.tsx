@@ -24,7 +24,7 @@ type StockMovement = {
 };
 
 export default function InventoryPage() {
-  const { token, selectedStoreId, stores, demoMode } = useAdmin();
+  const { token, selectedStoreId, demoMode } = useAdmin();
   const { t } = useAdminLanguage();
   const { notify } = useStore();
   const [rows, setRows] = useState<InventoryRow[]>([]);
@@ -36,7 +36,6 @@ export default function InventoryPage() {
   const [meta, setMeta] = useState({ currentPage: 1, lastPage: 1, total: 0 });
   const [selected, setSelected] = useState<InventoryRow | null>(null);
   const [adjustOpen, setAdjustOpen] = useState(false);
-  const [transferOpen, setTransferOpen] = useState(false);
   const [history, setHistory] = useState(false);
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [movementInventoryId, setMovementInventoryId] = useState<number | null>(null);
@@ -49,7 +48,7 @@ export default function InventoryPage() {
   const sequence = useRef(0);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 280);
+    const timer = window.setTimeout(() => setSearch(search.trim()), 280);
     return () => window.clearTimeout(timer);
   }, [search]);
   useEffect(() => { setPage(1); }, [debouncedSearch, health, selectedStoreId, perPage]);
@@ -159,27 +158,6 @@ export default function InventoryPage() {
     } finally { setBusy(false); }
   }
 
-  async function transfer(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const inventory = rows.find((row) => row.id === Number(form.get("inventory_id"))) || selected;
-    if (!inventory) return;
-    const from = Number(form.get("from_shop_id"));
-    const to = Number(form.get("to_shop_id"));
-    if (from === to) { setError(t("inventory.sameStoreError")); return; }
-    setBusy(true); setError(null);
-    try {
-      if (!demoMode) {
-        if (!token) throw new Error();
-        await adminRequest("/stock-transfers", { method: "POST", token, body: { from_shop_id: from, to_shop_id: to, items: [{ product_id: inventory.product_id, variant_id: inventory.variant_id || null, quantity: Number(form.get("quantity")) }], note: String(form.get("note") || "") } });
-      }
-      setTransferOpen(false);
-      notify(t("inventory.transferCreated"));
-    } catch (reason) {
-      setError(reason instanceof Error && reason.message ? reason.message : t("inventory.transferError"));
-    } finally { setBusy(false); }
-  }
-
   function stockTone(row: InventoryRow): "success" | "warning" | "error" {
     return row.stock_health === "out" ? "error" : row.stock_health === "low" ? "warning" : "success";
   }
@@ -197,16 +175,12 @@ export default function InventoryPage() {
 
     {history && <Panel title={t("inventory.movements")} description={t("inventory.movementsCopy")}>{movements.length ? <><div className="admin-activity-list">{movements.map((movement) => <div key={movement.id}><span className={movement.quantity_change >= 0 ? "positive" : "negative"}><AdminIcon name={movement.quantity_change >= 0 ? "plus" : "arrow"}/></span><div><strong>{(movement.reason_code || movement.type).replaceAll("_", " ")}</strong><small>{movement.inventory?.product?.name || t("inventory.product")} · {movement.shop?.name || t("inventory.store")} · {movement.actor?.name || t("shared.system")} · {formatDate(movement.created_at, true)}</small></div><b>{movement.quantity_change > 0 ? "+" : ""}{movement.quantity_change}</b></div>)}</div><Pagination currentPage={movementsMeta.currentPage} lastPage={movementsMeta.lastPage} total={movementsMeta.total} perPage={movementsPerPage} onPageChange={setMovementsPage} onPerPageChange={setMovementsPerPage}/></> : <EmptyState title={t("inventory.noMovements")} description={t("inventory.noMovementsCopy")} icon="activity"/>}</Panel>}
 
-    <Sheet open={selected !== null && !adjustOpen && !transferOpen} onClose={() => setSelected(null)} title={selected?.product.name || t("inventory.title")} subtitle={selected ? `${selected.shop.name} · ${selected.variant?.sku || selected.product.sku || ""}` : undefined}>
-      {selected && <div className="admin-stack"><div className="admin-detail-grid"><div><span>{t("inventory.physical")}</span><strong>{selected.quantity}</strong></div><div><span>{t("inventory.reserved")}</span><strong>{selected.reserved}</strong></div><div><span>{t("inventory.available")}</span><strong>{selected.available}</strong></div><div><span>{t("inventory.health")}</span><StatusChip value={t(`inventory.health.${selected.stock_health}` as "inventory.health.healthy" | "inventory.health.low" | "inventory.health.out")} tone={stockTone(selected)}/></div></div><div className="admin-action-strip"><AdminButton icon="edit" onClick={() => setAdjustOpen(true)}>{t("inventory.adjust")}</AdminButton><AdminButton variant="secondary" icon="transfer" onClick={() => setTransferOpen(true)}>{t("inventory.move")}</AdminButton><Link href={`/admin/inventory/product-batches?product=${selected.product_id}&q=${encodeURIComponent(selected.product.name)}`} className="admin-button ghost"><AdminIcon name="box"/><span>{t("inventory.viewBatches")}</span></Link><AdminButton variant="ghost" icon="activity" onClick={() => { setMovementInventoryId(selected.id); setHistory(true); setSelected(null); }}>{t("inventory.viewMovements")}</AdminButton></div></div>}
+    <Sheet open={selected !== null && !adjustOpen} onClose={() => setSelected(null)} title={selected?.product.name || t("inventory.title")} subtitle={selected ? `${selected.shop.name} · ${selected.variant?.sku || selected.product.sku || ""}` : undefined}>
+      {selected && <div className="admin-stack"><div className="admin-detail-grid"><div><span>{t("inventory.physical")}</span><strong>{selected.quantity}</strong></div><div><span>{t("inventory.reserved")}</span><strong>{selected.reserved}</strong></div><div><span>{t("inventory.available")}</span><strong>{selected.available}</strong></div><div><span>{t("inventory.health")}</span><StatusChip value={t(`inventory.health.${selected.stock_health}` as "inventory.health.healthy" | "inventory.health.low" | "inventory.health.out")} tone={stockTone(selected)}/></div></div><div className="admin-action-strip"><AdminButton icon="edit" onClick={() => setAdjustOpen(true)}>{t("inventory.adjust")}</AdminButton><Link href={`/admin/inventory/product-batches?product=${selected.product_id}&q=${encodeURIComponent(selected.product.name)}`} className="admin-button ghost"><AdminIcon name="box"/><span>{t("inventory.viewBatches")}</span></Link><AdminButton variant="ghost" icon="activity" onClick={() => { setMovementInventoryId(selected.id); setHistory(true); setSelected(null); }}>{t("inventory.viewMovements")}</AdminButton></div></div>}
     </Sheet>
 
     <Sheet open={adjustOpen} onClose={() => !busy && setAdjustOpen(false)} title={t("inventory.adjust")} subtitle={selected?.product.name}>
       {selected && <form className="admin-stack admin-form-one-column" onSubmit={adjust}><div className="admin-current-balance"><span>{t("inventory.currentPhysical")}</span><strong>{selected.quantity}</strong><small>{selected.reserved} {t("inventory.reserved")} · {selected.available} {t("inventory.available")}</small></div><Field label={t("inventory.adjustMode")}><select name="mode"><option value="delta">{t("inventory.addRemove")}</option><option value="set">{t("inventory.setPhysical")}</option></select></Field><Field label={t("inventory.quantity")} required><input name="quantity" type="number" inputMode="numeric" required defaultValue="0"/></Field><Field label={t("inventory.reason")} required><select name="reason_code" required><option value="cycle_count">{t("inventory.cycleCount")}</option><option value="damage_spoilage">{t("inventory.damage")}</option><option value="found_stock">{t("inventory.found")}</option><option value="administrative_correction">{t("inventory.correction")}</option></select></Field><Field label={t("inventory.note")} required><textarea name="note" rows={3} required/></Field><AdminButton icon="check" disabled={busy}>{busy ? t("shared.working") : t("inventory.saveAdjustment")}</AdminButton></form>}
-    </Sheet>
-
-    <Sheet open={transferOpen} onClose={() => !busy && setTransferOpen(false)} title={t("inventory.move")} subtitle={t("inventory.transferCopy")}>
-      <form className="admin-stack admin-form-one-column" onSubmit={transfer}><input type="hidden" name="from_shop_id" value={selected?.shop_id || ""}/><input type="hidden" name="inventory_id" value={selected?.id || ""}/><Field label={t("inventory.product")}><input value={selected ? `${selected.product.name} · ${selected.variant?.sku || selected.product.sku || t("products.noSku")}` : ""} disabled/></Field><Field label={t("inventory.fromStore")}><input value={selected?.shop.name || ""} disabled/></Field><Field label={t("inventory.toStore")}><select name="to_shop_id" defaultValue={stores.find((store) => store.id !== selected?.shop_id)?.id}>{stores.filter((store) => store.id !== selected?.shop_id).map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}</select></Field><Field label={t("inventory.quantity")} required><input name="quantity" type="number" min="1" max={selected?.available || undefined} inputMode="numeric" defaultValue="1" required/></Field><Field label={t("inventory.transferNote")}><input name="note"/></Field><p className="admin-callout"><AdminIcon name="info"/>{t("inventory.transferLifecycle")}</p><AdminButton icon="transfer" disabled={busy || stores.filter((store) => store.id !== selected?.shop_id).length < 1}>{busy ? t("shared.working") : t("inventory.createTransfer")}</AdminButton></form>
     </Sheet>
   </>;
 }

@@ -11,7 +11,20 @@ import type { AdminStore, AdminUser } from "@/lib/admin-types";
 const AUTH_KEY = "hajjmart-admin-session-v2";
 const STORE_KEY = "hajjmart-admin-store-v2";
 const STORES_CACHE_KEY = "hajjmart-admin-stores-v1";
+const COOKIE_STORE_KEY = "hajjmart_admin_store";
 const SESSION_REFRESH_AFTER_MS = 10.5 * 60 * 60 * 1000;
+
+function getStoreCookie(): string | null {
+  if (typeof document === "undefined") return null;
+  const match = document.cookie.match(new RegExp("(?:^|; )" + COOKIE_STORE_KEY.replace(/([\.$?*|{}\(\)\[\]\\\/\+^])/g, "\\$1") + "=([^;]*)"));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function setStoreCookie(value: string | number): void {
+  if (typeof document === "undefined") return;
+  const maxAge = 365 * 24 * 60 * 60; // 1 year
+  document.cookie = `${COOKIE_STORE_KEY}=${encodeURIComponent(value)}; path=/; max-age=${maxAge}; SameSite=Lax`;
+}
 
 type AdminContextValue = {
   token: string | null;
@@ -55,10 +68,14 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     try {
       const saved = localStorage.getItem(AUTH_KEY);
-      const store = localStorage.getItem(STORE_KEY);
+      const cookieStore = getStoreCookie();
+      const localStore = localStorage.getItem(STORE_KEY);
+      const activeStore = cookieStore ?? localStore;
+      let parsedUser: AdminUser | null = null;
       if (saved) {
         const parsed = JSON.parse(saved) as { token: string | null; user: AdminUser; demoMode?: boolean; issuedAt?: number };
         const isDemo = Boolean(parsed.demoMode && !parsed.token);
+        parsedUser = parsed.user;
         setToken(parsed.token);
         setUser(parsed.user);
         setDemoMode(isDemo);
@@ -76,8 +93,16 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
       } else {
         setSessionReady(true);
       }
-      if (store === "all") setSelectedStoreState("all");
-      else if (store && Number.isFinite(Number(store))) setSelectedStoreState(Number(store));
+      if (activeStore === "all") {
+        setSelectedStoreState("all");
+      } else if (activeStore && Number.isFinite(Number(activeStore))) {
+        setSelectedStoreState(Number(activeStore));
+      } else if (parsedUser?.shop_id && Number.isFinite(Number(parsedUser.shop_id))) {
+        const defaultStoreId = Number(parsedUser.shop_id);
+        setSelectedStoreState(defaultStoreId);
+        setStoreCookie(defaultStoreId);
+        localStorage.setItem(STORE_KEY, String(defaultStoreId));
+      }
     } catch {
       localStorage.removeItem(AUTH_KEY);
       localStorage.removeItem(STORE_KEY);
@@ -227,6 +252,7 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
     const safeId = id === "all" || stores.some((store) => store.id === id) ? id : "all";
     setSelectedStoreState(safeId);
     localStorage.setItem(STORE_KEY, String(safeId));
+    setStoreCookie(safeId);
   }, [stores]);
 
   const selectedStore = selectedStoreId === "all"

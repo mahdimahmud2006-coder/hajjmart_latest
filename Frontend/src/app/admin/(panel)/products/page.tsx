@@ -19,17 +19,84 @@ function variants(product: AdminProduct) {
   return (product.product_variants || product.productVariants || []).filter((variant) => variant.is_active !== false);
 }
 
-function stockState(product: AdminProduct): "success" | "warning" | "error" {
-  const available = Number(product.available_stock || 0);
+function variantStock(variant: AdminProductVariant, storeId: string | number = "all"): number {
+  const v = variant as any;
+  const isAllStores = storeId === "all" || storeId === "" || storeId === null || storeId === undefined;
+  const targetShopId = isAllStores ? null : Number(storeId);
+
+  const items: any[] = Array.isArray(v.inventories) && v.inventories.length > 0
+    ? v.inventories
+    : Array.isArray(v.inventory) && v.inventory.length > 0
+      ? v.inventory
+      : [];
+
+  if (items.length > 0) {
+    if (isAllStores) {
+      return items.reduce((sum: number, item: any) => sum + Math.max(0, Number(item.quantity || 0) - Number(item.reserved || 0)), 0);
+    }
+    const matching = items.filter((item: any) => Number(item.shop_id) === targetShopId);
+    if (matching.length > 0) {
+      return matching.reduce((sum: number, item: any) => sum + Math.max(0, Number(item.quantity || 0) - Number(item.reserved || 0)), 0);
+    }
+    return 0;
+  }
+
+  if (v.inventory && typeof v.inventory === "object" && !Array.isArray(v.inventory)) {
+    if (isAllStores || v.inventory.shop_id === undefined || Number(v.inventory.shop_id) === targetShopId) {
+      return Math.max(0, Number(v.inventory.quantity || 0) - Number(v.inventory.reserved || 0));
+    }
+    return 0;
+  }
+
+  if (isAllStores) {
+    if (typeof v.available_stock === "number") return v.available_stock;
+    if (typeof v.stock === "number") return v.stock;
+    if (typeof v.quantity === "number") return v.quantity;
+    if (typeof v.count === "number") return v.count;
+  }
+
+  return 0;
+}
+
+function totalProductStockAllStores(product: AdminProduct): number {
+  const vars = variants(product);
+  if (vars.length > 0) {
+    return vars.reduce((sum, v) => sum + variantStock(v, "all"), 0);
+  }
+  if (Array.isArray(product.inventory) && product.inventory.length > 0) {
+    return product.inventory.reduce((sum, item) => sum + Math.max(0, Number(item.quantity || 0) - Number(item.reserved || 0)), 0);
+  }
+  return Number(product.available_stock || 0);
+}
+
+function selectedStoreStock(product: AdminProduct, storeId: string | number = "all"): number {
+  if (storeId === "all" || storeId === "" || storeId === null || storeId === undefined) {
+    return totalProductStockAllStores(product);
+  }
+  const targetShopId = Number(storeId);
+  const vars = variants(product);
+  if (vars.length > 0) {
+    return vars.reduce((sum, v) => sum + variantStock(v, storeId), 0);
+  }
+  if (Array.isArray(product.inventory) && product.inventory.length > 0) {
+    const matching = product.inventory.filter((item) => Number(item.shop_id) === targetShopId);
+    if (matching.length > 0) {
+      return matching.reduce((sum, item) => sum + Math.max(0, Number(item.quantity || 0) - Number(item.reserved || 0)), 0);
+    }
+    return 0;
+  }
+  return 0;
+}
+
+function stockState(product: AdminProduct, storeId: string | number = "all"): "success" | "warning" | "error" {
+  const available = selectedStoreStock(product, storeId);
   if (available <= 0) return "error";
   if (available <= 5) return "warning";
   return "success";
 }
 
 function canDeleteProduct(product: AdminProduct): boolean {
-  const stock = Number(product.available_stock || 0);
-  const totalInventory = (product.inventory || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0);
-  return stock === 0 && totalInventory === 0;
+  return totalProductStockAllStores(product) === 0;
 }
 
 function demoPage(source: AdminProduct[], search: string, stock: string, currentPage: number, perPage: number) {
@@ -44,28 +111,35 @@ function demoPage(source: AdminProduct[], search: string, stock: string, current
   return { data: filtered.slice((currentPage - 1) * perPage, currentPage * perPage), current_page: currentPage, last_page: lastPage, total: filtered.length, per_page: perPage };
 }
 
+function formatAttributeKey(key: string): string {
+  const cleaned = key.replace(/^(attribute_|attr_)/i, "").replaceAll("_", " ");
+  if (!cleaned) return key;
+  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+}
+
+function formatAttributePair(str: string): string {
+  return str.replace(/(?:attribute_|attr_)([a-zA-Z0-9_]+):/gi, (_, key) => {
+    return `${formatAttributeKey(key)}:`;
+  });
+}
+
 function variantSummary(variant: AdminProductVariant): string {
   if (variant.attributes_json && Object.keys(variant.attributes_json).length > 0) {
     return Object.entries(variant.attributes_json)
-      .map(([key, val]) => `${key}: ${val}`)
+      .map(([key, val]) => `${formatAttributeKey(key)}: ${val}`)
       .join(" · ");
   }
   if (Array.isArray(variant.attribute_values) && variant.attribute_values.length > 0) {
-    return variant.attribute_values.join(" · ");
+    return variant.attribute_values
+      .map((val) => formatAttributePair(String(val)))
+      .join(" · ");
+  }
+  if (variant.attribute_values && typeof variant.attribute_values === "object") {
+    return Object.entries(variant.attribute_values)
+      .map(([key, val]) => `${formatAttributeKey(key)}: ${val}`)
+      .join(" · ");
   }
   return variant.sku ? `SKU: ${variant.sku}` : `Variation #${variant.id}`;
-}
-
-function variantStock(variant: AdminProductVariant): number {
-  const v = variant as any;
-  if (typeof v.available_stock === "number") return v.available_stock;
-  if (typeof v.stock === "number") return v.stock;
-  if (typeof v.quantity === "number") return v.quantity;
-  if (typeof v.count === "number") return v.count;
-  if (v.inventory && typeof v.inventory.quantity === "number") {
-    return Math.max(0, v.inventory.quantity - (v.inventory.reserved || 0));
-  }
-  return 0;
 }
 
 export default function ProductsPage() {
@@ -268,13 +342,13 @@ export default function ProductsPage() {
               <strong>{formatPrice(product.retail_price ?? product.selling_price ?? 0)}</strong>
               {product.wholesale_price && Number(product.wholesale_price) > 0 && Number(product.wholesale_price) !== Number(product.retail_price ?? product.selling_price) ? <small style={{ display: "block", fontSize: "12px", color: "var(--neutral-600)" }}>{t("products.currentWholesale")}: {formatPrice(product.wholesale_price)}</small> : null}
             </td>
-            <td><StatusChip value={`${product.available_stock ?? 0} ${t("products.available")}`} tone={stockState(product)}/></td>
+            <td><StatusChip value={`${selectedStoreStock(product, selectedStoreId)} ${t("products.available")}`} tone={stockState(product, selectedStoreId)}/></td>
             <td><StatusChip value={product.is_active ? t("products.active") : t("products.archived")} tone={product.is_active ? "success" : "neutral"}/></td>
           </tr>)}</tbody>
         </TableShell> : !loading && <EmptyState title={t("products.empty")} description={t("products.emptyCopy")} icon="products" action={<AdminButton icon="plus" onClick={() => setFormProduct(null)}>{t("products.addProduct")}</AdminButton>}/>} 
         mobile={<div className="admin-mobile-product-list">{selectedIds.length > 0 && <BulkActionBar selected={selectedIds.length} label={t("products.selected")} onClear={() => setSelectedIds([])}><button type="button" onClick={() => router.push(`/admin/inventory/product-batches?products=${selectedIds.join(",")}`)}>{t("products.bulkAddStock")}</button><button type="button" onClick={() => setBulkMode("prices")}>{t("products.bulkPrices")}</button><button type="button" onClick={() => void bulkUpdate("status", { is_active: true })}>{t("products.activate")}</button><button type="button" onClick={() => void bulkUpdate("status", { is_active: false })}>{t("products.archive")}</button></BulkActionBar>}{products.map((product) => <article key={product.id} className="admin-mobile-product-card" onClick={() => setSelectedProduct(product)}>
           <input type="checkbox" aria-label={`${t("products.select")} ${product.name}`} checked={selectedIds.includes(product.id)} onClick={(event) => event.stopPropagation()} onChange={(event) => setSelectedIds((current) => event.target.checked ? [...new Set([...current, product.id])] : current.filter((id) => id !== product.id))}/>
-          <AdminProductImage product={product}/><div><strong>{product.name}</strong><span>{product.sku || t("products.noSku")} · {variants(product).length} {t("products.variationsCount")}</span><b>{formatPrice(product.retail_price ?? product.selling_price ?? 0)} · {product.available_stock ?? 0} {t("products.available")}</b></div><AdminIcon name="chevron"/>
+          <AdminProductImage product={product}/><div><strong>{product.name}</strong><span>{product.sku || t("products.noSku")} · {variants(product).length} {t("products.variationsCount")}</span><b>{formatPrice(product.retail_price ?? product.selling_price ?? 0)} · {selectedStoreStock(product, selectedStoreId)} {t("products.available")}</b></div><AdminIcon name="chevron"/>
         </article>)}</div>}
       />
       <Pagination currentPage={meta.currentPage} lastPage={meta.lastPage} total={meta.total} perPage={perPage} onPageChange={setPage} onPerPageChange={setPerPage}/>
@@ -286,7 +360,8 @@ export default function ProductsPage() {
         <div className="admin-detail-grid">
           <div><span>{t("products.currentRetail")}</span><strong>{formatPrice(selectedProduct.retail_price ?? selectedProduct.selling_price ?? 0)}</strong></div>
           <div><span>{t("products.currentWholesale")}</span><strong>{formatPrice(selectedProduct.wholesale_price ?? selectedProduct.retail_price ?? selectedProduct.selling_price ?? 0)}</strong></div>
-          <div><span>{t("products.availableStock")}</span><strong>{selectedProduct.available_stock ?? 0}</strong></div>
+          <div><span>Available (All Store)</span><strong>{totalProductStockAllStores(selectedProduct)}</strong></div>
+          <div><span>{t("products.availableStock")}</span><strong>{selectedStoreStock(selectedProduct, selectedStoreId)}</strong></div>
           <div><span>{t("products.status")}</span><strong>{selectedProduct.is_active ? t("products.active") : t("products.archived")}</strong></div>
         </div>
         {variants(selectedProduct).length > 0 && (
@@ -309,7 +384,7 @@ export default function ProductsPage() {
                     </td>
                     <td><strong>{formatPrice(variant.retail_price ?? variant.sale_price ?? variant.price ?? selectedProduct.retail_price ?? 0)}</strong></td>
                     <td>{formatPrice(variant.wholesale_price ?? variant.retail_price ?? variant.sale_price ?? variant.price ?? selectedProduct.wholesale_price ?? 0)}</td>
-                    <td><strong>{variantStock(variant)}</strong></td>
+                    <td><strong>{variantStock(variant, selectedStoreId)}</strong></td>
                   </tr>
                 ))}
               </tbody>

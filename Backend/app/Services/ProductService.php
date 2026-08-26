@@ -21,10 +21,10 @@ class ProductService
         $shopId = isset($filters['shop_id']) ? (int) $filters['shop_id'] : null;
         $relations = [
             'primaryCategory', 'categories', 'productImages', 'tags',
-            'inventory' => fn ($q) => $q->when($shopId, fn ($inventory) => $inventory->where('shop_id', $shopId)),
+            'inventory',
             'productVariants' => fn ($q) => $q->where('is_active', true),
-            'productVariants.inventory' => fn ($q) => $q->when($shopId, fn ($inventory) => $inventory->where('shop_id', $shopId)),
-            'productVariants.inventories' => fn ($q) => $q->when($shopId, fn ($inventory) => $inventory->where('shop_id', $shopId)),
+            'productVariants.inventory',
+            'productVariants.inventories',
         ];
 
         $query = Product::query()

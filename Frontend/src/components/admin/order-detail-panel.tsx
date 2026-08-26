@@ -69,6 +69,7 @@ export function OrderDetailPanel({
   primaryAction,
   secondaryActions,
   onPrintInvoice,
+  onSendToPathao,
   onCancel,
   busy = false,
 }: {
@@ -77,6 +78,7 @@ export function OrderDetailPanel({
   primaryAction?: ReactNode;
   secondaryActions?: ReactNode;
   onPrintInvoice?: () => void;
+  onSendToPathao?: () => void;
   onCancel?: () => void;
   busy?: boolean;
 }) {
@@ -108,6 +110,35 @@ export function OrderDetailPanel({
       </div>
     </section>
 
+    {order.is_potential_fraud && (
+      <div style={{
+        background: "#fef2f2",
+        border: "1px solid #fca5a5",
+        borderRadius: "8px",
+        padding: "14px 16px",
+        marginBottom: "16px",
+        color: "#991b1b"
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: 700, fontSize: "14px", marginBottom: "6px" }}>
+          <span style={{ fontSize: "18px" }}>⚠️</span>
+          <span>Potential Fraud Order (Risk Score: {order.fraud_score ?? 50}/100)</span>
+        </div>
+        <p style={{ fontSize: "12.5px", margin: "0 0 8px", color: "#b91c1c", lineHeight: 1.4 }}>
+          This order was marked as potential fraud and moved to <strong>Pending</strong> status. An employee must confirm this order before shipping.
+        </p>
+        {order.fraud_reasons && order.fraud_reasons.length > 0 && (
+          <div style={{ background: "#fff", borderRadius: "6px", padding: "8px 12px", border: "1px solid #fee2e2" }}>
+            <span style={{ fontSize: "11px", fontWeight: 700, color: "#991b1b", display: "block", marginBottom: "4px" }}>Risk Signals / Reasons:</span>
+            <ul style={{ margin: 0, paddingLeft: "18px", fontSize: "12px", color: "#7f1d1d" }}>
+              {order.fraud_reasons.map((reason, idx) => (
+                <li key={idx} style={{ marginBottom: "2px" }}>{reason}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    )}
+
     <Panel title={t("orders.detailItems")}>
       <div className="admin-order-lines prd04-order-lines">{order.items.map((item, index) => {
         const image = productImage(order, index);
@@ -130,6 +161,23 @@ export function OrderDetailPanel({
       <div className="admin-detail-grid prd04-detail-grid">
         <div><span>{t("orders.customer")}</span><strong>{order.checkout_name || t("orders.walkIn")}</strong><small>{order.checkout_mobile_number || t("orders.noPhone")}<br/>{order.checkout_email || ""}</small></div>
         <div><span>{t("orders.delivery")}</span><strong>{order.checkout_district || t("orders.defaultStore")}</strong><small>{order.checkout_full_address || "—"}</small></div>
+        <div>
+          <span>Pathao Delivery</span>
+          {order.pathao_consignment_id ? (
+            <strong style={{ color: "#2563eb", fontFamily: "monospace" }}>CID: {order.pathao_consignment_id}</strong>
+          ) : (
+            <div style={{ marginTop: "2px" }}>
+              <small style={{ color: "#6b7280" }}>Not dispatched to Pathao</small>
+              {onSendToPathao && (
+                <div style={{ marginTop: "6px" }}>
+                  <AdminButton variant="secondary" icon="truck" disabled={busy} onClick={onSendToPathao}>
+                    Send to Pathao
+                  </AdminButton>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </Panel>
 

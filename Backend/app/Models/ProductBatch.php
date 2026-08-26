@@ -132,11 +132,12 @@ class ProductBatch extends Model
         return $batch;
     }
 
-    public static function consumeForInventory(int $productId, ?int $variantId, int $shopId, int $quantity): float
+    public static function consumeForInventoryDetailed(int $productId, ?int $variantId, int $shopId, int $quantity): array
     {
-        return DB::transaction(function () use ($productId, $variantId, $shopId, $quantity): float {
+        return DB::transaction(function () use ($productId, $variantId, $shopId, $quantity): array {
             $remaining = $quantity;
             $totalCost = 0.0;
+            $allocations = [];
 
             $batches = self::query()
                 ->where('product_id', $productId)
@@ -152,14 +153,19 @@ class ProductBatch extends Model
                 if ($remaining <= 0) break;
                 $take = min($remaining, (int) $batch->count);
                 $batch->count -= $take;
-                $totalCost += $take * (float) $batch->cost_price;
+                $cost = (float) $batch->cost_price;
+                $totalCost += $take * $cost;
                 $remaining -= $take;
                 $batch->count = max(0, (int) $batch->count);
                 $batch->save();
+
+                $allocations[] = [
+                    'batch_id' => (int) $batch->id,
+                    'quantity' => $take,
+                    'cost_price' => $cost,
+                ];
             }
 
-            // Existing installations may still contain inventory that predates direct batches.
-            // Preserve a valid sale/transfer while using the current master cost only for that legacy remainder.
             if ($remaining > 0) {
                 $product = Product::query()->find($productId);
                 $variant = $variantId ? ProductVariant::query()->find($variantId) : null;
@@ -177,7 +183,82 @@ class ProductBatch extends Model
                     'available_for_purchase' => $remainingVariantStock > 0,
                 ]);
             }
-            return round($totalCost, 2);
+            return [
+                'total_cost' => round($totalCost, 2),
+                'allocations' => $allocations,
+            ];
+        });
+    }
+
+    public static function consumeForInventory(int $productId, ?int $variantId, int $shopId, int $quantity): float
+    {
+        return self::consumeForInventoryDetailed($productId, $variantId, $shopId, $quantity)['total_cost'];
+    }
+
+    public static function reviveOrRestockForReturn(
+        int $productId,
+        ?int $variantId,
+        int $shopId,
+        int $quantity,
+        float $costPrice,
+        ?int $originalBatchId = null,
+        ?int $actorId = null
+    ): self {
+        return DB::transaction(function () use ($productId, $variantId, $shopId, $quantity, $costPrice, $originalBatchId, $actorId): self {
+            $costPrice = round($costPrice, 2);
+
+            if ($originalBatchId) {
+                $original = self::query()
+                    ->where('id', $originalBatchId)
+                    ->where('shop_id', $shopId)
+                    ->lockForUpdate()
+                    ->first();
+                if ($original) {
+                    $original->increment('count', $quantity);
+                    Product::query()->find($productId)?->updateTotalCount();
+                    if ($variantId) {
+                        ProductVariant::query()->whereKey($variantId)->update([
+                            'in_stock' => true,
+                            'purchasable' => true,
+                            'available_for_purchase' => true,
+                        ]);
+                    }
+                    return $original;
+                }
+            }
+
+            $matchingBatch = self::query()
+                ->where('product_id', $productId)
+                ->where('shop_id', $shopId)
+                ->when($variantId, fn ($q) => $q->where('variant_id', $variantId), fn ($q) => $q->whereNull('variant_id'))
+                ->whereRaw('ROUND(cost_price, 2) = ?', [$costPrice])
+                ->orderByDesc('id')
+                ->lockForUpdate()
+                ->first();
+
+            if ($matchingBatch) {
+                $matchingBatch->increment('count', $quantity);
+                Product::query()->find($productId)?->updateTotalCount();
+                if ($variantId) {
+                    ProductVariant::query()->whereKey($variantId)->update([
+                        'in_stock' => true,
+                        'purchasable' => true,
+                        'available_for_purchase' => true,
+                    ]);
+                }
+                return $matchingBatch;
+            }
+
+            return self::recordIncrease(
+                $productId,
+                $variantId,
+                $shopId,
+                $quantity,
+                $actorId,
+                'RETURN-' . now()->format('Ymd-His'),
+                'Stock revived from customer return',
+                $costPrice
+            );
         });
     }
 

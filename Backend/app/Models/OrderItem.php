@@ -5,10 +5,12 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+use Illuminate\Database\Eloquent\Relations\HasMany;
+
 class OrderItem extends Model
 {
     protected $fillable = [
-        'order_id', 'product_id', 'variant_id', 'category_id', 'product_snapshot', 'quantity',
+        'order_id', 'product_id', 'variant_id', 'batch_id', 'category_id', 'product_snapshot', 'quantity',
         'unit_price', 'price_mode', 'unit_cost', 'tax_rate', 'discount_amount', 'line_subtotal',
         'line_discount_total', 'line_tax_total', 'line_total', 'line_grand_total',
         'discount_snapshot', 'cogs_total', 'gross_profit', 'refunded_quantity',
@@ -48,6 +50,16 @@ class OrderItem extends Model
     public function variant(): BelongsTo
     {
         return $this->belongsTo(ProductVariant::class, 'variant_id');
+    }
+
+    public function batch(): BelongsTo
+    {
+        return $this->belongsTo(ProductBatch::class, 'batch_id');
+    }
+
+    public function itemBatches(): HasMany
+    {
+        return $this->hasMany(OrderItemBatch::class);
     }
 
     public function category(): BelongsTo

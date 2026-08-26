@@ -109,6 +109,7 @@ export default function StoresPage() {
       address: String(data.get("address") || "").trim(),
       phone: String(data.get("phone") || "").trim(),
       email: String(data.get("email") || "").trim(),
+      pathao_store_id: String(data.get("pathao_store_id") || "").trim(),
       is_active: true,
       is_default: data.get("is_default") === "on",
     };
@@ -146,6 +147,7 @@ export default function StoresPage() {
       address: String(data.get("address") || "").trim(),
       phone: String(data.get("phone") || "").trim(),
       email: String(data.get("email") || "").trim(),
+      pathao_store_id: String(data.get("pathao_store_id") || "").trim(),
       is_default: selected.is_default ? true : data.get("is_default") === "on",
     };
     setBusy(true);
@@ -232,6 +234,7 @@ export default function StoresPage() {
           <div><span>{t("stores.contact")}</span><strong>{selected.phone || "—"}</strong><small>{selected.email || t("stores.noEmail")}</small></div>
           <div><span>{t("stores.employees")}</span><strong>{selected.employees_count || 0}</strong></div>
           <div><span>{t("stores.availableInventory")}</span><strong>{Number(selected.inventory_units || 0).toLocaleString("en-BD")}</strong></div>
+          <div><span>Pathao Store ID</span><strong>{selected.settings?.pathao_store_id || selected.pathao_store_id || "Not Configured"}</strong></div>
           {selected.manager && <div><span>{t("stores.manager")}</span><strong>{selected.manager.name}</strong></div>}
           <div><span>{t("stores.sales30")}</span><strong>{formatPrice(selected.sales_30_days || 0)}</strong></div>
         </div></Panel>
@@ -313,6 +316,7 @@ function StoreForm({ store, onSubmit, busy, submitLabel, t }: StoreFormProps) {
   return <form className="admin-stack admin-prd09-form" onSubmit={onSubmit}>
     <Field label={t("stores.name")} required><input name="name" defaultValue={store?.name || ""} required /></Field>
     <Field label={t("stores.code")} required hint={t("stores.codeHint")}><input name="code" defaultValue={store?.code || ""} required maxLength={30} style={{ textTransform: "uppercase" }} /></Field>
+    <Field label="Pathao Store ID" hint="Store ID from Pathao Merchant panel for parcel pickups"><input name="pathao_store_id" defaultValue={store?.settings?.pathao_store_id || store?.pathao_store_id || ""} placeholder="e.g. 12345" /></Field>
     <Field label={t("stores.address")}><textarea name="address" defaultValue={store?.address || ""} rows={4} /></Field>
     <Field label={t("stores.phone")}><input name="phone" defaultValue={store?.phone || ""} inputMode="tel" /></Field>
     <Field label={t("stores.email")}><input name="email" defaultValue={store?.email || ""} type="email" /></Field>

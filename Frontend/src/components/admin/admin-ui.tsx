@@ -47,6 +47,7 @@ import {
   Star,
   ArrowUp,
   ArrowDown,
+  Truck,
   type LucideIcon,
 } from "lucide-react";
 import { useOverlayPrimitive } from "@/components/overlay-primitive";
@@ -59,7 +60,7 @@ export type AdminIconName =
   | "reports" | "settings" | "search" | "menu" | "bell" | "chevron" | "plus" | "close"
   | "arrow" | "download" | "filter" | "more" | "check" | "money" | "bag" | "box"
   | "warning" | "users" | "calendar" | "edit" | "print" | "trash" | "eye" | "transfer" | "logout"
-  | "language" | "info" | "error" | "star" | "arrow-up" | "arrow-down";
+  | "language" | "info" | "error" | "star" | "arrow-up" | "arrow-down" | "truck";
 
 const icons: Record<AdminIconName, LucideIcon> = {
   dashboard: LayoutDashboard,
@@ -106,6 +107,7 @@ const icons: Record<AdminIconName, LucideIcon> = {
   star: Star,
   "arrow-up": ArrowUp,
   "arrow-down": ArrowDown,
+  truck: Truck,
 };
 
 export function AdminIcon({ name, size = 20, className = "" }: { name: AdminIconName; size?: number; className?: string }) {

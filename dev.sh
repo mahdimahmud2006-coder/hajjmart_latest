@@ -388,11 +388,10 @@ seed_incremental_modules() {
             ;;
     esac
 
-    echo "Refreshing admin access, accounting, and risk control configuration..."
+    echo "Refreshing admin access and accounting configuration..."
     php artisan db:seed --class=Database\\Seeders\\AdminAccessSeeder --force
     php artisan db:seed --class=Database\\Seeders\\AccountingSeeder --force
     php artisan db:seed --class=Database\\Seeders\\AccountingOperationalBackfillSeeder --force
-    php artisan db:seed --class=Database\\Seeders\\RiskControlSeeder --force
 }
 
 seed_backend_if_needed() {

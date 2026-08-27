@@ -30,6 +30,7 @@ export type ProductVariant = {
   id: number;
   sku?: string | null;
   price?: string | number | null;
+  retail_price?: string | number | null;
   sale_price?: string | number | null;
   regular_price?: string | number | null;
   attributes_json?: Record<string, string> | null;
@@ -62,6 +63,7 @@ export type Product = {
   sku?: string | null;
   brand?: string | null;
   selling_price?: string | number | null;
+  retail_price?: string | number | null;
   regular_price?: string | number | null;
   sale_price?: string | number | null;
   price_min?: string | number | null;
@@ -77,10 +79,13 @@ export type Product = {
   specifications?: Record<string, string> | Array<{ label?: string; value?: string }> | null;
   stock_status?: string | null;
   available_stock?: number;
+  in_stock?: boolean;
+  has_variations?: boolean;
   is_featured?: boolean;
   average_rating?: string | number | null;
   review_count?: number;
   sold_count?: number;
+  primary_image_url?: string | null;
   image_src?: string[] | null;
   product_images?: ProductImage[];
   productImages?: ProductImage[];

@@ -1,5 +1,0 @@
-import Link from "next/link";
-
-export function PolicyPage({ eyebrow, title, intro, sections }: { eyebrow: string; title: string; intro: string; sections: Array<{ title: string; paragraphs: string[]; bullets?: string[] }> }) {
-  return <main className="bg-[var(--paper)]"><section className="container-narrow py-16 sm:py-24"><p className="eyebrow">{eyebrow}</p><h1 className="mt-3 font-serif text-5xl leading-tight sm:text-6xl">{title}</h1><p className="mt-6 max-w-3xl text-base leading-8 text-[var(--muted)]">{intro}</p><div className="policy-body mt-12">{sections.map((section)=><section key={section.title}><h2>{section.title}</h2>{section.paragraphs.map(paragraph=><p key={paragraph}>{paragraph}</p>)}{section.bullets ? <ul>{section.bullets.map(item=><li key={item}>{item}</li>)}</ul> : null}</section>)}</div><div className="mt-12 rounded-2xl bg-white p-6 text-sm leading-6 text-[var(--muted)]">Need clarification? Contact <a href="mailto:hajjmartbd@gmail.com" className="font-semibold text-[var(--forest)]">hajjmartbd@gmail.com</a> or <Link href="/contact" className="font-semibold text-[var(--forest)] underline">send a message</Link>.</div></section></main>;
-}

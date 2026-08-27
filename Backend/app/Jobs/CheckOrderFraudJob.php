@@ -159,7 +159,7 @@ class CheckOrderFraudJob implements ShouldQueue
             $fraudScore += 35;
             $reasons[] = "COD cancellation history - Customer has {$cancelledDbCount} past cancelled or refused orders in local database";
         }
-        if ($otherOrdersCount >= 2 && ($deliveredDbCount / $otherOrdersCount) < 0.5) {
+        if ($otherOrdersCount >= 2 && $cancelledDbCount > 0 && ($deliveredDbCount / $otherOrdersCount) < 0.5) {
             $internalRate = round(($deliveredDbCount / $otherOrdersCount) * 100, 1);
             $fraudScore += 30;
             $reasons[] = "Internal delivery success rate is low ({$internalRate}% - {$deliveredDbCount}/{$otherOrdersCount} delivered)";

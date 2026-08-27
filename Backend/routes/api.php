@@ -264,6 +264,7 @@ Route::prefix('v1')->group(function () {
 
             Route::get('/customers', [AdminCustomerController::class, 'index']);
             Route::get('/customers/{customerKey}', [AdminCustomerController::class, 'show']);
+            Route::post('/customers/{customerKey}/check-fraud', [AdminCustomerController::class, 'checkFraud']);
 
             Route::get('/external-accounts', [AdminExternalAccountController::class, 'show']);
             Route::post('/external-accounts/pathao', [AdminExternalAccountController::class, 'updatePathao']);

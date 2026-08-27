@@ -1,45 +1,88 @@
 "use client";
 
+import React from "react";
 import Link from "next/link";
-import { AppImage } from "@/components/app-image";
-import { ArrowRightIcon, BagIcon, TrashIcon } from "@/components/icons";
-import { QuantityStepper } from "@/components/interaction-kit";
 import { useStore } from "@/context/store-context";
-import { formatPrice } from "@/lib/utils";
+import { CartLineItem } from "@/components/cart/cart-line-item";
+import { CartSummary } from "@/components/cart/cart-summary";
+import { FreeShippingProgress } from "@/components/cart/free-shipping-progress";
+import { Button } from "@/components/ui/storefront-primitives";
+import { ShoppingBag, ArrowLeft, Trash2 } from "lucide-react";
 
-export default function CartPage() {
-  const { cart, cartSubtotal, updateQuantity, removeFromCart } = useStore();
-  const deliveryEstimate = cartSubtotal >= 3000 ? 0 : 80;
+export default function FullCartPage() {
+  const { cart, cartCount, cartSubtotal, clearCart } = useStore();
+
+  if (cart.length === 0) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 py-16 text-center flex flex-col items-center justify-center gap-4">
+        <div className="p-6 bg-[#E4EFE8] rounded-full text-[#1F5D42]">
+          <ShoppingBag className="w-16 h-16" />
+        </div>
+        <h1 className="text-[28px] sm:text-[34px] font-bold text-[#1A1A1A]">
+          আপনার কার্ট ফাঁকা রয়েছে
+        </h1>
+        <p className="text-[18px] text-[#5B5650] max-w-md">
+          আপনার কার্টে বর্তমানে কোনো পণ্য নেই। হজ্জ ও ওমরাহ সামগ্রীর কালেকশন দেখতে কেনাকাটা শুরু করুন।
+        </p>
+        <Link href="/products" className="mt-2">
+          <Button variant="primary" size="lg" icon={<ArrowLeft className="w-5 h-5" />}>
+            কেনাকাটা শুরু করুন
+          </Button>
+        </Link>
+      </div>
+    );
+  }
 
   return (
-    <main className="min-h-[70vh] bg-[var(--paper)]">
-      <section className="container-wide py-12 sm:py-16">
-        <p className="eyebrow">Your preparation list</p>
-        <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><h1 className="font-serif text-5xl sm:text-6xl">Shopping bag</h1><Link href="/shop" className="text-link">Continue shopping<ArrowRightIcon size={16}/></Link></div>
-        {cart.length === 0 ? (
-          <div className="mt-12 flex min-h-[430px] flex-col items-center justify-center rounded-[2rem] bg-white px-6 text-center"><div className="grid h-24 w-24 place-items-center rounded-full bg-[var(--mist)] text-[var(--forest)]"><BagIcon size={36}/></div><h2 className="mt-6 font-serif text-3xl">Your bag is beautifully empty.</h2><p className="mt-3 max-w-md text-sm leading-6 text-[var(--muted)]">Start with the essentials you know you need. You can adjust quantities and details before checkout.</p><Link href="/shop" className="button-primary mt-7">Explore HajjMart</Link></div>
-        ) : (
-          <div className="mt-10 grid gap-8 lg:grid-cols-[1fr_380px]">
-            <div className="overflow-hidden rounded-[1.7rem] bg-white px-5 sm:px-7">
-              {cart.map((item) => (
-                <div key={item.key} className="grid grid-cols-[90px_1fr] gap-4 border-b border-black/8 py-6 last:border-b-0 sm:grid-cols-[120px_1fr_auto] sm:gap-6">
-                  <Link href={`/product/${item.slug}`} className="aspect-[4/5] overflow-hidden rounded-[1.1rem] bg-[var(--mist)]"><AppImage src={item.image || undefined} alt={item.name} className="h-full w-full object-cover"/></Link>
-                  <div><Link href={`/product/${item.slug}`} className="font-serif text-xl leading-6 hover:text-[var(--forest)]">{item.name}</Link>{item.variantLabel ? <p className="mt-1 text-xs text-[var(--muted)]">{item.variantLabel}</p> : null}<p className="mt-3 font-semibold">{formatPrice(item.unitPrice)}</p><div className="mt-4 flex items-center gap-4 sm:hidden"><QuantityStepper size="small" value={item.quantity} max={item.maxStock || 99} onChange={(value) => updateQuantity(item.key, value)}/><button className="text-[var(--muted)]" onClick={() => removeFromCart(item.key)}><TrashIcon size={18}/></button></div></div>
-                  <div className="hidden min-w-36 flex-col items-end justify-between sm:flex"><strong key={item.quantity} className="value-pop">{formatPrice(item.unitPrice * item.quantity)}</strong><div className="flex items-center gap-4"><QuantityStepper size="small" value={item.quantity} max={item.maxStock || 99} onChange={(value) => updateQuantity(item.key, value)}/><button className="text-[var(--muted)] transition hover:text-red-700" onClick={() => removeFromCart(item.key)}><TrashIcon size={18}/></button></div></div>
-                </div>
-              ))}
-            </div>
-            <aside className="h-fit rounded-[1.7rem] bg-[var(--forest)] p-6 text-white sm:p-8 lg:sticky lg:top-40">
-              <p className="eyebrow text-[var(--gold-light)]">Order summary</p>
-              <div className="mt-6 space-y-4 border-b border-white/15 pb-6 text-sm"><div className="flex justify-between"><span className="text-white/60">Subtotal</span><strong>{formatPrice(cartSubtotal)}</strong></div><div className="flex justify-between"><span className="text-white/60">Estimated delivery</span><strong>{deliveryEstimate === 0 ? "Complimentary" : formatPrice(deliveryEstimate)}</strong></div></div>
-              <div className="mt-6 flex items-end justify-between"><span className="text-white/65">Estimated total</span><strong className="font-serif text-3xl">{formatPrice(cartSubtotal + deliveryEstimate)}</strong></div>
-              {cartSubtotal < 3000 ? <div className="mt-5 rounded-xl bg-white/8 p-4 text-xs leading-5 text-white/65">Add {formatPrice(3000 - cartSubtotal)} more for complimentary delivery inside Dhaka.</div> : <div className="mt-5 rounded-xl bg-white/8 p-4 text-xs leading-5 text-white/65">Your order qualifies for complimentary delivery inside Dhaka.</div>}
-              <Link href="/checkout" className="button-gold mt-6 w-full">Continue to checkout<ArrowRightIcon size={17}/></Link>
-              <p className="mt-4 text-center text-[11px] leading-5 text-white/45">Final delivery charge and applicable promotions are confirmed during checkout.</p>
-            </aside>
+    <div className="max-w-7xl mx-auto px-4 py-8 w-full">
+      {/* Page Header */}
+      <div className="flex items-center justify-between border-b border-[#DDD6C7] pb-4 mb-6">
+        <div>
+          <h1 className="text-[26px] sm:text-[32px] font-bold text-[#1A1A1A]">
+            আপনার কার্ট <span className="text-[#1F5D42]">({cartCount}টি পণ্য)</span>
+          </h1>
+          <p className="text-[18px] text-[#5B5650] mt-1">
+            পণ্য পর্যালোচনা করুন এবং অর্ডার সম্পূর্ণ করতে এগিয়ে যান
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={clearCart}
+          className="text-[16px] text-[#B3261E] font-bold hover:underline flex items-center gap-1 focus:outline-none"
+        >
+          <Trash2 className="w-4 h-4" />
+          <span>কার্ট খালি করুন</span>
+        </button>
+      </div>
+
+      {/* Free Shipping Progress Indicator */}
+      <FreeShippingProgress subtotal={cartSubtotal} />
+
+      {/* 2-Column Grid (Left: Line Items, Right: Order Summary) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+        {/* Left Column: Items List (7 Cols) */}
+        <div className="lg:col-span-7 flex flex-col gap-4">
+          {cart.map((item) => (
+            <CartLineItem key={item.key} item={item} />
+          ))}
+
+          <div className="mt-4 flex items-center justify-between">
+            <Link
+              href="/products"
+              className="text-[18px] font-bold text-[#1F5D42] hover:underline flex items-center gap-2"
+            >
+              <ArrowLeft className="w-5 h-5" />
+              <span>আরও কেনাকাটা করুন</span>
+            </Link>
           </div>
-        )}
-      </section>
-    </main>
+        </div>
+
+        {/* Right Column: Order Summary (5 Cols) */}
+        <div className="lg:col-span-5 sticky top-24">
+          <CartSummary />
+        </div>
+      </div>
+    </div>
   );
 }

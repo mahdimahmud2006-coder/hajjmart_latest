@@ -2,48 +2,57 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useStore } from "@/context/store-context";
-import { getProducts, getWishlistProducts } from "@/lib/api";
+import { getWishlistProducts } from "@/lib/api";
 import type { Product } from "@/lib/types";
 import { ProductCard } from "@/components/product/product-card";
 import { Button } from "@/components/ui/storefront-primitives";
 import { Heart, ShoppingBag, ArrowLeft } from "lucide-react";
 
 export default function WishlistPage() {
-  const { wishlist, token } = useStore();
+  const router = useRouter();
+  const { wishlist, token, hydrated } = useStore();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    setLoading(true);
+    if (hydrated && !token) router.replace("/auth/login");
+  }, [hydrated, token, router]);
 
-    if (wishlist.length > 0) {
-      getProducts({ per_page: 50 })
-        .then((all) => {
-          const savedList = all.filter((p) => wishlist.includes(p.id));
-          setProducts(savedList);
-        })
-        .catch(() => setProducts([]))
-        .finally(() => setLoading(false));
-    } else {
-      getWishlistProducts(token)
-        .then((list) => setProducts(list || []))
-        .catch(() => setProducts([]))
-        .finally(() => setLoading(false));
+  useEffect(() => {
+    if (!hydrated || !token) {
+      setProducts([]);
+      setLoading(!hydrated);
+      return;
     }
-  }, [wishlist, token]);
+
+    setLoading(true);
+    getWishlistProducts(token)
+      .then((list) => setProducts(list || []))
+      .catch(() => setProducts([]))
+      .finally(() => setLoading(false));
+  }, [wishlist, token, hydrated]);
+
+  if (!hydrated || !token) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 py-8 w-full flex min-h-[400px] items-center justify-center text-[18px] text-[#5B5650]">
+        লোড হচ্ছে...
+      </div>
+    );
+  }
 
   const activeProducts = products.filter((p) => wishlist.includes(p.id));
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 w-full">
       {/* Page Header */}
-      <div className="mb-6 flex items-center justify-between border-b border-[#DDD6C7] pb-4">
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-[#DDD6C7] pb-4">
         <div>
-          <h1 className="text-[26px] sm:text-[32px] font-bold text-[#1A1A1A] flex items-center gap-2">
+          <h1 className="text-[24px] sm:text-[32px] font-bold text-[#1A1A1A] flex flex-wrap items-center gap-2 leading-tight">
             <Heart className="w-7 h-7 text-[#B3261E] fill-[#B3261E]" />
             <span>পছন্দের তালিকা</span>
-            <span className="text-[#1F5D42]">({wishlist.length}টি পণ্য)</span>
+            <span className="text-[#1F5D42]">({activeProducts.length}টি পণ্য)</span>
           </h1>
           <p className="text-[18px] text-[#5B5650] mt-1">
             আপনার পরবর্তীতে ক্রয়ের জন্য সংরক্ষিত পছন্দসমূহ

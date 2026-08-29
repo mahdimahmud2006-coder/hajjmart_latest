@@ -53,6 +53,142 @@ class OrderService
         ];
     }
 
+    public function replaceEditableItems(Order $order, array $items, ?int $actorId = null): Order
+    {
+        if (! in_array(strtolower((string) $order->status), [OrderStatus::PENDING->value, OrderStatus::CONFIRMED->value], true)) {
+            throw new RuntimeException('Order items can only be edited before the order is shipped.');
+        }
+        if ($items === []) {
+            throw new RuntimeException('An order must keep at least one item. Cancel the order to release all stock.');
+        }
+
+        $keys = array_map(
+            fn (array $item): string => (int) $item['product_id'] . ':' . (int) ($item['variant_id'] ?? 0),
+            $items,
+        );
+        if (count($keys) !== count(array_unique($keys))) {
+            throw new RuntimeException('The same product variation cannot be added twice. Change its quantity instead.');
+        }
+
+        return DB::transaction(function () use ($order, $items, $actorId): Order {
+            $locked = Order::query()->whereKey($order->id)->lockForUpdate()->firstOrFail();
+            $locked->load('items');
+
+            if (! $locked->activeReservedProducts()->exists()) {
+                throw new RuntimeException('This order no longer has reserved stock, so its items cannot be edited.');
+            }
+
+            $existing = $locked->items->keyBy(fn (OrderItem $item): string => $item->product_id . ':' . ($item->variant_id ?: 0));
+
+            // Release first so the order's own reserved units count as available while validating the replacement cart.
+            // The enclosing transaction restores the original reservation automatically if validation fails.
+            ReleaseInventoryAction::run($locked, 'order_item_edit');
+
+            $validated = $this->inventoryService->validateItems(
+                $items,
+                (int) $locked->shop_id,
+                (string) ($locked->price_mode ?: 'retail'),
+            );
+
+            $locked->items()->delete();
+
+            $lineSnapshots = [];
+            foreach ($validated as $row) {
+                $key = $row['product']->id . ':' . ($row['variant']?->id ?: 0);
+                /** @var OrderItem|null $old */
+                $old = $existing->get($key);
+                $quantity = (int) $row['quantity'];
+                $unitPrice = $old ? (float) $old->unit_price : (float) $row['unitPrice'];
+                $taxPerUnit = $old && $old->quantity > 0 ? (float) $old->line_tax_total / $old->quantity : 0.0;
+                $lineSubtotal = round($quantity * $unitPrice, 2);
+                // Keep the already-authorised line discount amount; adding quantity must not silently grant more discount.
+                $lineDiscount = round(min($lineSubtotal, $old ? (float) $old->line_discount_total : 0.0), 2);
+                $lineTax = round($quantity * $taxPerUnit, 2);
+                $lineGrand = round(max(0, $lineSubtotal - $lineDiscount), 2);
+
+                OrderItem::create([
+                    'order_id' => $locked->id,
+                    'product_id' => $row['product']->id,
+                    'variant_id' => $row['variant']?->id,
+                    'category_id' => $row['product']->category_id,
+                    'product_snapshot' => $row['product']->toArray(),
+                    'quantity' => $quantity,
+                    'unit_price' => $unitPrice,
+                    'price_mode' => $locked->price_mode ?: 'retail',
+                    'unit_cost' => 0,
+                    'tax_rate' => $old?->tax_rate ?? 0,
+                    'discount_amount' => $lineDiscount,
+                    'line_subtotal' => $lineSubtotal,
+                    'line_discount_total' => $lineDiscount,
+                    'line_tax_total' => $lineTax,
+                    'line_total' => $lineGrand,
+                    'line_grand_total' => $lineGrand,
+                    'discount_snapshot' => $old?->discount_snapshot ?? [],
+                    'cogs_total' => 0,
+                    'gross_profit' => 0,
+                    'item_status' => $locked->status,
+                ]);
+
+                $lineSnapshots[$key] = [
+                    'key' => $key,
+                    'product_id' => (int) $row['product']->id,
+                    'variant_id' => $row['variant']?->id,
+                    'quantity' => $quantity,
+                    'unit_price' => round($unitPrice, 2),
+                    'line_subtotal' => $lineSubtotal,
+                    'discount_total' => $lineDiscount,
+                    'line_grand_total' => $lineGrand,
+                    'line_total' => $lineGrand,
+                ];
+            }
+
+            ReserveInventoryAction::run($locked->fresh('items'));
+
+            $freshItems = $locked->fresh('items')->items;
+            $subtotal = round((float) $freshItems->sum('line_subtotal'), 2);
+            $itemDiscountTotal = round((float) $freshItems->sum('line_discount_total'), 2);
+            $netSubtotal = round(max(0, $subtotal - $itemDiscountTotal), 2);
+            $shippingTotal = round((float) $locked->shipping_total, 2);
+            $shippingDiscountTotal = round((float) $locked->shipping_discount_total, 2);
+            $taxTotal = round((float) $freshItems->sum('line_tax_total'), 2);
+            $discountTotal = round($itemDiscountTotal + $shippingDiscountTotal, 2);
+            $grandTotal = round(max(0, $netSubtotal + $shippingTotal + $taxTotal), 2);
+            $paidAmount = round((float) $locked->paid_amount, 2);
+            $promotionSnapshot = array_merge((array) ($locked->promotion_snapshot ?? []), [
+                'subtotal' => $subtotal,
+                'net_subtotal' => $netSubtotal,
+                'item_discount_total' => $itemDiscountTotal,
+                'shipping_discount_total' => $shippingDiscountTotal,
+                'discount_total' => $discountTotal,
+                'shipping_total' => $shippingTotal,
+                'tax_total' => $taxTotal,
+                'grand_total' => $grandTotal,
+                'line_allocations' => $lineSnapshots,
+            ]);
+
+            $locked->update([
+                'subtotal' => $subtotal,
+                'net_subtotal' => $netSubtotal,
+                'item_discount_total' => $itemDiscountTotal,
+                'discount_total' => $discountTotal,
+                'grand_total' => $grandTotal,
+                'paid_amount' => $paidAmount,
+                'due_amount' => max(0, round($grandTotal - $paidAmount, 2)),
+                'payment_status' => PaymentStatus::forOrder($paidAmount, $grandTotal),
+                'promotion_snapshot' => $promotionSnapshot,
+                'ordered_products' => array_map(fn (array $item): array => [
+                    'product_id' => (int) $item['product_id'],
+                    'variant_id' => isset($item['variant_id']) ? (int) $item['variant_id'] : null,
+                    'quantity' => (int) $item['quantity'],
+                ], $items),
+                'delivery_charge' => $shippingTotal,
+                'total_price' => $grandTotal,
+            ]);
+
+            return $locked->fresh(['items.product', 'items.variant', 'reservedProducts']);
+        });
+    }
+
     public function quoteCheckout(array $data, ?int $customerId = null): array
     {
         $allocation = $this->allocationService->chooseStoreForWebsiteOrder($data['items'] ?? []);
@@ -190,14 +326,17 @@ class OrderService
                 $actorId = isset($data['created_by']) ? (int) $data['created_by'] : $customerId;
                 $validatedItems = $this->inventoryService->validateItems($data['items'] ?? [], $shopId, $priceMode, $snapshotAuthorized);
 
+                $subtotal = round(array_sum(array_map(
+                    fn (array $row): float => (float) $row['quantity'] * (float) $row['unitPrice'],
+                    $validatedItems,
+                )), 2);
+
                 if ($sourceChannel === 'website') {
-                    $subtotal = round(array_sum(array_map(
-                        fn (array $row): float => (float) $row['quantity'] * (float) $row['unitPrice'],
-                        $validatedItems,
-                    )), 2);
                     $data['shipping_total'] = $this->calculateDeliveryCharge($checkout['district'], $subtotal);
                     $data['tax_total'] = 0;
                     $data['manual_discount'] = 0;
+                } elseif ($sourceChannel !== 'pos' && (float) ($data['shipping_total'] ?? 0) <= 0) {
+                    $data['shipping_total'] = $this->calculateDeliveryCharge($checkout['district'], $subtotal);
                 }
 
                 $quote = $snapshotAuthorized
@@ -211,7 +350,7 @@ class OrderService
                     $status = OrderStatus::DELIVERED->value;
                     $paidAmount = (float) $quote['grand_total'];
                 } else {
-                    $status = $requestedStatus ?: ($paymentMethod === 'cod' ? OrderStatus::CONFIRMED->value : OrderStatus::PENDING->value);
+                    $status = $requestedStatus ?: OrderStatus::CONFIRMED->value;
                     $paidAmount = min((float) $quote['grand_total'], (float) ($data['paid_amount'] ?? 0));
                 }
 
@@ -465,6 +604,12 @@ class OrderService
                 throw new RuntimeException("Order cannot move from {$from} to {$toStatus}");
             }
 
+            if ($toStatus === OrderStatus::SHIPPED->value
+                && in_array(strtolower((string) $order->source_channel), ['website', 'social_commerce'], true)
+                && ! $order->fraud_checked_at) {
+                throw new RuntimeException('Fraud check must complete before this order can be marked Shipped.');
+            }
+
             $this->commitInventoryIfPhysicallyLeaving($order, $toStatus);
 
             $timestamps = [];
@@ -709,11 +854,7 @@ class OrderService
 
     private function calculateDeliveryCharge(?string $district, float $subtotal): float
     {
-        if (strcasecmp(trim((string) $district), 'Dhaka') === 0 && $subtotal >= 3000) {
-            return 0.0;
-        }
-
-        return round((float) config('hajjmart.default_delivery_charge', 80), 2);
+        return round(max(1, (float) config('hajjmart.default_delivery_charge', 80)), 2);
     }
 
     private function findExistingWebsiteCheckout(string $key, ?int $customerId, ?string $mobile): ?Order

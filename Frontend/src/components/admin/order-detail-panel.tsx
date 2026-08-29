@@ -69,7 +69,6 @@ export function OrderDetailPanel({
   primaryAction,
   secondaryActions,
   onPrintInvoice,
-  onSendToPathao,
   onCancel,
   busy = false,
 }: {
@@ -78,7 +77,6 @@ export function OrderDetailPanel({
   primaryAction?: ReactNode;
   secondaryActions?: ReactNode;
   onPrintInvoice?: () => void;
-  onSendToPathao?: () => void;
   onCancel?: () => void;
   busy?: boolean;
 }) {
@@ -168,13 +166,6 @@ export function OrderDetailPanel({
           ) : (
             <div style={{ marginTop: "2px" }}>
               <small style={{ color: "#6b7280" }}>Not dispatched to Pathao</small>
-              {onSendToPathao && (
-                <div style={{ marginTop: "6px" }}>
-                  <AdminButton variant="secondary" icon="truck" disabled={busy} onClick={onSendToPathao}>
-                    Send to Pathao
-                  </AdminButton>
-                </div>
-              )}
             </div>
           )}
         </div>

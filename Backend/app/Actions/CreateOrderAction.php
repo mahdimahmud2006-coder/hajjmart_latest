@@ -91,8 +91,8 @@ class CreateOrderAction
             // Create Order
             $order = $orderList->orders()->create([
                 'order_id'         => Order::generateUniqueId(),
-                'status'           => 'pending',
-                'order_status'     => 'Pending',
+                'status'           => 'confirmed',
+                'order_status'     => 'Confirmed',
                 'payment_status'   => 'Unpaid',
                 'payment_method'   => $paymentMethod,
                 'payment_channel'  => $paymentMethod === 'COD' ? 'cash' : 'sslcommerz',
@@ -116,6 +116,7 @@ class CreateOrderAction
                 'shipping_address_snapshot' => $billingSnapshot,
                 'billing_address_snapshot' => $billingSnapshot,
                 'placed_at' => now(),
+                'confirmed_at' => now(),
                 'ordered_products' => $processedProducts,
                 'customer_details' => $customerDetails,
                 'address'          => $billingSnapshot,
@@ -132,18 +133,16 @@ class CreateOrderAction
                 );
             }
 
-            // Preserve the legacy COD status behavior, but confirmation/payment
-            // no longer means physical stock has left the store.
+            // Preserve legacy COD payment behavior. All orders are already
+            // confirmed by default; fraud screening may move them to pending.
             if ($paymentMethod === 'COD') {
                 $order->update([
-                    'status' => 'confirmed',
-                    'order_status'   => 'Confirmed',
                     'payment_status' => 'Paid',
-                    'confirmed_at' => now(),
                 ]);
             }
 
             ReserveInventoryAction::run($order->fresh());
+            \App\Jobs\CheckOrderFraudJob::dispatch($order->id)->afterCommit();
 
             return $order;
         });

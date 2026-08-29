@@ -113,7 +113,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         ) : icon ? (
           <span className="inline-flex shrink-0">{icon}</span>
         ) : null}
-        <span>{children}</span>
+        <span className="min-w-0 text-center leading-snug break-words">{children}</span>
       </button>
     );
   }
@@ -174,14 +174,14 @@ export function Badge({
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 px-3 py-1 text-[16px] font-medium rounded-full ${className}`}
+      className={`inline-flex max-w-full items-center gap-1.5 px-3 py-1 text-[16px] font-medium rounded-full ${className}`}
       style={{
         ...badgeStyles[variant],
         borderRadius: "999px", // radius-full
       }}
     >
       {icon && <span className="inline-flex shrink-0 text-current">{icon}</span>}
-      <span>{children}</span>
+      <span className="min-w-0 break-words">{children}</span>
       {onRemove && (
         <button
           type="button"

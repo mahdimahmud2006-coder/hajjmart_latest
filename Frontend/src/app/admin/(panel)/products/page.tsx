@@ -15,6 +15,8 @@ import { ProductForm } from "@/components/admin/product-form";
 import { ProductsInventoryNav } from "@/components/admin/products-inventory-nav";
 import { AdminButton, AdminIcon, AdminSelect, BulkActionBar, DataList, Dialog, EmptyState, Field, PageHeader, Pagination, Panel, SearchField, Sheet, StatusChip, TableShell } from "@/components/admin/admin-ui";
 
+const PROMOTION_PRODUCT_PICKER_KEY = "hajjmart:promotion-product-picker";
+
 function variants(product: AdminProduct) {
   return (product.product_variants || product.productVariants || []).filter((variant) => variant.is_active !== false);
 }
@@ -148,6 +150,7 @@ export default function ProductsPage() {
   const { token, demoMode, selectedStoreId, user } = useAdmin();
   const { t } = useAdminLanguage();
   const { notify } = useStore();
+  const promotionPickerMode = searchParams.get("promotion_picker") === "1";
   const [products, setProducts] = useState<AdminProduct[]>([]);
   const [categories, setCategories] = useState<AdminCategory[]>([]);
   const [search, setSearch] = useState("");
@@ -164,6 +167,8 @@ export default function ProductsPage() {
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [categoriesError, setCategoriesError] = useState(false);
+  const [promotionPickerLoaded, setPromotionPickerLoaded] = useState(false);
   const sequence = useRef(0);
 
   useEffect(() => {
@@ -171,6 +176,20 @@ export default function ProductsPage() {
     return () => window.clearTimeout(timer);
   }, [search]);
   useEffect(() => { setPage(1); }, [debouncedSearch, stock, selectedStoreId, perPage]);
+
+  useEffect(() => {
+    if (!promotionPickerMode) return;
+    try {
+      const stored = JSON.parse(window.localStorage.getItem(PROMOTION_PRODUCT_PICKER_KEY) || "[]");
+      if (Array.isArray(stored)) setSelectedIds(stored.map(Number).filter(Boolean));
+    } catch { /* ignore malformed local browser state */ }
+    setPromotionPickerLoaded(true);
+  }, [promotionPickerMode]);
+
+  useEffect(() => {
+    if (!promotionPickerMode || !promotionPickerLoaded) return;
+    window.localStorage.setItem(PROMOTION_PRODUCT_PICKER_KEY, JSON.stringify(selectedIds));
+  }, [promotionPickerLoaded, promotionPickerMode, selectedIds]);
 
   const loadProducts = useCallback(async () => {
     const requestId = ++sequence.current;
@@ -205,15 +224,20 @@ export default function ProductsPage() {
         { id: 1, name: "Travel essentials", is_active: true },
         { id: 2, name: "Ihram", is_active: true },
       ]);
+      setCategoriesError(false);
       return;
     }
     if (!token) return;
     const controller = new AbortController();
     void adminRequest<AdminCategory[]>("/categories", { token, signal: controller.signal })
-      .then((rows) => setCategories(rows.flatMap((category) => [category, ...(category.children || [])])))
-      .catch(() => setError(t("products.categoriesLoadError")));
+      .then((rows) => {
+        if (controller.signal.aborted) return;
+        setCategories(rows.flatMap((category) => [category, ...(category.children || [])]));
+        setCategoriesError(false);
+      })
+      .catch(() => { if (!controller.signal.aborted) setCategoriesError(true); });
     return () => controller.abort();
-  }, [demoMode, t, token]);
+  }, [demoMode, token]);
 
   useEffect(() => {
     if (searchParams.get("create") === "1") setFormProduct(null);
@@ -306,12 +330,35 @@ export default function ProductsPage() {
     } finally { setBusy(false); }
   }
 
+  const togglePromotionProduct = (productId: number) => {
+    setSelectedIds((current) => current.includes(productId) ? current.filter((id) => id !== productId) : [...current, productId]);
+  };
+
+  const toggleCurrentPage = (checked: boolean) => {
+    const pageIds = products.map((product) => product.id);
+    setSelectedIds((current) => checked
+      ? [...new Set([...current, ...pageIds])]
+      : current.filter((id) => !pageIds.includes(id)));
+  };
+
+  const finishPromotionSelection = () => {
+    window.localStorage.setItem(PROMOTION_PRODUCT_PICKER_KEY, JSON.stringify(selectedIds));
+    if (window.opener) window.close();
+    else router.push("/admin/promotions");
+  };
+
   const allPageSelected = products.length > 0 && products.every((product) => selectedIds.includes(product.id));
   const selected = useMemo(() => products.filter((product) => selectedIds.includes(product.id)), [products, selectedIds]);
 
   return <>
     <ProductsInventoryNav/>
-    <PageHeader title={t("products.title")} description={t("products.description")} actions={<AdminButton icon="plus" onClick={() => setFormProduct(null)}>{t("products.addProduct")}</AdminButton>}/>
+    <PageHeader
+      title={promotionPickerMode ? t("promotions.selectProducts") : t("products.title")}
+      description={promotionPickerMode ? t("promotions.productPickerPageCopy") : t("products.description")}
+      actions={promotionPickerMode
+        ? <AdminButton icon="check" onClick={finishPromotionSelection}>{t("promotions.useSelectedProducts").replace("{count}", String(selectedIds.length))}</AdminButton>
+        : <AdminButton icon="plus" onClick={() => setFormProduct(null)}>{t("products.addProduct")}</AdminButton>}
+    />
     {error && <p className="admin-form-error">{error}</p>}
 
     <Panel>
@@ -329,13 +376,15 @@ export default function ProductsPage() {
       {loading && <div className="admin-list-loading"><span/><p>{t("products.loading")}</p></div>}
       <DataList
         desktop={products.length ? <TableShell bulkAction={<BulkActionBar selected={selectedIds.length} label={t("products.selected")} onClear={() => setSelectedIds([])}>
-          <button type="button" onClick={() => router.push(`/admin/inventory/product-batches?products=${selectedIds.join(",")}`)}>{t("products.bulkAddStock")}</button>
-          <button type="button" onClick={() => setBulkMode("prices")}>{t("products.bulkPrices")}</button>
-          <button type="button" onClick={() => void bulkUpdate("status", { is_active: true })}>{t("products.activate")}</button>
-          <button type="button" onClick={() => void bulkUpdate("status", { is_active: false })}>{t("products.archive")}</button>
+          {promotionPickerMode ? <button type="button" onClick={finishPromotionSelection}>{t("promotions.useSelectedProducts").replace("{count}", String(selectedIds.length))}</button> : <>
+            <button type="button" onClick={() => router.push(`/admin/inventory/product-batches?products=${selectedIds.join(",")}`)}>{t("products.bulkAddStock")}</button>
+            <button type="button" onClick={() => setBulkMode("prices")}>{t("products.bulkPrices")}</button>
+            <button type="button" onClick={() => void bulkUpdate("status", { is_active: true })}>{t("products.activate")}</button>
+            <button type="button" onClick={() => void bulkUpdate("status", { is_active: false })}>{t("products.archive")}</button>
+          </>}
         </BulkActionBar>}>
-          <thead><tr><th className="admin-select-cell"><input type="checkbox" aria-label={t("products.selectPage")} checked={allPageSelected} onChange={(event) => setSelectedIds(event.target.checked ? products.map((product) => product.id) : [])}/></th><th>{t("products.product")}</th><th>{t("products.price")}</th><th>{t("products.stock")}</th><th>{t("products.status")}</th></tr></thead>
-          <tbody>{products.map((product) => <tr key={product.id} className="admin-clickable-row" onClick={() => setSelectedProduct(product)}>
+          <thead><tr><th className="admin-select-cell"><input type="checkbox" aria-label={t("products.selectPage")} checked={allPageSelected} onChange={(event) => promotionPickerMode ? toggleCurrentPage(event.target.checked) : setSelectedIds(event.target.checked ? products.map((product) => product.id) : [])}/></th><th>{t("products.product")}</th><th>{t("products.price")}</th><th>{t("products.stock")}</th><th>{t("products.status")}</th></tr></thead>
+          <tbody>{products.map((product) => <tr key={product.id} className="admin-clickable-row" onClick={() => promotionPickerMode ? togglePromotionProduct(product.id) : setSelectedProduct(product)}>
             <td className="admin-select-cell" onClick={(event) => event.stopPropagation()}><input type="checkbox" aria-label={`${t("products.select")} ${product.name}`} checked={selectedIds.includes(product.id)} onChange={(event) => setSelectedIds((current) => event.target.checked ? [...new Set([...current, product.id])] : current.filter((id) => id !== product.id))}/></td>
             <td><div className="admin-product-cell"><span><AdminProductImage product={product}/></span><div><strong>{product.name}</strong><small>{product.sku || t("products.noSku")} · {variants(product).length} {t("products.variationsCount")}</small><small>{product.brand || product.categories?.[0]?.name || t("products.uncategorised")}</small></div></div></td>
             <td className="align-right">
@@ -346,7 +395,7 @@ export default function ProductsPage() {
             <td><StatusChip value={product.is_active ? t("products.active") : t("products.archived")} tone={product.is_active ? "success" : "neutral"}/></td>
           </tr>)}</tbody>
         </TableShell> : !loading && <EmptyState title={t("products.empty")} description={t("products.emptyCopy")} icon="products" action={<AdminButton icon="plus" onClick={() => setFormProduct(null)}>{t("products.addProduct")}</AdminButton>}/>} 
-        mobile={<div className="admin-mobile-product-list">{selectedIds.length > 0 && <BulkActionBar selected={selectedIds.length} label={t("products.selected")} onClear={() => setSelectedIds([])}><button type="button" onClick={() => router.push(`/admin/inventory/product-batches?products=${selectedIds.join(",")}`)}>{t("products.bulkAddStock")}</button><button type="button" onClick={() => setBulkMode("prices")}>{t("products.bulkPrices")}</button><button type="button" onClick={() => void bulkUpdate("status", { is_active: true })}>{t("products.activate")}</button><button type="button" onClick={() => void bulkUpdate("status", { is_active: false })}>{t("products.archive")}</button></BulkActionBar>}{products.map((product) => <article key={product.id} className="admin-mobile-product-card" onClick={() => setSelectedProduct(product)}>
+        mobile={<div className="admin-mobile-product-list">{selectedIds.length > 0 && <BulkActionBar selected={selectedIds.length} label={t("products.selected")} onClear={() => setSelectedIds([])}>{promotionPickerMode ? <button type="button" onClick={finishPromotionSelection}>{t("promotions.useSelectedProducts").replace("{count}", String(selectedIds.length))}</button> : <><button type="button" onClick={() => router.push(`/admin/inventory/product-batches?products=${selectedIds.join(",")}`)}>{t("products.bulkAddStock")}</button><button type="button" onClick={() => setBulkMode("prices")}>{t("products.bulkPrices")}</button><button type="button" onClick={() => void bulkUpdate("status", { is_active: true })}>{t("products.activate")}</button><button type="button" onClick={() => void bulkUpdate("status", { is_active: false })}>{t("products.archive")}</button></>}</BulkActionBar>}{products.map((product) => <article key={product.id} className="admin-mobile-product-card" onClick={() => promotionPickerMode ? togglePromotionProduct(product.id) : setSelectedProduct(product)}>
           <input type="checkbox" aria-label={`${t("products.select")} ${product.name}`} checked={selectedIds.includes(product.id)} onClick={(event) => event.stopPropagation()} onChange={(event) => setSelectedIds((current) => event.target.checked ? [...new Set([...current, product.id])] : current.filter((id) => id !== product.id))}/>
           <AdminProductImage product={product}/><div><strong>{product.name}</strong><span>{product.sku || t("products.noSku")} · {variants(product).length} {t("products.variationsCount")}</span><b>{formatPrice(product.retail_price ?? product.selling_price ?? 0)} · {selectedStoreStock(product, selectedStoreId)} {t("products.available")}</b></div><AdminIcon name="chevron"/>
         </article>)}</div>}
@@ -397,6 +446,7 @@ export default function ProductsPage() {
     </Sheet>
 
     <Sheet open={formProduct !== undefined} onClose={() => setFormProduct(undefined)} title={formProduct ? t("products.editProduct") : t("products.addProduct")} subtitle={t("products.formCopy")} wide>
+      {categoriesError && <p className="admin-form-error">{t("products.categoriesLoadError")}</p>}
       {formProduct !== undefined && <ProductForm product={formProduct} categories={categories} token={token} demoMode={demoMode} isAdmin={Boolean(user?.is_admin)} onCancel={() => setFormProduct(undefined)} onSaved={(saved) => { setFormProduct(undefined); setSelectedProduct(saved); void loadProducts(); notify(formProduct ? t("products.updated") : t("products.created")); }}/>} 
     </Sheet>
 

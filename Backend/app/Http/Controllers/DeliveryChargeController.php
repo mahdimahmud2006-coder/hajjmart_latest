@@ -31,7 +31,7 @@ class DeliveryChargeController extends Controller
     public function updateDeliveryCharge(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'delivery_charge' => 'required|numeric|min:0'
+            'delivery_charge' => 'required|numeric|min:1'
         ]);
 
         \App\Models\SiteSetting::setValue('delivery_charge', $validated['delivery_charge']);

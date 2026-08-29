@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React from "react";
 import { TextInput, Card } from "@/components/ui/storefront-primitives";
 import { User, MapPin, CreditCard, Banknote, ShieldCheck, CheckCircle2 } from "lucide-react";
 import { useStore } from "@/context/store-context";
@@ -21,19 +21,21 @@ interface CheckoutFormProps {
   phoneError?: string;
 }
 
+const BANGLADESH_DISTRICTS = [
+  "Bagerhat", "Bandarban", "Barguna", "Barishal", "Bhola", "Bogura", "Brahmanbaria",
+  "Chandpur", "Chapai Nawabganj", "Chattogram", "Chuadanga", "Comilla", "Cox's Bazar",
+  "Dhaka", "Dinajpur", "Faridpur", "Feni", "Gaibandha", "Gazipur", "Gopalganj",
+  "Habiganj", "Jamalpur", "Jashore", "Jhalokati", "Jhenaidah", "Joypurhat", "Khagrachhari",
+  "Khulna", "Kishoreganj", "Kurigram", "Kushtia", "Lakshmipur", "Lalmonirhat", "Madaripur",
+  "Magura", "Manikganj", "Meherpur", "Moulvibazar", "Munshiganj", "Mymensingh", "Naogaon",
+  "Narail", "Narayanganj", "Narsingdi", "Natore", "Netrokona", "Nilphamari", "Noakhali",
+  "Pabna", "Panchagarh", "Patuakhali", "Pirojpur", "Rajbari", "Rajshahi", "Rangamati",
+  "Rangpur", "Satkhira", "Shariatpur", "Sherpur", "Sirajganj", "Sunamganj", "Sylhet",
+  "Tangail", "Thakurgaon",
+];
+
 export function CheckoutForm({ formData, onChange, phoneError }: CheckoutFormProps) {
-  const { district, setDistrict } = useStore();
-
-  const thanaOptions: Record<string, string[]> = {
-    Dhaka: ["Dhanmondi", "Mirpur", "Gulshan", "Uttara", "Mohammadpur", "Badda", "Tejgaon", "Banani"],
-    Chittagong: ["Agrabad", "Pahartali", "GEC", "Kotwali", "Panchlaish"],
-    Sylhet: ["Zindabazar", "Ambarkhana", "Chouhatta", "Subidbazar"],
-    Rajshahi: ["Boalia", "Rajpara", "Motihar", "Shah Makhdum"],
-    Khulna: ["Sonadanga", "Khalishpur", "Daulatpur", "Khan Jahan Ali"],
-    Other: ["Sadar", "Station Road", "College Road"],
-  };
-
-  const currentThanaList = thanaOptions[formData.district] || thanaOptions.Other;
+  const { setDistrict } = useStore();
 
   return (
     <div className="flex flex-col gap-6 w-full">
@@ -94,36 +96,24 @@ export function CheckoutForm({ formData, onChange, phoneError }: CheckoutFormPro
               onChange={(e) => {
                 const newDist = e.target.value;
                 setDistrict(newDist);
-                onChange({ district: newDist, thana: thanaOptions[newDist]?.[0] || "Sadar" });
+                onChange({ district: newDist, thana: "" });
               }}
               className="min-h-[48px] px-4 py-3 text-[18px] text-[#1A1A1A] bg-[#FFFDF8] border border-[#DDD6C7] rounded-[4px] focus:outline-none focus:ring-2 focus:ring-[#1F5D42]"
+              required
             >
-              <option value="Dhaka">ঢাকা (ঢাকার ভেতরে — ডেলিভারি ৳৭০)</option>
-              <option value="Chittagong">চট্টগ্রাম (ঢাকার বাইরে — ডেলিভারি ৳১৩০)</option>
-              <option value="Sylhet">সিলেট (ঢাকার বাইরে — ডেলিভারি ৳১৩০)</option>
-              <option value="Rajshahi">রাজশাহী (ঢাকার বাইরে — ডেলিভারি ৳১৩০)</option>
-              <option value="Khulna">খুলনা (ঢাকার বাইরে — ডেলিভারি ৳১৩০)</option>
-              <option value="Other">অন্যান্য জেলা (ঢাকার বাইরে — ডেলিভারি ৳১৩০)</option>
-            </select>
-          </div>
-
-          {/* Thana / Upazila Dropdown */}
-          <div className="flex flex-col gap-1.5">
-            <label className="text-[18px] font-bold text-[#1A1A1A]">
-              থানা / উপজেলা নির্বাচন করুন <span className="text-[#B3261E]">*</span>
-            </label>
-            <select
-              value={formData.thana}
-              onChange={(e) => onChange({ thana: e.target.value })}
-              className="min-h-[48px] px-4 py-3 text-[18px] text-[#1A1A1A] bg-[#FFFDF8] border border-[#DDD6C7] rounded-[4px] focus:outline-none focus:ring-2 focus:ring-[#1F5D42]"
-            >
-              {currentThanaList.map((th) => (
-                <option key={th} value={th}>
-                  {th}
-                </option>
+              {BANGLADESH_DISTRICTS.map((district) => (
+                <option key={district} value={district}>{district}</option>
               ))}
             </select>
           </div>
+
+          <TextInput
+            label="থানা / উপজেলা"
+            placeholder="যেমন: উত্তরা পশ্চিম"
+            value={formData.thana}
+            onChange={(e) => onChange({ thana: e.target.value })}
+            required
+          />
 
           {/* Street Address */}
           <TextInput

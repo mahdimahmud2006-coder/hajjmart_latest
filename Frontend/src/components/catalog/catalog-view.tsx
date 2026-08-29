@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import type { Category, Product } from "@/lib/types";
-import { getProducts, getCategories, searchProducts } from "@/lib/api";
+import { getProductsPage, getCategories } from "@/lib/api";
 import { ProductCard } from "@/components/product/product-card";
 import { CatalogFilter } from "./catalog-filter";
 import { ActiveChips, type FilterState } from "./active-chips";
@@ -16,6 +16,8 @@ interface CatalogViewProps {
   initialCategoryName?: string;
   initialQuery?: string;
 }
+
+const PRODUCTS_PER_PAGE = 24;
 
 export function CatalogView({
   initialCategorySlug,
@@ -30,11 +32,24 @@ export function CatalogView({
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
+  const [pagination, setPagination] = useState({
+    currentPage: 1,
+    lastPage: 1,
+    total: 0,
+  });
 
-  // Extract filter state from URL search params
+  // Route props only seed the initial category. Once ?category= exists, the URL wins.
+  const urlCategory = searchParams.get("category");
+  const hasUrlCategory = searchParams.has("category");
+  const categorySlug = hasUrlCategory ? urlCategory || undefined : initialCategorySlug;
+  const categoryName = hasUrlCategory
+    ? categories.find((category) => category.slug === urlCategory)?.name
+    : initialCategoryName;
+  const currentPage = Math.max(1, Number(searchParams.get("page") || "1") || 1);
+
   const currentFilters: FilterState = {
-    categorySlug: initialCategorySlug || searchParams.get("category") || undefined,
-    categoryName: initialCategoryName || undefined,
+    categorySlug,
+    categoryName,
     minPrice: searchParams.get("min_price") || undefined,
     maxPrice: searchParams.get("max_price") || undefined,
     inStock: searchParams.get("in_stock") === "true",
@@ -45,41 +60,37 @@ export function CatalogView({
   // Fetch Category Taxonomy
   useEffect(() => {
     getCategories()
-      .then((cats) => {
-        setCategories(cats || []);
-      })
+      .then((cats) => setCategories(cats || []))
       .catch(() => setCategories([]));
   }, []);
 
-  // Fetch Products based on current active filters
+  // Filtering, sorting, search, and pagination are handled by the backend.
   useEffect(() => {
     setLoading(true);
 
-    if (currentFilters.query) {
-      searchProducts(currentFilters.query)
-        .then((res) => {
-          let list = res.products || [];
-          list = applyClientFilters(list, currentFilters);
-          setProducts(list);
-        })
-        .catch(() => setProducts([]))
-        .finally(() => setLoading(false));
-    } else {
-      getProducts({
-        category_slug: currentFilters.categorySlug,
-        min_price: currentFilters.minPrice,
-        max_price: currentFilters.maxPrice,
-        in_stock: currentFilters.inStock ? "true" : undefined,
-        sort: currentFilters.sort,
+    getProductsPage({
+      q: currentFilters.query,
+      category: currentFilters.categorySlug,
+      min_price: currentFilters.minPrice,
+      max_price: currentFilters.maxPrice,
+      in_stock: currentFilters.inStock ? "true" : undefined,
+      sort: currentFilters.sort,
+      page: currentPage,
+      per_page: PRODUCTS_PER_PAGE,
+    })
+      .then(({ products: list, meta }) => {
+        setProducts(list || []);
+        setPagination({
+          currentPage: meta?.current_page || currentPage,
+          lastPage: meta?.last_page || 1,
+          total: meta?.total ?? list.length,
+        });
       })
-        .then((list) => {
-          let res = list || [];
-          res = applyClientFilters(res, currentFilters);
-          setProducts(res);
-        })
-        .catch(() => setProducts([]))
-        .finally(() => setLoading(false));
-    }
+      .catch(() => {
+        setProducts([]);
+        setPagination({ currentPage: 1, lastPage: 1, total: 0 });
+      })
+      .finally(() => setLoading(false));
   }, [
     currentFilters.categorySlug,
     currentFilters.minPrice,
@@ -87,60 +98,21 @@ export function CatalogView({
     currentFilters.inStock,
     currentFilters.sort,
     currentFilters.query,
+    currentPage,
   ]);
-
-  // Client-side filtering & sorting fallback
-  const applyClientFilters = (list: Product[], f: FilterState): Product[] => {
-    let result = [...list];
-
-    if (f.categorySlug) {
-      result = result.filter((p) =>
-        p.categories?.some((c) => c.slug === f.categorySlug)
-      );
-    }
-
-    if (f.inStock) {
-      result = result.filter(
-        (p) => p.in_stock ?? (p.stock_status === "instock" || (p.available_stock ?? 0) > 0)
-      );
-    }
-
-    if (f.minPrice) {
-      const min = Number(f.minPrice);
-      result = result.filter((p) => Number(p.retail_price || p.selling_price || 0) >= min);
-    }
-
-    if (f.maxPrice) {
-      const max = Number(f.maxPrice);
-      result = result.filter((p) => Number(p.retail_price || p.selling_price || 0) <= max);
-    }
-
-    // Client-side Sort
-    if (f.sort === "price_asc") {
-      result.sort(
-        (a, b) =>
-          Number(a.retail_price || a.selling_price || 0) -
-          Number(b.retail_price || b.selling_price || 0)
-      );
-    } else if (f.sort === "price_desc") {
-      result.sort(
-        (a, b) =>
-          Number(b.retail_price || b.selling_price || 0) -
-          Number(a.retail_price || a.selling_price || 0)
-      );
-    } else if (f.sort === "rating") {
-      result.sort(
-        (a, b) => Number(b.average_rating || 0) - Number(a.average_rating || 0)
-      );
-    }
-
-    return result;
-  };
 
   const updateFiltersInUrl = (updated: Partial<FilterState>) => {
     const params = new URLSearchParams(searchParams.toString());
+    const clearingCategory =
+      Object.prototype.hasOwnProperty.call(updated, "categorySlug") && !updated.categorySlug;
+
+    // Any filter/sort change starts again from page 1.
+    params.delete("page");
 
     Object.entries(updated).forEach(([key, val]) => {
+      // Category names are derived from the taxonomy; only the slug belongs in the URL.
+      if (key === "categoryName") return;
+
       const paramKey =
         key === "categorySlug"
           ? "category"
@@ -161,7 +133,19 @@ export function CatalogView({
       }
     });
 
-    router.push(`${pathname}?${params.toString()}`);
+    // Removing the seeded route category must leave /categories/[slug], otherwise
+    // the unchanged route prop would become the category again.
+    const targetPath = clearingCategory && initialCategorySlug ? "/products" : pathname;
+    const queryString = params.toString();
+    router.push(`${targetPath}${queryString ? `?${queryString}` : ""}`);
+  };
+
+  const updatePage = (page: number) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (page <= 1) params.delete("page");
+    else params.set("page", String(page));
+    const queryString = params.toString();
+    router.push(`${pathname}${queryString ? `?${queryString}` : ""}`);
   };
 
   const handleRemoveSingleFilter = (key: keyof FilterState) => {
@@ -169,7 +153,7 @@ export function CatalogView({
   };
 
   const handleResetAll = () => {
-    router.push(pathname);
+    router.push("/products");
   };
 
   const activeCount = [
@@ -184,7 +168,7 @@ export function CatalogView({
       {/* Header Banner Context */}
       <div className="mb-6">
         <h1 className="text-[26px] sm:text-[32px] font-bold text-[#1A1A1A]">
-          {initialCategoryName ||
+          {currentFilters.categoryName ||
             (currentFilters.query
               ? `অনুসন্ধানের ফলাফল: "${currentFilters.query}"`
               : "সকল হজ্জ ও ওমরাহ সামগ্রী")}
@@ -211,7 +195,7 @@ export function CatalogView({
           <SortControls
             currentSort={currentFilters.sort || "relevance"}
             onSortChange={(newSort) => updateFiltersInUrl({ sort: newSort })}
-            totalProducts={products.length}
+            totalProducts={pagination.total}
             onOpenMobileFilter={() => setIsMobileFilterOpen(true)}
             activeFilterCount={activeCount}
           />
@@ -241,11 +225,37 @@ export function CatalogView({
 
           {/* Product Grid */}
           {!loading && products.length > 0 && (
-            <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {products.map((product) => (
-                <ProductCard key={product.id} product={product} />
-              ))}
-            </div>
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {products.map((product) => (
+                  <ProductCard key={product.id} product={product} />
+                ))}
+              </div>
+
+              {pagination.lastPage > 1 && (
+                <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={pagination.currentPage <= 1}
+                    onClick={() => updatePage(pagination.currentPage - 1)}
+                  >
+                    পূর্ববর্তী
+                  </Button>
+                  <span className="text-[16px] font-bold text-[#5B5650]">
+                    পৃষ্ঠা {pagination.currentPage} / {pagination.lastPage}
+                  </span>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={pagination.currentPage >= pagination.lastPage}
+                    onClick={() => updatePage(pagination.currentPage + 1)}
+                  >
+                    পরবর্তী
+                  </Button>
+                </div>
+              )}
+            </>
           )}
 
           {/* Empty State */}

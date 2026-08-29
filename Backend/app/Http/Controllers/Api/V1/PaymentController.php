@@ -18,9 +18,10 @@ class PaymentController extends Controller
 
     public function __construct(private PaymentService $payments) {}
 
-    public function initiate(Order $order)
+    public function initiate(Request $request, string $order)
     {
-        return $this->success($this->payments->initiate($order), 'Payment initiated.');
+        $resolved = $this->ownedOrder($request, $order);
+        return $this->success($this->payments->initiate($resolved), 'Payment initiated.');
     }
 
     public function callback(Request $request)
@@ -61,15 +62,44 @@ class PaymentController extends Controller
         return $this->frontendRedirect($verified, 'paid');
     }
 
-    public function status(Order $order)
+    public function status(Request $request, string $order)
     {
-        return $this->success($order->payments()->latest()->first(), 'Payment status retrieved.');
+        $resolved = $this->ownedOrder($request, $order);
+        $payment = $resolved->payments()->latest()->first();
+
+        return $this->success([
+            'order_number' => $resolved->order_number,
+            'payment_status' => $resolved->payment_status,
+            'gateway_transaction_id' => $payment?->gateway_transaction_id ?? $payment?->payment_reference,
+            'amount_paid' => (float) $resolved->paid_amount,
+            'paid_at' => $payment?->paid_at?->toISOString(),
+        ], 'Payment status retrieved.');
     }
 
     public function refund(Request $request, Payment $payment)
     {
         $data = $request->validate(['amount' => ['required', 'numeric', 'min:1']]);
         return $this->success($this->payments->refund($payment, (float) $data['amount'], $request->user()?->id), 'Payment refunded.');
+    }
+
+    private function ownedOrder(Request $request, string $identifier): Order
+    {
+        $order = Order::query()
+            ->where(function ($query) use ($identifier): void {
+                $query->where('order_number', $identifier)
+                    ->orWhere('order_id', $identifier);
+                if (ctype_digit($identifier)) {
+                    $query->orWhere('id', (int) $identifier);
+                }
+            })
+            ->firstOrFail();
+
+        abort_unless(
+            $request->user()?->is_employee || (int) $order->customer_id === (int) $request->user()?->id,
+            403
+        );
+
+        return $order;
     }
 
     private function gatewayReturn(Request $request, string $failureStatus): RedirectResponse

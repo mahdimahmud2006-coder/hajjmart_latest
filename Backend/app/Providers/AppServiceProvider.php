@@ -28,10 +28,10 @@ class AppServiceProvider extends ServiceProvider
     {
         ResetPassword::createUrlUsing(function (object $notifiable, string $token): string {
             $email = urlencode((string) $notifiable->getEmailForPasswordReset());
-            return rtrim((string) config('app.frontend_url'), '/') . "/reset-password?token=" . urlencode($token) . "&email={$email}";
+            return rtrim((string) config('app.frontend_url'), '/') . "/auth/reset-password?token=" . urlencode($token) . "&email={$email}";
         });
         RateLimiter::for('login', fn (Request $request) => [
-            Limit::perMinute(8)->by(strtolower((string)$request->input('email')).'|'.$request->ip()),
+            Limit::perMinute(8)->by(strtolower((string)($request->input('email_or_phone') ?: $request->input('email'))).'|'.$request->ip()),
             Limit::perHour(60)->by($request->ip()),
         ]);
         RateLimiter::for('checkout', fn (Request $request) => [

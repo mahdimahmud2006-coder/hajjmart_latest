@@ -4,8 +4,6 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\Coupon;
-use App\Services\InventoryService;
-use App\Services\PromotionService;
 use App\Support\ApiResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -14,39 +12,20 @@ class CouponController extends Controller
 {
     use ApiResponse;
 
-    public function __construct(
-        private PromotionService $promotions,
-        private InventoryService $inventory
-    ) {}
+    public function __construct(private \App\Services\PromotionService $promotions) {}
 
     public function publicPromotions()
     {
         return $this->success($this->promotions->publicPromotions(), 'Public promotions retrieved.');
     }
 
-    public function validateCoupon(Request $request)
-    {
-        $data = $request->validate([
-            'coupon_code' => ['required', 'string', 'max:100'],
-            'items' => ['required', 'array', 'min:1'],
-            'items.*.product_id' => ['required', 'integer', 'exists:products,id'],
-            'items.*.variant_id' => ['nullable', 'integer', 'exists:product_variants,id'],
-            'items.*.quantity' => ['required', 'integer', 'min:1'],
-            'payment_method' => ['nullable', 'string'],
-            'district' => ['nullable', 'string'],
-            'email' => ['nullable', 'email'],
-            'mobile_number' => ['nullable', 'string'],
-            'shipping_total' => ['nullable', 'numeric', 'min:0'],
-        ]);
-
-        $validatedItems = $this->inventory->validateItems($data['items']);
-        $quote = $this->promotions->validateCouponForCart($data['coupon_code'], $validatedItems, $data, $request->user()?->id);
-        return $this->success($quote, 'Coupon applied successfully.');
-    }
-
     public function index(Request $request)
     {
         $coupons = Coupon::query()
+            ->whereIn('type', ['fixed', 'percent'])
+            ->where(function ($q): void {
+                $q->whereNull('discount_scope')->orWhere('discount_scope', '!=', 'shipping');
+            })
             ->when($request->visibility, fn ($q, $visibility) => $q->where('visibility', $visibility))
             ->when($request->promotion_type, fn ($q, $type) => $q->where('promotion_type', $type))
             ->when($request->active !== null, fn ($q) => $q->where('is_active', filter_var(request('active'), FILTER_VALIDATE_BOOLEAN)))
@@ -83,23 +62,43 @@ class CouponController extends Controller
 
     private function normalizePromotion(array $data, ?Coupon $coupon): array
     {
-        $type = $data['promotion_type'] ?? $coupon?->promotion_type ?? 'coupon';
-        if ($type === 'public_sale') {
+        $promotionType = $data['promotion_type'] ?? $coupon?->promotion_type ?? 'coupon';
+        if ($promotionType === 'public_sale') {
             $data['code'] = null;
             $data['visibility'] = 'public';
-            if (! array_key_exists('auto_apply', $data)) {
-                $data['auto_apply'] = true;
+            $data['auto_apply'] = true;
+        } else {
+            if (array_key_exists('code', $data) && $data['code'] !== null) {
+                $data['code'] = strtoupper(trim((string) $data['code']));
             }
-        } elseif (array_key_exists('code', $data) && $data['code'] !== null) {
-            $data['code'] = strtoupper(trim((string) $data['code']));
-            $data['visibility'] = $data['visibility'] ?? 'private';
-            $data['auto_apply'] = $data['auto_apply'] ?? false;
+            $data['visibility'] = 'private';
+            $data['auto_apply'] = false;
+            $data['promotion_type'] = 'coupon';
         }
 
-        if (($data['type'] ?? $coupon?->type) === 'free_shipping') {
-            $data['value'] = 0;
-            $data['discount_scope'] = 'shipping';
+        // Promotions are item-only and never stack. Shipping always remains payable.
+        $data['discount_scope'] = 'items';
+        $data['stackable'] = false;
+        $data['stop_further_promotions'] = false;
+
+        $target = $data['applicable_to'] ?? $coupon?->applicable_to ?? 'all';
+        $data['applicable_to'] = $target;
+        if ($target === 'all') {
+            $data['included_product_ids'] = null;
+            $data['included_category_ids'] = null;
+        } elseif ($target === 'product') {
+            $data['included_category_ids'] = null;
+        } elseif ($target === 'category') {
+            $data['included_product_ids'] = null;
         }
+
+        // Old exclusion/district/payment targeting is intentionally disabled for the simplified rules.
+        $data['excluded_product_ids'] = null;
+        $data['excluded_category_ids'] = null;
+        $data['included_districts'] = null;
+        $data['excluded_districts'] = null;
+        $data['payment_methods'] = null;
+        $data['customer_segments'] = null;
 
         return $data;
     }
@@ -107,13 +106,15 @@ class CouponController extends Controller
     private function validatedCoupon(Request $request, ?int $ignoreId = null, bool $partial = false): array
     {
         $required = $partial ? 'sometimes' : 'required';
-        $type = (string) ($request->input('promotion_type') ?: ($partial && $ignoreId ? Coupon::whereKey($ignoreId)->value('promotion_type') : 'coupon'));
+        $promotionType = (string) ($request->input('promotion_type') ?: ($partial && $ignoreId ? Coupon::whereKey($ignoreId)->value('promotion_type') : 'coupon'));
+        $target = (string) $request->input('applicable_to', '');
+
         return $request->validate([
-            'code' => [Rule::requiredIf($type !== 'public_sale'), 'nullable', 'string', 'max:100', Rule::unique('coupons', 'code')->ignore($ignoreId)],
+            'code' => [Rule::requiredIf($promotionType !== 'public_sale'), 'nullable', 'string', 'max:100', Rule::unique('coupons', 'code')->ignore($ignoreId)],
             'title' => ['nullable', 'string', 'max:150'],
             'description' => ['nullable', 'string', 'max:2000'],
-            'type' => [$required, Rule::in(['fixed', 'percent', 'free_shipping'])],
-            'value' => [$required, 'numeric', 'min:0'],
+            'type' => [$required, Rule::in(['fixed', 'percent'])],
+            'value' => [$required, 'numeric', 'gt:0', Rule::when($request->input('type') === 'percent', ['max:100'])],
             'min_order_amount' => ['nullable', 'numeric', 'min:0'],
             'max_discount_amount' => ['nullable', 'numeric', 'min:0'],
             'usage_limit' => ['nullable', 'integer', 'min:1'],
@@ -122,31 +123,18 @@ class CouponController extends Controller
             'is_active' => ['nullable', 'boolean'],
             'starts_at' => ['nullable', 'date'],
             'expires_at' => ['nullable', 'date', 'after_or_equal:starts_at'],
-            'applicable_to' => ['nullable', 'string', Rule::in(['all', 'product', 'category', 'district', 'payment_method'])],
-            'visibility' => ['nullable', Rule::in(['public', 'private'])],
-            'promotion_type' => ['nullable', Rule::in(['coupon', 'public_sale', 'private_coupon'])],
-            'discount_scope' => ['nullable', Rule::in(['items', 'cart', 'shipping'])],
-            'stackable' => ['nullable', 'boolean'],
-            'auto_apply' => ['nullable', 'boolean'],
+            'applicable_to' => [$required, Rule::in(['all', 'product', 'category'])],
+            'promotion_type' => ['nullable', Rule::in(['coupon', 'public_sale'])],
             'priority' => ['nullable', 'integer', 'min:0'],
             'minimum_items' => ['nullable', 'integer', 'min:1'],
             'first_order_only' => ['nullable', 'boolean'],
-            'stop_further_promotions' => ['nullable', 'boolean'],
-            'included_product_ids' => ['nullable', 'array'],
+            'included_product_ids' => [Rule::requiredIf($target === 'product'), 'nullable', 'array', 'min:1'],
             'included_product_ids.*' => ['integer', 'exists:products,id'],
-            'excluded_product_ids' => ['nullable', 'array'],
-            'excluded_product_ids.*' => ['integer', 'exists:products,id'],
-            'included_category_ids' => ['nullable', 'array'],
-            'included_category_ids.*' => ['integer', 'exists:categories,id'],
-            'excluded_category_ids' => ['nullable', 'array'],
-            'excluded_category_ids.*' => ['integer', 'exists:categories,id'],
-            'included_districts' => ['nullable', 'array'],
-            'included_districts.*' => ['string'],
-            'excluded_districts' => ['nullable', 'array'],
-            'excluded_districts.*' => ['string'],
-            'payment_methods' => ['nullable', 'array'],
-            'payment_methods.*' => ['string', Rule::in(['cod', 'online'])],
-            'customer_segments' => ['nullable', 'array'],
+            'included_category_ids' => [Rule::requiredIf($target === 'category'), 'nullable', 'array', 'min:1'],
+            'included_category_ids.*' => [
+                'integer',
+                Rule::exists('categories', 'id')->whereNotNull('parent_id'),
+            ],
         ]);
     }
 }

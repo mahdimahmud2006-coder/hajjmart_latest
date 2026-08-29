@@ -44,7 +44,7 @@ class OrderController extends Controller
             'promotion_support' => [
                 'public_sales' => true,
                 'private_coupons' => true,
-                'compound_coupons' => 'Only coupons/promotions marked stackable can combine.',
+                'promotion_stacking' => 'Disabled: each product line can receive only one promotion.',
                 'return_exchange_policy' => 'Refund/exchange credit uses net paid amount after prorated coupon allocation.',
             ],
         ], 'Checkout options retrieved.');
@@ -101,6 +101,7 @@ class OrderController extends Controller
     {
         $data = $request->validate([
             'mobile_number' => ['required', 'string', 'regex:/^(?:\+?88)?01[3-9]\d{8}$/'],
+            'order_number' => ['nullable', 'string', 'max:100'],
         ], [
             'mobile_number.regex' => 'Enter an 11-digit Bangladesh mobile number.',
         ]);
@@ -126,6 +127,9 @@ class OrderController extends Controller
             ->where('source_channel', 'website')
             ->where(function ($query) use ($mobileVariants): void {
                 $query->whereIn(DB::raw("REPLACE(REPLACE(checkout_mobile_number, ' ', ''), '-', '')"), $mobileVariants);
+            })
+            ->when($data['order_number'] ?? null, function ($query, $orderNumber): void {
+                $query->where('order_number', trim((string) $orderNumber));
             })
             ->where(function ($query): void {
                 $query->where('placed_at', '>=', now()->subDays(180))
@@ -211,6 +215,10 @@ class OrderController extends Controller
             ->latest()
             ->paginate((int) $request->get('per_page', 20));
 
+        $orders->setCollection(
+            $orders->getCollection()->map(fn (Order $order): array => $this->customerOrderResponse($order))
+        );
+
         return $this->success($orders, 'Orders retrieved.');
     }
 
@@ -230,6 +238,33 @@ class OrderController extends Controller
         $order = Order::where('order_number', $orderNumber)->orWhere('order_id', $orderNumber)->firstOrFail();
         abort_unless($request->user()->is_employee || $order->customer_id === $request->user()->id, 403);
         return $this->success($this->orders->cancel($order, $request->user()->id, $request->input('reason')), 'Order cancelled.');
+    }
+
+    public function updatePaymentMethod(Request $request, string $orderNumber)
+    {
+        $data = $request->validate([
+            'payment_method' => ['required', 'string', Rule::in(['cod'])],
+        ]);
+
+        $order = Order::where('order_number', $orderNumber)->orWhere('order_id', $orderNumber)->firstOrFail();
+        abort_unless($request->user()->is_employee || (int) $order->customer_id === (int) $request->user()->id, 403);
+
+        if ($order->payment_status === \App\Enums\PaymentStatus::PAID->value) {
+            return $this->error('A paid order cannot be switched to cash on delivery.', 422);
+        }
+
+        $changes = [
+            'payment_method' => strtolower($data['payment_method']),
+            'payment_channel' => 'cash',
+        ];
+        if ($order->status === \App\Enums\OrderStatus::PENDING->value) {
+            $changes['status'] = \App\Enums\OrderStatus::CONFIRMED->value;
+            $changes['order_status'] = \App\Enums\OrderStatus::CONFIRMED->value;
+            $changes['confirmed_at'] = $order->confirmed_at ?: now();
+        }
+        $order->update($changes);
+
+        return $this->success($this->customerOrderResponse($order->fresh(['items.product', 'payments'])), 'Payment method updated.');
     }
 
     public function returnExchange(Request $request, string $orderNumber)
@@ -335,9 +370,45 @@ class OrderController extends Controller
 
         return [
             'order_number' => $order->order_number,
+            'grand_total' => (float) $order->grand_total,
+            'payment_method' => $order->payment_method,
+            'payment_status' => $order->payment_status,
+            'delivery_status' => $order->delivery_status,
+            'created_at' => $order->created_at?->toISOString(),
             'payment_required' => $paymentRequired,
             'redirect_url' => $redirectUrl,
             'mobile_number' => $order->checkout_mobile_number,
+        ];
+    }
+
+    private function customerOrderResponse(Order $order): array
+    {
+        return [
+            'order_number' => $order->order_number,
+            'grand_total' => (float) $order->grand_total,
+            'order_status' => $order->status,
+            'payment_status' => $order->payment_status,
+            'payment_method' => $order->payment_method,
+            'created_at' => $order->created_at?->toISOString(),
+            'items' => $order->items->map(function ($item): array {
+                $snapshot = is_array($item->product_snapshot) ? $item->product_snapshot : [];
+                $snapshotImages = $snapshot['image_src'] ?? [];
+                if (is_string($snapshotImages)) {
+                    $snapshotImages = [$snapshotImages];
+                }
+
+                return [
+                    'order_item_id' => $item->id,
+                    'product_id' => $item->product_id,
+                    'variant_id' => $item->variant_id,
+                    'name' => $snapshot['name'] ?? $item->product?->name ?? 'Product',
+                    'quantity' => (int) $item->quantity,
+                    'unit_price' => (float) $item->unit_price,
+                    'image' => $snapshot['primary_image_url']
+                        ?? ($snapshotImages[0] ?? null)
+                        ?? $item->product?->primary_image_url,
+                ];
+            })->values()->all(),
         ];
     }
 

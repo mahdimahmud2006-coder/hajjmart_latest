@@ -73,7 +73,7 @@ export default function CustomerRegisterPage() {
           />
 
           <TextInput
-            label="পাসওয়ার্ড (নূন্যতম ৬ অক্ষর)"
+            label="পাসওয়ার্ড (নূন্যতম ৮ অক্ষর)"
             type="password"
             placeholder="••••••••"
             value={password}

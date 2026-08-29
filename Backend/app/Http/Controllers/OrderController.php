@@ -81,7 +81,7 @@ class OrderController extends Controller
             'ordered_products'           => 'nullable|array',
             'customer_details'           => 'nullable|array',
             'address'                    => 'nullable|array',
-            'delivery_charge'            => 'nullable|numeric|min:0',
+            'delivery_charge'            => 'nullable|numeric|min:1',
             'total_price'                => 'nullable|numeric|min:0',
             'stripe_checkout_session_id' => 'nullable|string',
             'stripe_payment_intent_id'   => 'nullable|string',

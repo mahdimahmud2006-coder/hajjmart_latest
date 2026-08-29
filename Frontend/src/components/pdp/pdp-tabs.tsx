@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { Badge, Button, TextInput } from "@/components/ui/storefront-primitives";
-import { Truck, RefreshCw, Star, MessageSquare, CheckCircle, FileText, Send } from "lucide-react";
+import { Truck, Star, MessageSquare, CheckCircle, FileText, Send } from "lucide-react";
 import { SubmitReviewModal } from "./submit-review-modal";
 import { askProductQuestion } from "@/lib/api";
 import { useStore } from "@/context/store-context";
@@ -112,7 +112,7 @@ export function PDPTabs({
           }`}
         >
           <Truck className="w-5 h-5" />
-          <span>ডেলিভারি ও রিটার্ন</span>
+          <span>ডেলিভারি তথ্য</span>
         </button>
 
         <button
@@ -161,7 +161,7 @@ export function PDPTabs({
           </div>
         )}
 
-        {/* Tab 2: Shipping & Returns */}
+        {/* Tab 2: Shipping */}
         {activeTab === "shipping" && (
           <div className="flex flex-col gap-6">
             <div className="flex items-start gap-4">
@@ -178,17 +178,6 @@ export function PDPTabs({
               </div>
             </div>
 
-            <div className="flex items-start gap-4 border-t border-[#DDD6C7] pt-4">
-              <div className="p-3 bg-[#F5EEDD] rounded-full text-[#B8860B] shrink-0">
-                <RefreshCw className="w-6 h-6" />
-              </div>
-              <div>
-                <h4 className="text-[20px] font-bold text-[#1A1A1A]">৭ দিনের রিপ্লেসমেন্ট ওয়ারেন্টি</h4>
-                <p className="text-[#5B5650] mt-1">
-                  পণ্য হাতে পাওয়ার পর ত্রুটি বা সাইজ না মিললে ৭ দিনের মধ্যে বিনামূল্যে পরিবর্তন বা এক্সচেঞ্জ করা যাবে।
-                </p>
-              </div>
-            </div>
           </div>
         )}
 

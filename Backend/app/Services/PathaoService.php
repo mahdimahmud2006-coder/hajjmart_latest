@@ -88,6 +88,10 @@ class PathaoService
             ];
         }
 
+        if (strtolower((string) $order->status) !== 'shipped') {
+            throw new RuntimeException("Order #{$order->order_number} must be marked Shipped after packing before it can be sent to Pathao.");
+        }
+
         $shop = $order->shop ?? Shop::find($order->shop_id);
         $pathaoStoreId = $shop?->settings['pathao_store_id'] ?? null;
 

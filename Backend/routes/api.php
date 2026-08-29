@@ -167,7 +167,6 @@ Route::prefix('v1')->group(function () {
     Route::get('/checkout/status/{orderNumber}', [V1OrderController::class, 'checkoutStatus'])->middleware('throttle:checkout');
     Route::get('/track-order', [V1OrderController::class, 'trackOrder'])->middleware('throttle:checkout');
     Route::get('/promotions', [V1CouponController::class, 'publicPromotions']);
-    Route::post('/coupons/validate', [V1CouponController::class, 'validateCoupon'])->middleware('throttle:public-write');
     Route::post('/reviews/guest', [V1ReviewQuestionController::class, 'guestReview']);
 
     Route::post('/auth/register', [V1AuthController::class, 'register'])->middleware('throttle:login');
@@ -199,6 +198,7 @@ Route::prefix('v1')->group(function () {
         Route::get('/orders', [V1OrderController::class, 'index']);
         Route::get('/orders/{orderNumber}', [V1OrderController::class, 'show']);
         Route::post('/orders/{orderNumber}/cancel', [V1OrderController::class, 'cancel']);
+        Route::put('/orders/{orderNumber}/payment-method', [V1OrderController::class, 'updatePaymentMethod']);
         Route::post('/orders/{orderNumber}/return-exchange', [V1OrderController::class, 'returnExchange']);
 
         Route::get('/payments/{order}/initiate', [V1PaymentController::class, 'initiate']);
@@ -275,6 +275,7 @@ Route::prefix('v1')->group(function () {
             Route::post('/orders/bulk-send-pathao', [AdminOrderController::class, 'bulkSendToPathao']);
             Route::post('/orders/{order}/send-pathao', [AdminOrderController::class, 'sendToPathao']);
             Route::get('/orders/{order}', [AdminOrderController::class, 'show']);
+            Route::put('/orders/{order}', [AdminOrderController::class, 'update']);
             Route::put('/orders/{order}/status', [V1OrderController::class, 'updateStatus']);
             Route::post('/orders/{order}/payments', [AdminOrderController::class, 'collectPayment']);
             Route::post('/orders/{order}/return-exchange', [AdminOrderController::class, 'createReturn']);

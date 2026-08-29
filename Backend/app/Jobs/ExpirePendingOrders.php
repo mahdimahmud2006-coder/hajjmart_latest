@@ -23,6 +23,7 @@ class ExpirePendingOrders implements ShouldQueue
     {
         Order::query()
             ->where('status', OrderStatus::PENDING->value)
+            ->where('is_potential_fraud', false)
             ->where('payment_status', PaymentStatus::DUE->value)
             ->where('payment_method', '!=', 'cod')
             ->where('created_at', '<', now()->subMinutes(15))
@@ -32,6 +33,7 @@ class ExpirePendingOrders implements ShouldQueue
                         $locked = Order::whereKey($order->id)->lockForUpdate()->first();
                         if (! $locked
                             || $locked->status !== OrderStatus::PENDING->value
+                            || $locked->is_potential_fraud
                             || $locked->payment_status !== PaymentStatus::DUE->value) {
                             return;
                         }

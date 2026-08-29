@@ -2,6 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { SearchBar } from "./search-bar";
 import { useLanguage } from "@/context/language-context";
 import { useStore } from "@/context/store-context";
@@ -9,18 +10,22 @@ import { Heart, ShoppingBag, User, Truck, Globe, Bell } from "lucide-react";
 
 export function DesktopHeader() {
   const { language, toggleLanguage, t } = useLanguage();
-  const { cartCount, wishlist, setCartOpen } = useStore();
+  const { cartCount, wishlist, unreadNotificationCount, token, setCartOpen } = useStore();
 
   const wishlistCount = wishlist.length;
 
   return (
     <header className="hidden lg:flex items-center justify-between h-[72px] px-8 bg-[#FFFDF8] border-b border-[#DDD6C7] sticky top-0 z-40 shadow-xs">
       {/* Brand Logo */}
-      <Link href="/" className="flex items-center gap-2 text-[#1F5D42] text-[24px] font-bold tracking-tight">
-        <span className="bg-[#1F5D42] text-[#FFFDF8] w-10 h-10 rounded-[8px] flex items-center justify-center font-serif text-[22px]">
-          হ
-        </span>
-        <span>হাজ্জমার্ট</span>
+      <Link href="/" className="flex items-center shrink-0" aria-label="Hajj Mart home">
+        <Image
+          src="/images/brand/hajjmart-logo.png"
+          alt="Hajj Mart"
+          width={1200}
+          height={625}
+          priority
+          className="h-[58px] w-auto max-w-[132px] object-contain"
+        />
       </Link>
 
       {/* Prominent Search Bar (min-width 480px) */}
@@ -57,24 +62,28 @@ export function DesktopHeader() {
           aria-label="Notifications"
         >
           <Bell className="w-6 h-6" />
-          <span className="absolute -top-1 -right-1 bg-[#1F5D42] text-white text-[12px] font-bold w-4 h-4 rounded-full flex items-center justify-center animate-pulse">
-            1
-          </span>
-        </Link>
-
-        {/* Wishlist Icon + Count Badge */}
-        <Link
-          href="/wishlist"
-          className="relative p-2 text-[#1A1A1A] hover:text-[#1F5D42] transition-colors flex items-center gap-1"
-          aria-label="Wishlist"
-        >
-          <Heart className="w-6 h-6" />
-          {wishlistCount > 0 && (
-            <span className="absolute -top-1 -right-1 bg-[#B3261E] text-white text-[12px] font-bold w-5 h-5 rounded-full flex items-center justify-center">
-              {wishlistCount}
+          {unreadNotificationCount > 0 && (
+            <span className="absolute -top-1 -right-1 bg-[#1F5D42] text-white text-[12px] font-bold min-w-4 h-4 px-1 rounded-full flex items-center justify-center">
+              {unreadNotificationCount}
             </span>
           )}
         </Link>
+
+        {/* Wishlist is private account data; guests do not get a shared browser wishlist. */}
+        {token && (
+          <Link
+            href="/wishlist"
+            className="relative p-2 text-[#1A1A1A] hover:text-[#1F5D42] transition-colors flex items-center gap-1"
+            aria-label="Wishlist"
+          >
+            <Heart className="w-6 h-6" />
+            {wishlistCount > 0 && (
+              <span className="absolute -top-1 -right-1 bg-[#B3261E] text-white text-[12px] font-bold w-5 h-5 rounded-full flex items-center justify-center">
+                {wishlistCount}
+              </span>
+            )}
+          </Link>
+        )}
 
         {/* Cart Icon + Live Count Badge */}
         <button

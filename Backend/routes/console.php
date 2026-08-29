@@ -11,7 +11,7 @@ Schedule::call(function () {
 
 Schedule::job(new \App\Jobs\GenerateDailySalesSummary())->dailyAt('00:05');
 
-Schedule::command('pathao:sync-statuses')->everyFourHours();
+Schedule::command('pathao:sync-statuses')->everyFiveMinutes()->withoutOverlapping();
 
 
 Artisan::command('hajjmart:verify-seed', function (): int {

@@ -6,7 +6,6 @@ import { useStore } from "@/context/store-context";
 import { Button, PriceDisplay, QuantityStepper } from "@/components/ui/storefront-primitives";
 import { X, Trash2, ShoppingBag, ArrowRight } from "lucide-react";
 import { useLanguage } from "@/context/language-context";
-import { FreeShippingProgress } from "./free-shipping-progress";
 
 export function MiniCartDrawer() {
   const { t } = useLanguage();
@@ -23,10 +22,10 @@ export function MiniCartDrawer() {
   if (!cartOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
+    <div className="fixed inset-x-0 top-0 bottom-[60px] lg:inset-0 z-50 flex justify-end">
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity"
+        className="absolute inset-0 bg-black/50 backdrop-blur-xs transition-opacity"
         onClick={() => setCartOpen(false)}
       />
 
@@ -90,7 +89,7 @@ export function MiniCartDrawer() {
                     </span>
                   )}
 
-                  <div className="flex items-center justify-between mt-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mt-2">
                     <QuantityStepper
                       value={item.quantity}
                       onChange={(newQty) => updateQuantity(item.key, newQty)}
@@ -117,8 +116,6 @@ export function MiniCartDrawer() {
         {/* Footer */}
         {cart.length > 0 && (
           <div className="p-4 border-t border-[#DDD6C7] bg-[#FFFDF8] flex flex-col gap-3 shadow-[0_-4px_10px_rgba(0,0,0,0.05)]">
-            <FreeShippingProgress subtotal={cartSubtotal} />
-
             <div className="flex items-center justify-between text-[18px]">
               <span className="text-[#5B5650]">পণ্যের সাবটোটাল:</span>
               <span className="font-bold text-[#1A1A1A] text-[20px]">

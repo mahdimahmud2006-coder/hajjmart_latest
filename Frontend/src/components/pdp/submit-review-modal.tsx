@@ -56,7 +56,7 @@ export function SubmitReviewModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-4">
       {/* Backdrop */}
       <div
         className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity"
@@ -64,9 +64,9 @@ export function SubmitReviewModal({
       />
 
       {/* Modal Card */}
-      <div className="relative w-full max-w-lg bg-[#FFFDF8] border border-[#DDD6C7] rounded-[16px] shadow-2xl p-6 z-50 overflow-hidden">
-        <div className="flex items-center justify-between border-b border-[#DDD6C7] pb-3 mb-4">
-          <h3 className="text-[20px] font-bold text-[#1A1A1A]">
+      <div className="relative w-full max-w-lg max-h-[92vh] overflow-y-auto bg-[#FFFDF8] border border-[#DDD6C7] rounded-[16px] shadow-2xl p-4 sm:p-6 z-[70]">
+        <div className="flex items-start justify-between gap-2 border-b border-[#DDD6C7] pb-3 mb-4">
+          <h3 className="min-w-0 text-[18px] sm:text-[20px] leading-snug font-bold text-[#1A1A1A]">
             রিভিউ লিখুন — <span className="text-[#1F5D42]">{productName}</span>
           </h3>
           <button
@@ -84,7 +84,7 @@ export function SubmitReviewModal({
             <label className="text-[18px] font-bold text-[#1A1A1A] block mb-2">
               আপনার রেটিং নির্বাচন করুন:
             </label>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-1 sm:gap-2">
               {[1, 2, 3, 4, 5].map((star) => (
                 <button
                   key={star}
@@ -130,7 +130,7 @@ export function SubmitReviewModal({
             />
           </div>
 
-          <div className="flex items-center justify-end gap-3 pt-2">
+          <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 sm:gap-3 pt-2">
             <Button variant="secondary" size="md" onClick={onClose} type="button">
               বাতিল
             </Button>

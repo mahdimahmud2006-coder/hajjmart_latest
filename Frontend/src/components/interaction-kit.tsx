@@ -43,11 +43,12 @@ export function ToastMessage({ message, tone = "success", actionLabel, onAction,
   onAction?: () => void;
   onDismiss?: () => void;
 }) {
-  return <div className={`toast pointer-events-auto ${tone}`}>
-    <span className="toast-icon" aria-hidden="true">{tone === "success" ? <CheckIcon size={14}/> : <span />}</span>
+  const icon = tone === "success" ? <CheckIcon size={16}/> : tone === "error" ? <strong>!</strong> : <strong>i</strong>;
+  return <div className={`toast pointer-events-auto ${tone}`} role={tone === "error" ? "alert" : "status"}>
+    <span className="toast-icon" aria-hidden="true">{icon}</span>
     <span className="toast-copy">{message}</span>
     {actionLabel && onAction ? <button type="button" className="toast-action" onClick={onAction}>{actionLabel}</button> : null}
-    {onDismiss ? <button type="button" className="toast-dismiss" onClick={onDismiss} aria-label="Dismiss notification"><CloseIcon size={14}/></button> : null}
+    {onDismiss ? <button type="button" className="toast-dismiss" onClick={onDismiss} aria-label="Dismiss notification"><CloseIcon size={15}/></button> : null}
   </div>;
 }
 

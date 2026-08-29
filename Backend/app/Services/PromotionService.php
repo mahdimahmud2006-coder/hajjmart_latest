@@ -8,19 +8,15 @@ use App\Models\CouponUsage;
 use App\Models\Order;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use RuntimeException;
 
 class PromotionService
 {
     /**
-     * Build a full pricing quote from validated inventory rows.
+     * Build a checkout pricing quote from validated inventory rows.
      *
-     * Supports:
-     * - public sale promotions through auto_apply/public coupons
-     * - private coupons through supplied coupon_code/coupon_codes
-     * - compound coupons when stackable=true
-     * - fixed, percent and free_shipping/shipping discounts
-     * - line-level discount allocation for correct return/exchange refunds
+     * Public sales auto-apply. A checkout coupon is applied only when its code
+     * is supplied. Promotions are item-only and a product line can receive at
+     * most one promotion.
      */
     public function quote(array $validatedItems, array $checkoutData, ?int $customerId = null): array
     {
@@ -35,12 +31,19 @@ class PromotionService
         foreach ($validatedItems as $index => $row) {
             $key = $this->lineKey($row['product']->id, $row['variant']?->id);
             $subtotal = round((float) $row['quantity'] * (float) $row['unitPrice'], 2);
+            $categoryIds = $row['product']->relationLoaded('categories')
+                ? $row['product']->categories->pluck('id')->map(fn ($id) => (int) $id)->all()
+                : $row['product']->categories()->pluck('categories.id')->map(fn ($id) => (int) $id)->all();
+            if ($row['product']->category_id) {
+                $categoryIds[] = (int) $row['product']->category_id;
+            }
+
             $lines[$key] = [
                 'key' => $key,
                 'index' => $index,
                 'product_id' => (int) $row['product']->id,
                 'variant_id' => $row['variant']?->id,
-                'category_id' => $row['product']->category_id ? (int) $row['product']->category_id : null,
+                'category_ids' => array_values(array_unique($categoryIds)),
                 'quantity' => (int) $row['quantity'],
                 'unit_price' => round((float) $row['unitPrice'], 2),
                 'line_subtotal' => $subtotal,
@@ -56,90 +59,60 @@ class PromotionService
 
         $applied = [];
         $rejected = [];
-        $shippingRemaining = $shippingOriginal;
-        $shippingDiscountTotal = 0.0;
-        $hasNonStackable = false;
 
         foreach ($coupons as $coupon) {
-            if ($hasNonStackable && ! $coupon->stackable) {
-                $rejected[] = ['code' => $coupon->code, 'reason' => 'Another non-stackable coupon is already applied.'];
-                continue;
-            }
-
             $eligibility = $this->validateEligibility($coupon, $subtotal, $validatedItems, $paymentMethod, $district, $customerId, $guestEmail, $guestPhone, $couponCodes);
             if (! $eligibility['ok']) {
                 $rejected[] = ['code' => $coupon->code, 'reason' => $eligibility['reason']];
                 continue;
             }
 
-            $scope = $coupon->discount_scope ?: 'items';
-            $type = strtolower((string) $coupon->type);
-            $application = [
+            $eligibleKeys = array_values(array_filter(
+                array_keys($lines),
+                fn (string $key): bool => $this->lineEligible($coupon, $lines[$key]),
+            ));
+            $eligibleBase = round(array_sum(array_map(fn (string $key): float => (float) $lines[$key]['remaining_subtotal'], $eligibleKeys)), 2);
+            $allocations = $this->computeLineDiscounts($coupon, $eligibleKeys, $lines);
+            $discount = round(array_sum($allocations), 2);
+
+            if ($discount <= 0 || $eligibleBase <= 0) {
+                $rejected[] = ['code' => $coupon->code, 'reason' => 'No eligible product amount is available for this promotion.'];
+                continue;
+            }
+            foreach ($allocations as $key => $amount) {
+                if ($amount <= 0) {
+                    continue;
+                }
+                $lines[$key]['discount_total'] = round($lines[$key]['discount_total'] + $amount, 2);
+                $lines[$key]['remaining_subtotal'] = round(max(0, $lines[$key]['remaining_subtotal'] - $amount), 2);
+                $lines[$key]['discounts'][] = [
+                    'coupon_id' => $coupon->id,
+                    'code' => $coupon->code,
+                    'amount' => round($amount, 2),
+                    'type' => $coupon->type,
+                ];
+            }
+
+            $itemDiscount = round(array_sum($allocations), 2);
+            $applied[] = [
                 'coupon_id' => $coupon->id,
                 'code' => $coupon->code,
                 'title' => $coupon->title,
                 'promotion_type' => $coupon->promotion_type,
                 'visibility' => $coupon->visibility,
-                'discount_scope' => $scope,
-                'type' => $type,
+                'discount_scope' => 'items',
+                'type' => strtolower((string) $coupon->type),
                 'value' => (float) $coupon->value,
-                'base_amount' => 0.0,
-                'item_discount_amount' => 0.0,
+                'base_amount' => $eligibleBase,
+                'item_discount_amount' => $itemDiscount,
                 'shipping_discount_amount' => 0.0,
-                'discount_amount' => 0.0,
+                'discount_amount' => $itemDiscount,
             ];
-
-            if ($scope === 'shipping' || $type === 'free_shipping') {
-                $base = $shippingRemaining;
-                $discount = $this->computeDiscount($coupon, $base);
-                $discount = min($discount, $shippingRemaining);
-                if ($discount <= 0) {
-                    $rejected[] = ['code' => $coupon->code, 'reason' => 'No shipping amount left to discount.'];
-                    continue;
-                }
-                $shippingRemaining = round($shippingRemaining - $discount, 2);
-                $shippingDiscountTotal = round($shippingDiscountTotal + $discount, 2);
-                $application['base_amount'] = round($base, 2);
-                $application['shipping_discount_amount'] = round($discount, 2);
-                $application['discount_amount'] = round($discount, 2);
-            } else {
-                $eligibleKeys = array_values(array_filter(array_keys($lines), fn (string $key): bool => $this->lineEligible($coupon, $lines[$key])));
-                $eligibleBase = round(array_sum(array_map(fn (string $key): float => (float) $lines[$key]['remaining_subtotal'], $eligibleKeys)), 2);
-                $discount = $this->computeDiscount($coupon, $eligibleBase);
-                $discount = min($discount, $eligibleBase);
-                if ($discount <= 0 || $eligibleBase <= 0) {
-                    $rejected[] = ['code' => $coupon->code, 'reason' => 'No eligible item amount left to discount.'];
-                    continue;
-                }
-
-                $allocations = $this->allocateDiscount($discount, $eligibleKeys, $lines);
-                foreach ($allocations as $key => $amount) {
-                    $lines[$key]['discount_total'] = round($lines[$key]['discount_total'] + $amount, 2);
-                    $lines[$key]['remaining_subtotal'] = round(max(0, $lines[$key]['remaining_subtotal'] - $amount), 2);
-                    $lines[$key]['discounts'][] = [
-                        'coupon_id' => $coupon->id,
-                        'code' => $coupon->code,
-                        'amount' => round($amount, 2),
-                    ];
-                }
-                $application['base_amount'] = round($eligibleBase, 2);
-                $application['item_discount_amount'] = round(array_sum($allocations), 2);
-                $application['discount_amount'] = $application['item_discount_amount'];
-            }
-
-            $applied[] = $application;
-            if (! $coupon->stackable) {
-                $hasNonStackable = true;
-            }
-            if ($coupon->stop_further_promotions) {
-                break;
-            }
         }
 
         $itemDiscountTotal = round(array_sum(array_map(fn (array $line): float => (float) $line['discount_total'], $lines)), 2);
-        $discountTotal = round($itemDiscountTotal + $shippingDiscountTotal, 2);
         $netSubtotal = round(max(0, $subtotal - $itemDiscountTotal), 2);
-        $shippingTotal = round(max(0, $shippingOriginal - $shippingDiscountTotal), 2);
+        $shippingTotal = $shippingOriginal;
         $grandTotal = round(max(0, $netSubtotal + $shippingTotal + $tax), 2);
 
         foreach ($lines as &$line) {
@@ -156,25 +129,14 @@ class PromotionService
             'shipping_total' => $shippingTotal,
             'net_subtotal' => $netSubtotal,
             'item_discount_total' => $itemDiscountTotal,
-            'shipping_discount_total' => $shippingDiscountTotal,
-            'discount_total' => $discountTotal,
+            'shipping_discount_total' => 0.0,
+            'discount_total' => $itemDiscountTotal,
             'grand_total' => $grandTotal,
             'coupon_codes' => array_values(array_unique(array_filter(array_map(fn ($row) => $row['code'] ?? null, $applied)))),
             'applied_promotions' => $applied,
             'rejected_promotions' => $rejected,
             'line_allocations' => $lines,
         ];
-    }
-
-    public function validateCouponForCart(string $code, array $validatedItems, array $checkoutData, ?int $customerId = null): array
-    {
-        $checkoutData['coupon_code'] = $code;
-        $quote = $this->quote($validatedItems, $checkoutData, $customerId);
-        $applied = collect($quote['applied_promotions'])->firstWhere('code', strtoupper(trim($code)));
-        if (! $applied) {
-            throw new RuntimeException($quote['rejected_promotions'][0]['reason'] ?? 'Coupon is not valid for this cart.');
-        }
-        return $quote;
     }
 
     public function persistApplications(Order $order, array $quote, ?int $customerId = null, ?string $guestEmail = null, ?string $guestPhone = null): void
@@ -190,7 +152,7 @@ class PromotionService
                     'discount_scope' => $application['discount_scope'] ?? null,
                     'base_amount' => $application['base_amount'] ?? 0,
                     'item_discount_amount' => $application['item_discount_amount'] ?? 0,
-                    'shipping_discount_amount' => $application['shipping_discount_amount'] ?? 0,
+                    'shipping_discount_amount' => 0,
                     'discount_amount' => $application['discount_amount'] ?? 0,
                     'snapshot' => $application,
                 ]);
@@ -215,7 +177,12 @@ class PromotionService
     public function publicPromotions(): Collection
     {
         return Coupon::active()
+            ->where('promotion_type', 'public_sale')
             ->where('visibility', 'public')
+            ->whereIn('type', ['fixed', 'percent'])
+            ->where(function ($q): void {
+                $q->whereNull('discount_scope')->orWhere('discount_scope', '!=', 'shipping');
+            })
             ->orderBy('priority')
             ->orderByDesc('value')
             ->get();
@@ -226,14 +193,23 @@ class PromotionService
         $requestedCodes = array_values(array_unique(array_map('strtoupper', $requestedCodes)));
 
         return Coupon::active()
+            ->whereIn('type', ['fixed', 'percent'])
+            ->where(function ($q): void {
+                $q->whereNull('discount_scope')->orWhere('discount_scope', '!=', 'shipping');
+            })
             ->where(function ($q) use ($requestedCodes): void {
                 $q->where(function ($auto): void {
-                    $auto->where('visibility', 'public')->where('auto_apply', true);
+                    $auto->where('promotion_type', 'public_sale')
+                        ->where('visibility', 'public')
+                        ->where('auto_apply', true);
                 });
                 if ($requestedCodes) {
-                    $q->orWhereIn('code', $requestedCodes);
+                    $q->orWhere(function ($coupon) use ($requestedCodes): void {
+                        $coupon->where('promotion_type', 'coupon')->whereIn('code', $requestedCodes);
+                    });
                 }
             })
+            ->orderByRaw("CASE WHEN promotion_type = 'public_sale' THEN 0 ELSE 1 END")
             ->orderBy('priority')
             ->orderByDesc('value')
             ->get()
@@ -255,23 +231,14 @@ class PromotionService
 
     private function validateEligibility(Coupon $coupon, float $subtotal, array $items, string $paymentMethod, ?string $district, ?int $customerId, string $guestEmail, string $guestPhone, array $requestedCodes): array
     {
-        if ($coupon->visibility === 'private' && ! in_array(strtoupper($coupon->code), $requestedCodes, true)) {
-            return ['ok' => false, 'reason' => 'Private coupon code is required.'];
+        if ($coupon->promotion_type === 'coupon' && ! in_array(strtoupper((string) $coupon->code), $requestedCodes, true)) {
+            return ['ok' => false, 'reason' => 'Coupon code is required at checkout.'];
         }
         if ($subtotal < (float) $coupon->min_order_amount) {
             return ['ok' => false, 'reason' => 'Minimum order amount has not been reached.'];
         }
         if ($coupon->minimum_items && collect($items)->sum('quantity') < $coupon->minimum_items) {
             return ['ok' => false, 'reason' => 'Minimum item quantity has not been reached.'];
-        }
-        if (! empty($coupon->payment_methods) && ! in_array($paymentMethod, array_map('strtolower', $coupon->payment_methods), true)) {
-            return ['ok' => false, 'reason' => 'Coupon is not valid for this payment method.'];
-        }
-        if (! empty($coupon->included_districts) && $district && ! in_array($district, $coupon->included_districts, true)) {
-            return ['ok' => false, 'reason' => 'Coupon is not valid for this district.'];
-        }
-        if (! empty($coupon->excluded_districts) && $district && in_array($district, $coupon->excluded_districts, true)) {
-            return ['ok' => false, 'reason' => 'Coupon is excluded for this district.'];
         }
         if ($coupon->first_order_only && $customerId && Order::where('customer_id', $customerId)->exists()) {
             return ['ok' => false, 'reason' => 'Coupon is only valid on first order.'];
@@ -295,61 +262,70 @@ class PromotionService
 
     private function lineEligible(Coupon $coupon, array $line): bool
     {
-        if (! empty($coupon->included_product_ids) && ! in_array($line['product_id'], array_map('intval', $coupon->included_product_ids), true)) {
+        // A product line can receive one promotion only; public sale + coupon never stack.
+        if (! empty($line['discounts'])) {
             return false;
         }
-        if (! empty($coupon->excluded_product_ids) && in_array($line['product_id'], array_map('intval', $coupon->excluded_product_ids), true)) {
+
+        // User rule: when promotion value is n, products priced below n get no discount.
+        if ((float) $line['unit_price'] < (float) $coupon->value) {
             return false;
         }
-        if (! empty($coupon->included_category_ids) && ! in_array((int) $line['category_id'], array_map('intval', $coupon->included_category_ids), true)) {
-            return false;
-        }
-        if (! empty($coupon->excluded_category_ids) && in_array((int) $line['category_id'], array_map('intval', $coupon->excluded_category_ids), true)) {
-            return false;
+
+        $target = $coupon->applicable_to ?: 'all';
+        if ($target === 'product') {
+            $productIds = array_map('intval', $coupon->included_product_ids ?? []);
+            if (! in_array((int) $line['product_id'], $productIds, true)) {
+                return false;
+            }
+        } elseif ($target === 'category') {
+            $categoryIds = array_map('intval', $coupon->included_category_ids ?? []);
+            if (! array_intersect($categoryIds, array_map('intval', $line['category_ids'] ?? []))) {
+                return false;
+            }
         }
 
         return (float) $line['remaining_subtotal'] > 0;
     }
 
-    private function computeDiscount(Coupon $coupon, float $base): float
+    private function computeLineDiscounts(Coupon $coupon, array $eligibleKeys, array $lines): array
     {
-        $base = max(0, $base);
-        $type = strtolower((string) $coupon->type);
         $value = (float) $coupon->value;
-
-        $discount = match ($type) {
-            'percent' => round($base * ($value / 100), 2),
-            'free_shipping' => $base,
-            default => min($base, round($value, 2)),
-        };
-
-        if ($coupon->max_discount_amount !== null) {
-            $discount = min($discount, (float) $coupon->max_discount_amount);
-        }
-
-        return round(max(0, min($discount, $base)), 2);
-    }
-
-    private function allocateDiscount(float $discount, array $eligibleKeys, array $lines): array
-    {
-        $base = round(array_sum(array_map(fn (string $key): float => (float) $lines[$key]['remaining_subtotal'], $eligibleKeys)), 2);
-        if ($base <= 0 || $discount <= 0) {
-            return [];
-        }
-
+        $percent = strtolower((string) $coupon->type) === 'percent';
         $allocations = [];
+
+        foreach ($eligibleKeys as $key) {
+            $base = (float) $lines[$key]['remaining_subtotal'];
+            $amount = $percent
+                ? round($base * ($value / 100), 2)
+                : round($value * (int) $lines[$key]['quantity'], 2);
+            $allocations[$key] = round(max(0, min($amount, $base)), 2);
+        }
+
+        $total = round(array_sum($allocations), 2);
+        if ($coupon->max_discount_amount === null || $total <= (float) $coupon->max_discount_amount) {
+            return $allocations;
+        }
+
+        // Preserve the existing optional campaign cap without changing per-product eligibility.
+        $cap = round(max(0, (float) $coupon->max_discount_amount), 2);
+        if ($cap <= 0 || $total <= 0) {
+            return array_fill_keys($eligibleKeys, 0.0);
+        }
+
+        $scaled = [];
         $allocated = 0.0;
-        foreach ($eligibleKeys as $i => $key) {
-            if ($i === count($eligibleKeys) - 1) {
-                $amount = round($discount - $allocated, 2);
+        foreach ($eligibleKeys as $index => $key) {
+            if ($index === count($eligibleKeys) - 1) {
+                $amount = round($cap - $allocated, 2);
             } else {
-                $amount = round($discount * ((float) $lines[$key]['remaining_subtotal'] / $base), 2);
+                $amount = round($cap * ((float) $allocations[$key] / $total), 2);
                 $allocated += $amount;
             }
-            $allocations[$key] = min($amount, (float) $lines[$key]['remaining_subtotal']);
+            $scaled[$key] = round(max(0, min($amount, (float) $allocations[$key])), 2);
         }
 
-        return $allocations;
+        return $scaled;
     }
 
     public function lineKey(int $productId, ?int $variantId): string

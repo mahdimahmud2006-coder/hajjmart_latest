@@ -20,7 +20,7 @@ interface PDPClientProps {
 
 export function PDPClient({ product, relatedProducts }: PDPClientProps) {
   const router = useRouter();
-  const { wishlist, toggleWishlist, addToCart, notify } = useStore();
+  const { wishlist, toggleWishlist, addToCart, token } = useStore();
 
   const [selectedVariant, setSelectedVariant] = useState<ProductVariant | null>(null);
   const [quantity, setQuantity] = useState(1);
@@ -58,7 +58,6 @@ export function PDPClient({ product, relatedProducts }: PDPClientProps) {
 
     setShowValidationError(false);
     addToCart(product, selectedVariant, quantity);
-    notify(`"${product.name}" কার্টে যোগ করা হয়েছে।`, "success");
   };
 
   const handleBuyNow = () => {
@@ -72,13 +71,7 @@ export function PDPClient({ product, relatedProducts }: PDPClientProps) {
   };
 
   const handleToggleWishlist = () => {
-    toggleWishlist(product.id);
-    notify(
-      isSaved
-        ? `"${product.name}" পছন্দের তালিকা থেকে সরানো হয়েছে।`
-        : `"${product.name}" পছন্দের তালিকায় যোগ করা হয়েছে।`,
-      "neutral"
-    );
+    toggleWishlist(product.id, product.name);
   };
 
   return (
@@ -187,26 +180,28 @@ export function PDPClient({ product, relatedProducts }: PDPClientProps) {
               </Button>
             </div>
 
-            {/* Wishlist Toggle Button */}
-            <button
-              type="button"
-              onClick={handleToggleWishlist}
-              className="flex items-center justify-center gap-2 py-3 text-[18px] font-bold text-[#5B5650] hover:text-[#B3261E] border border-[#DDD6C7] rounded-[8px] transition-colors focus:outline-none"
-            >
-              <Heart className={`w-5 h-5 ${isSaved ? "fill-[#B3261E] text-[#B3261E]" : ""}`} />
-              <span>{isSaved ? "পছন্দের তালিকায় সংরক্ষিত" : "পছন্দের তালিকায় রাখুন"}</span>
-            </button>
+            {/* Wishlist is account-specific; guests do not see favourite controls. */}
+            {token && (
+              <button
+                type="button"
+                onClick={handleToggleWishlist}
+                className="flex items-center justify-center gap-2 py-3 text-[16px] sm:text-[18px] font-bold text-[#5B5650] hover:text-[#B3261E] border border-[#DDD6C7] rounded-[8px] transition-colors focus:outline-none"
+              >
+                <Heart className={`w-5 h-5 shrink-0 ${isSaved ? "fill-[#B3261E] text-[#B3261E]" : ""}`} />
+                <span className="min-w-0 text-center">{isSaved ? "পছন্দের তালিকায় সংরক্ষিত" : "পছন্দের তালিকায় রাখুন"}</span>
+              </button>
+            )}
           </div>
 
           {/* Reassurance Badges */}
-          <div className="grid grid-cols-2 gap-2 mt-4 pt-4 border-t border-[#DDD6C7] text-[16px] text-[#5B5650]">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-4 pt-4 border-t border-[#DDD6C7] text-[16px] text-[#5B5650]">
             <div className="flex items-center gap-2">
               <Truck className="w-5 h-5 text-[#1F5D42]" />
               <span>সারাদেশে ক্যাশ অন ডেলিভারি</span>
             </div>
             <div className="flex items-center gap-2">
               <ShieldCheck className="w-5 h-5 text-[#1F5D42]" />
-              <span>৭ দিনের রিটার্ন গ্যারান্টি</span>
+              <span>নিরাপদ ও যত্নশীল প্যাকেজিং</span>
             </div>
           </div>
         </div>

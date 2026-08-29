@@ -30,7 +30,7 @@ export default function AdminLoginPage() {
   return <main className="admin-login-page">
     <div className="admin-login-language"><button type="button" className="admin-language-toggle" onClick={toggleLanguage}><AdminIcon name="language"/><span>{language === "en" ? "EN / বাংলা" : "বাংলা / EN"}</span></button></div>
     <section className="admin-login-card">
-      <div className="admin-login-logo"><Image src="/images/brand/hajjmart-logo.svg" alt="HajjMart" width={140} height={52} priority/></div>
+      <div className="admin-login-logo"><Image src="/images/brand/hajjmart-logo.png" alt="Hajj Mart" width={1200} height={625} priority/></div>
       <div className="admin-login-heading"><h1>{t("login.title")}</h1><p>{t("login.copy")}</p></div>
       <form className="admin-login-form" onSubmit={submit}>
         {error && <div className="admin-form-error" role="alert"><AdminIcon name="warning"/><span>{error}</span></div>}

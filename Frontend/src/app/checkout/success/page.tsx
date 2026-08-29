@@ -37,7 +37,7 @@ function SuccessContent() {
 
       {/* Printable Invoice Summary Card */}
       <Card id="printable-invoice" bordered className="w-full my-8 p-6 text-left bg-[#FFFDF8]">
-        <div className="flex items-center justify-between border-b border-[#DDD6C7] pb-3 mb-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#DDD6C7] pb-3 mb-4">
           <div>
             <span className="text-[14px] text-[#5B5650] block">অর্ডার ইনভয়েস নম্বর:</span>
             <span className="text-[22px] font-bold text-[#1F5D42] font-mono">{order}</span>
@@ -48,14 +48,14 @@ function SuccessContent() {
           </div>
         </div>
 
-        <div className="flex items-center justify-between border-b border-[#DDD6C7] pb-3 mb-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#DDD6C7] pb-3 mb-4">
           <span className="text-[18px] text-[#5B5650]">মোট মূল্য:</span>
           <span className="text-[22px] font-bold text-[#1A1A1A]">
             ৳{Number(total).toLocaleString("en-US")}
           </span>
         </div>
 
-        <div className="flex items-center justify-between border-b border-[#DDD6C7] pb-3 mb-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#DDD6C7] pb-3 mb-4">
           <span className="text-[18px] text-[#5B5650]">পেমেন্ট পদ্ধতি:</span>
           <span className="text-[18px] font-bold text-[#1A1A1A]">
             {isCod ? "ক্যাশ অন ডেলিভারি (COD)" : "অনলাইন পেমেন্ট (SSLCommerz / Stripe)"}

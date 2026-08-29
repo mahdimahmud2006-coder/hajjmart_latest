@@ -206,7 +206,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
   if (pathname === "/admin/pos" || pathname.startsWith("/admin/pos/")) {
     return <div className="admin-pos-mode-shell">
-      <div className="admin-pos-mode-bar"><div className="admin-pos-brand"><Image src="/images/brand/hajjmart-logo.svg" alt="HajjMart" width={108} height={40}/><strong>{t("pos.label")}</strong></div><Link href="/admin" className="admin-pos-exit"><AdminIcon name="arrow"/><span>{t("shell.exitPos")}</span></Link></div>
+      <div className="admin-pos-mode-bar"><div className="admin-pos-brand"><Image src="/images/brand/hajjmart-logo.png" alt="Hajj Mart" width={1200} height={625}/><strong>{t("pos.label")}</strong></div><Link href="/admin" className="admin-pos-exit"><AdminIcon name="arrow"/><span>{t("shell.exitPos")}</span></Link></div>
       <main className="admin-pos-mode-content">{children}</main>
     </div>;
   }
@@ -215,7 +215,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
   return <div className="admin-app">
     <aside className="admin-sidebar">
-      <div className="admin-brand"><Link href="/admin" aria-label={t("shell.dashboardLabel")}><Image src="/images/brand/hajjmart-logo.svg" alt="HajjMart" width={128} height={46} priority/></Link></div>
+      <div className="admin-brand"><Link href="/admin" aria-label={t("shell.dashboardLabel")}><Image src="/images/brand/hajjmart-logo.png" alt="Hajj Mart" width={1200} height={625} priority/></Link></div>
       <label className="admin-store-card">
         <span>{t("shell.store")}</span>
         <select value={selectedStoreId} onChange={(event) => setSelectedStoreId(event.target.value === "all" ? "all" : Number(event.target.value))}>
@@ -231,7 +231,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
     <div className="admin-main">
       <header className="admin-topbar">
-        <div className="admin-mobile-title"><Image src="/images/brand/hajjmart-logo.svg" alt="HajjMart" width={88} height={32}/><strong>{activeItem ? t(activeItem.labelKey) : t("nav.more")}</strong></div>
+        <div className="admin-mobile-title"><Image src="/images/brand/hajjmart-logo.png" alt="Hajj Mart" width={1200} height={625}/><strong>{activeItem ? t(activeItem.labelKey) : t("nav.more")}</strong></div>
         <GlobalAdminSearch token={token} demoMode={demoMode} selectedStoreId={selectedStoreId}/>
         <div className="admin-topbar-right">
           <label className="admin-compact-store"><span>{t("shell.store")}</span><select value={selectedStoreId} onChange={(event) => setSelectedStoreId(event.target.value === "all" ? "all" : Number(event.target.value))}><option value="all">{t("shell.allStores")}</option>{stores.map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}</select></label>

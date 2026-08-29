@@ -2,6 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { Button, Badge } from "@/components/ui/storefront-primitives";
 import { ArrowRight, Sparkles } from "lucide-react";
 
@@ -31,7 +32,6 @@ export function HeroBanner({ slides }: HeroBannerProps) {
   return (
     <section className="bg-[#FBF8F1] border-b border-[#DDD6C7] py-8 px-4 lg:py-12">
       <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
-        {/* Hero Left Content Column */}
         <div className="lg:col-span-7 flex flex-col gap-4 text-left">
           <div>
             <Badge variant="gold-tint" icon={<Sparkles className="w-4 h-4" />}>
@@ -61,19 +61,18 @@ export function HeroBanner({ slides }: HeroBannerProps) {
           </div>
         </div>
 
-        {/* Hero Right Visual Column */}
         <div className="lg:col-span-5 flex justify-center">
           <div className="relative w-full max-w-[480px] aspect-square bg-[#FFFDF8] rounded-[16px] border border-[#DDD6C7] p-4 shadow-md overflow-hidden">
-            <img
-              src={activeSlide.image_url}
-              alt="Hajj & Umrah Essentials Showcase"
-              className="w-full h-full object-cover rounded-[12px]"
-              onError={(e) => {
-                // Fallback image if remote CDN fails
-                (e.target as HTMLImageElement).src =
-                  "https://images.unsplash.com/photo-1591604466107-ec97de577aff?auto=format&fit=crop&w=600&q=80";
-              }}
-            />
+            <div className="relative w-full h-full rounded-[12px] bg-[#F5F1E8]">
+              <Image
+                src="/images/brand/hajjmart-mark.png"
+                alt="Hajj Mart logo"
+                fill
+                priority
+                className="object-contain p-10 sm:p-12"
+                sizes="(max-width: 1024px) 100vw, 480px"
+              />
+            </div>
           </div>
         </div>
       </div>

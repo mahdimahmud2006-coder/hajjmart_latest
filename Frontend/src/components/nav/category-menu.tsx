@@ -105,7 +105,7 @@ export function CategoryNav({ isOpenMobile, onCloseMobile }: CategoryMenuProps) 
 
       {/* Mobile Drawer Overlay (<1024px) */}
       {isOpenMobile && (
-        <div className="fixed inset-0 z-50 flex lg:hidden">
+        <div className="fixed inset-x-0 top-0 bottom-[60px] z-50 flex lg:hidden">
           <div
             className="fixed inset-0 bg-black/50 backdrop-blur-xs"
             onClick={onCloseMobile}

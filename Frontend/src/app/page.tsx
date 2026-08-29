@@ -5,7 +5,6 @@ import { HeroBanner } from "@/components/home/hero-banner";
 import { TrustBar } from "@/components/home/trust-bar";
 import { FeaturedCategories } from "@/components/home/featured-categories";
 import { ProductCard } from "@/components/product/product-card";
-import { CustomerTrust } from "@/components/home/customer-trust";
 import { Flame, Award, Sparkles, ArrowRight } from "lucide-react";
 
 export const revalidate = 60; // Revalidate data every minute
@@ -134,8 +133,6 @@ export default async function HomePage() {
         </section>
       )}
 
-      {/* 7. Customer Reviews & Shariah Trust */}
-      <CustomerTrust />
     </div>
   );
 }

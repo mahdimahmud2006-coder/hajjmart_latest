@@ -11,12 +11,11 @@ interface CartLineItemProps {
 }
 
 export function CartLineItem({ item }: CartLineItemProps) {
-  const { updateQuantity, removeFromCart, toggleWishlist, notify } = useStore();
+  const { updateQuantity, removeFromCart, toggleWishlist, token } = useStore();
 
   const handleSaveForLater = () => {
-    toggleWishlist(item.productId);
+    toggleWishlist(item.productId, item.name);
     removeFromCart(item.key);
-    notify(`"${item.name}" পছন্দের তালিকায় রাখা হয়েছে।`, "neutral");
   };
 
   return (
@@ -45,16 +44,20 @@ export function CartLineItem({ item }: CartLineItemProps) {
             </span>
           )}
 
-          <div className="flex items-center gap-3 mt-2 text-[14px] text-[#5B5650]">
-            <button
-              type="button"
-              onClick={handleSaveForLater}
-              className="hover:text-[#1F5D42] flex items-center gap-1 font-bold focus:outline-none"
-            >
-              <Heart className="w-4 h-4" />
-              <span>পছন্দের তালিকায় রাখুন</span>
-            </button>
-            <span>•</span>
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-2 text-[14px] text-[#5B5650]">
+            {token && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleSaveForLater}
+                  className="hover:text-[#1F5D42] flex items-center gap-1 font-bold focus:outline-none"
+                >
+                  <Heart className="w-4 h-4" />
+                  <span>পছন্দের তালিকায় রাখুন</span>
+                </button>
+                <span>•</span>
+              </>
+            )}
             <button
               type="button"
               onClick={() => removeFromCart(item.key)}

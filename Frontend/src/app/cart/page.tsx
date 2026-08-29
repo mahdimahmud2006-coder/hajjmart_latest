@@ -5,12 +5,11 @@ import Link from "next/link";
 import { useStore } from "@/context/store-context";
 import { CartLineItem } from "@/components/cart/cart-line-item";
 import { CartSummary } from "@/components/cart/cart-summary";
-import { FreeShippingProgress } from "@/components/cart/free-shipping-progress";
 import { Button } from "@/components/ui/storefront-primitives";
 import { ShoppingBag, ArrowLeft, Trash2 } from "lucide-react";
 
 export default function FullCartPage() {
-  const { cart, cartCount, cartSubtotal, clearCart } = useStore();
+  const { cart, cartCount, clearCart } = useStore();
 
   if (cart.length === 0) {
     return (
@@ -36,7 +35,7 @@ export default function FullCartPage() {
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 w-full">
       {/* Page Header */}
-      <div className="flex items-center justify-between border-b border-[#DDD6C7] pb-4 mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-[#DDD6C7] pb-4 mb-6">
         <div>
           <h1 className="text-[26px] sm:text-[32px] font-bold text-[#1A1A1A]">
             আপনার কার্ট <span className="text-[#1F5D42]">({cartCount}টি পণ্য)</span>
@@ -55,9 +54,6 @@ export default function FullCartPage() {
           <span>কার্ট খালি করুন</span>
         </button>
       </div>
-
-      {/* Free Shipping Progress Indicator */}
-      <FreeShippingProgress subtotal={cartSubtotal} />
 
       {/* 2-Column Grid (Left: Line Items, Right: Order Summary) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
@@ -79,7 +75,7 @@ export default function FullCartPage() {
         </div>
 
         {/* Right Column: Order Summary (5 Cols) */}
-        <div className="lg:col-span-5 sticky top-24">
+        <div className="lg:col-span-5 lg:sticky lg:top-24">
           <CartSummary />
         </div>
       </div>

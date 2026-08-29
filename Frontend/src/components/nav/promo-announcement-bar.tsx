@@ -19,8 +19,8 @@ export function PromoAnnouncementBar() {
   };
 
   return (
-    <div className="bg-[#1F5D42] text-white py-2 px-4 text-[14px] sm:text-[16px] font-bold flex items-center justify-center gap-3 border-b border-[#164430] text-center">
-      <div className="flex items-center gap-1.5 justify-center flex-wrap">
+    <div className="bg-[#1F5D42] text-white py-2 px-3 sm:px-4 text-[13px] sm:text-[16px] font-bold flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-3 border-b border-[#164430] text-center leading-snug">
+      <div className="flex items-center gap-1.5 justify-center flex-wrap min-w-0">
         <Sparkles className="w-4 h-4 text-[#B8860B] fill-[#B8860B] shrink-0" />
         <span>হজ্জ সিজন স্পেশাল: কুপন কোড </span>
         <span className="bg-[#B8860B] text-white px-2 py-0.5 rounded font-mono font-bold tracking-wide me-1">
@@ -32,7 +32,7 @@ export function PromoAnnouncementBar() {
       <button
         type="button"
         onClick={handleCopyCode}
-        className="px-2.5 py-1 bg-white/20 hover:bg-white/30 text-white rounded text-[12px] font-bold flex items-center gap-1 transition-colors shrink-0 focus:outline-none"
+        className="min-h-9 px-2.5 py-1 bg-white/20 hover:bg-white/30 text-white rounded text-[12px] font-bold flex items-center gap-1 transition-colors shrink-0 focus:outline-none"
       >
         {copied ? (
           <>

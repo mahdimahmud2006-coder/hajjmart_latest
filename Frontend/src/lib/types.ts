@@ -132,6 +132,6 @@ export type User = {
   name_bn?: string | null;
   id: number;
   name: string;
-  email: string;
+  email?: string | null;
   phone?: string | null;
 };

@@ -92,7 +92,7 @@ export function PDPGallery({
 
       {/* Lightbox Modal Overlay */}
       {isLightboxOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[70] bg-black/80 backdrop-blur-xs flex items-center justify-center p-4">
           <button
             type="button"
             onClick={() => setIsLightboxOpen(false)}

@@ -11,7 +11,7 @@ import { useStore } from "@/context/store-context";
 function PaymentFailedContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { notify } = useStore();
+  const { notify, token } = useStore();
 
   const orderNumber = searchParams.get("order") || "HM-2026-88401";
   const grandTotal = searchParams.get("total") || "3020";
@@ -24,7 +24,7 @@ function PaymentFailedContent() {
     try {
       setLoadingRetry(true);
       notify("পেমেন্ট গেটওয়েতে পুনরায় যুক্ত করা হচ্ছে...", "neutral");
-      const res = await initiatePayment(orderNumber, "sslcommerz");
+      const res = await initiatePayment(orderNumber, "sslcommerz", token);
       if (res.redirect_url) {
         window.location.href = res.redirect_url;
         return;
@@ -42,11 +42,14 @@ function PaymentFailedContent() {
     try {
       setLoadingCod(true);
       notify("অর্ডার ক্যাশ অন ডেলিভারিতে রূপান্তর করা হচ্ছে...", "neutral");
-      // Call order update endpoint to change payment method to cod
+      if (!token) {
+        notify("এই অর্ডার পরিবর্তন করতে আগে লগইন করুন।", "error");
+        return;
+      }
       await clientApi(`/orders/${orderNumber}/payment-method`, {
         method: "PUT",
         body: JSON.stringify({ payment_method: "cod" }),
-      }).catch(() => null);
+      }, token);
 
       notify("আপনার অর্ডারটি ক্যাশ অন ডেলিভারিতে সফলভাবে আপডেট হয়েছে!", "success");
       router.push(`/checkout/success?order=${orderNumber}&total=${grandTotal}&method=cod`);
@@ -73,7 +76,7 @@ function PaymentFailedContent() {
 
       {/* Order Details Overview Card */}
       <Card bordered className="w-full my-8 p-6 text-left bg-[#FFFDF8]">
-        <div className="flex items-center justify-between border-b border-[#DDD6C7] pb-3 mb-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#DDD6C7] pb-3 mb-4">
           <span className="text-[18px] text-[#5B5650]">অর্ডার নম্বর:</span>
           <span className="text-[20px] font-bold text-[#1F5D42] font-mono">{orderNumber}</span>
         </div>

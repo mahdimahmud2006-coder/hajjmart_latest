@@ -44,7 +44,7 @@ export function DesignSystemShowcase() {
           <Badge variant="success" icon="✅">স্টকে আছে — ২৪ ঘণ্টার মধ্যে শিপিং</Badge>
           <Badge variant="warning" icon="⚠️">মাত্র ৩টি বাকি আছে</Badge>
           <Badge variant="error" icon="❌">স্টক শেষ</Badge>
-          <Badge variant="primary-tint">ফ্রি ডেলিভারি</Badge>
+          <Badge variant="primary-tint">দ্রুত ডেলিভারি</Badge>
           <Badge variant="gold-tint">১৫% ছাড়</Badge>
           <Badge variant="neutral" onRemove={() => alert("Removed")}>সাইজ: L</Badge>
         </div>

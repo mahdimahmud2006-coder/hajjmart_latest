@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { searchProducts } from "@/lib/api";
+import { getCategories, getProductsPage } from "@/lib/api";
 import type { Category, Product } from "@/lib/types";
 import { Badge, PriceDisplay } from "@/components/ui/storefront-primitives";
 import { Search, X, History, ShoppingBag, Folder } from "lucide-react";
@@ -23,6 +23,7 @@ export function SearchBar({ placeholder, className = "", onSearchSubmit }: Searc
   const [loading, setLoading] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [allCategories, setAllCategories] = useState<Category[]>([]);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -36,6 +37,12 @@ export function SearchBar({ placeholder, className = "", onSearchSubmit }: Searc
     } catch {
       // Ignore storage errors
     }
+  }, []);
+
+  useEffect(() => {
+    getCategories()
+      .then((list) => setAllCategories(list || []))
+      .catch(() => setAllCategories([]));
   }, []);
 
   // Handle click outside to close autocomplete dropdown
@@ -61,10 +68,15 @@ export function SearchBar({ placeholder, className = "", onSearchSubmit }: Searc
 
     setLoading(true);
     const timer = setTimeout(() => {
-      searchProducts(trimmed)
-        .then((res) => {
-          setProducts(res.products.slice(0, 5));
-          setCategories(res.categories.slice(0, 3));
+      getProductsPage({ q: trimmed, per_page: 5 })
+        .then(({ products: matches }) => {
+          setProducts((matches || []).slice(0, 5));
+          const normalized = trimmed.toLowerCase();
+          setCategories(
+            allCategories
+              .filter((category) => category.name.toLowerCase().includes(normalized))
+              .slice(0, 3)
+          );
         })
         .catch(() => {
           setProducts([]);
@@ -76,7 +88,7 @@ export function SearchBar({ placeholder, className = "", onSearchSubmit }: Searc
     }, 250);
 
     return () => clearTimeout(timer);
-  }, [query]);
+  }, [query, allCategories]);
 
   const saveRecentSearch = (term: string) => {
     if (!term.trim()) return;
@@ -119,7 +131,9 @@ export function SearchBar({ placeholder, className = "", onSearchSubmit }: Searc
     <div ref={containerRef} className={`relative w-full ${className}`}>
       <form onSubmit={handleSubmit} className="relative w-full flex items-center">
         <input
-          type="search"
+          type="text"
+          inputMode="search"
+          enterKeyHint="search"
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
@@ -132,7 +146,13 @@ export function SearchBar({ placeholder, className = "", onSearchSubmit }: Searc
           aria-expanded={isOpen}
           aria-autocomplete="list"
         />
-        <Search className="absolute left-3.5 w-5.5 h-5.5 text-[#5B5650] pointer-events-none" />
+        <button
+          type="submit"
+          className="absolute left-2.5 p-1 text-[#5B5650] hover:text-[#1F5D42] focus:outline-none"
+          aria-label="Search products"
+        >
+          <Search className="w-5.5 h-5.5" />
+        </button>
 
         {query ? (
           <button

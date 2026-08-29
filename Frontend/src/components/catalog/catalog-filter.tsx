@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import type { Category } from "@/lib/types";
 import { Button, TextInput } from "@/components/ui/storefront-primitives";
 import { X, Filter, RotateCcw } from "lucide-react";
@@ -25,6 +25,11 @@ export function CatalogFilter({
 }: CatalogFilterProps) {
   const [minPrice, setMinPrice] = useState(filters.minPrice || "");
   const [maxPrice, setMaxPrice] = useState(filters.maxPrice || "");
+
+  useEffect(() => {
+    setMinPrice(filters.minPrice || "");
+    setMaxPrice(filters.maxPrice || "");
+  }, [filters.minPrice, filters.maxPrice]);
 
   const handlePriceApply = (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,11 +71,35 @@ export function CatalogFilter({
         </label>
       </div>
 
+      {/* Price Range Filter */}
+      <form onSubmit={handlePriceApply} className="flex flex-col gap-3 border-t border-[#DDD6C7] pt-4">
+        <h4 className="text-[18px] font-bold text-[#1A1A1A]">মূল্য পরিসীমা (৳)</h4>
+        <div className="grid grid-cols-2 gap-2">
+          <TextInput
+            label="সর্বনিম্ন"
+            type="number"
+            placeholder="0"
+            value={minPrice}
+            onChange={(e) => setMinPrice(e.target.value)}
+          />
+          <TextInput
+            label="সর্বোচ্চ"
+            type="number"
+            placeholder="5000"
+            value={maxPrice}
+            onChange={(e) => setMaxPrice(e.target.value)}
+          />
+        </div>
+        <Button variant="secondary" size="sm" type="submit" fullWidth>
+          মূল্য ফিল্টার করুন
+        </Button>
+      </form>
+
       {/* Categories Filter */}
       {categories.length > 0 && (
         <div className="flex flex-col gap-2 border-t border-[#DDD6C7] pt-4">
           <h4 className="text-[18px] font-bold text-[#1A1A1A]">ক্যাটাগরি</h4>
-          <div className="flex flex-col gap-1 max-h-[240px] overflow-y-auto pe-2">
+          <div className="flex flex-col gap-1 lg:max-h-[240px] lg:overflow-y-auto lg:pe-2">
             <button
               type="button"
               onClick={() => onFilterChange({ categorySlug: undefined, categoryName: undefined })}
@@ -104,29 +133,6 @@ export function CatalogFilter({
         </div>
       )}
 
-      {/* Price Range Filter */}
-      <form onSubmit={handlePriceApply} className="flex flex-col gap-3 border-t border-[#DDD6C7] pt-4">
-        <h4 className="text-[18px] font-bold text-[#1A1A1A]">মূল্য পরিসীমা (৳)</h4>
-        <div className="grid grid-cols-2 gap-2">
-          <TextInput
-            label="সর্বনিম্ন"
-            type="number"
-            placeholder="0"
-            value={minPrice}
-            onChange={(e) => setMinPrice(e.target.value)}
-          />
-          <TextInput
-            label="সর্বোচ্চ"
-            type="number"
-            placeholder="5000"
-            value={maxPrice}
-            onChange={(e) => setMaxPrice(e.target.value)}
-          />
-        </div>
-        <Button variant="secondary" size="sm" type="submit" fullWidth>
-          মূল্য ফিল্টার করুন
-        </Button>
-      </form>
     </div>
   );
 
@@ -139,7 +145,7 @@ export function CatalogFilter({
 
       {/* Mobile Bottom Sheet Drawer (<1024px) */}
       {isOpenMobile && (
-        <div className="fixed inset-0 z-50 flex flex-col justify-end lg:hidden">
+        <div className="fixed inset-x-0 top-0 bottom-[60px] z-50 flex flex-col justify-end lg:hidden">
           <div
             className="fixed inset-0 bg-black/50 backdrop-blur-xs"
             onClick={onCloseMobile}

@@ -20,7 +20,7 @@ class InventoryService
         $priceMode = strtolower($priceMode) === 'wholesale' ? 'wholesale' : 'retail';
         $validated = [];
         foreach ($items as $item) {
-            $product = Product::with(['productVariants'])->findOrFail($item['product_id']);
+            $product = Product::with(['productVariants', 'categories'])->findOrFail($item['product_id']);
             $variantId = $item['variant_id'] ?? null;
             $quantity = max(1, (int) ($item['quantity'] ?? 1));
             $variant = $variantId ? $product->productVariants->firstWhere('id', $variantId) : null;

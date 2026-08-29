@@ -22,38 +22,38 @@ function TrackOrderContent() {
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
 
-  const fetchTracking = async (ord: string, mob?: string) => {
-    if (!ord.trim()) return;
+  const fetchTracking = async (mob: string, ord?: string) => {
+    if (!mob.trim()) return;
     setLoading(true);
     setSearched(true);
     try {
-      const data = await trackOrder(ord.trim(), mob?.trim());
+      const data = await trackOrder(mob.trim(), ord?.trim());
       setTrackingData(data);
     } catch {
       setTrackingData(null);
-      notify("অর্ডার তথ্য পাওয়া যায়নি। অনুগ্রহ করে সঠিক অর্ডার নম্বর ও মোবাইল নম্বর দিন।", "error");
+      notify("অর্ডার তথ্য পাওয়া যায়নি। অনুগ্রহ করে সঠিক মোবাইল নম্বর এবং প্রযোজ্য হলে অর্ডার নম্বর দিন।", "error");
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    if (initialOrder) {
-      fetchTracking(initialOrder, initialMobile);
+    if (initialMobile) {
+      fetchTracking(initialMobile, initialOrder);
     }
   }, [initialOrder, initialMobile]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!orderNumber.trim()) {
-      notify("অনুগ্রহ করে আপনার অর্ডার নম্বর লিখুন।", "error");
+    if (!mobileNumber.trim()) {
+      notify("অনুগ্রহ করে আপনার মোবাইল নম্বর লিখুন।", "error");
       return;
     }
     const params = new URLSearchParams();
-    params.set("order", orderNumber.trim());
-    if (mobileNumber.trim()) params.set("phone", mobileNumber.trim());
+    params.set("phone", mobileNumber.trim());
+    if (orderNumber.trim()) params.set("order", orderNumber.trim());
     router.push(`/track-order?${params.toString()}`);
-    fetchTracking(orderNumber, mobileNumber);
+    fetchTracking(mobileNumber, orderNumber);
   };
 
   return (
@@ -65,7 +65,7 @@ function TrackOrderContent() {
           <span>অর্ডার ট্র্যাকিং (Order Tracker)</span>
         </h1>
         <p className="text-[18px] text-[#5B5650] mt-1">
-          আপনার অর্ডার নম্বর এবং মোবাইল নম্বর দিয়ে লাইভ পার্সেল স্ট্যাটাস ট্র্যাক করুন
+          আপনার মোবাইল নম্বর এবং চাইলে অর্ডার নম্বর দিয়ে লাইভ পার্সেল স্ট্যাটাস ট্র্যাক করুন
         </p>
       </div>
 
@@ -74,21 +74,21 @@ function TrackOrderContent() {
         <form onSubmit={handleSearchSubmit} className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-end">
           <div className="sm:col-span-5">
             <TextInput
-              label="অর্ডার নম্বর (Order ID)"
+              label="অর্ডার নম্বর (Order ID, ঐচ্ছিক)"
               placeholder="যেমন: HM-2026-88401"
               value={orderNumber}
               onChange={(e) => setOrderNumber(e.target.value)}
-              required
             />
           </div>
 
           <div className="sm:col-span-4">
             <TextInput
-              label="মোবাইল নম্বর (ঐচ্ছিক)"
+              label="মোবাইল নম্বর"
               type="tel"
               placeholder="01711000111"
               value={mobileNumber}
               onChange={(e) => setMobileNumber(e.target.value)}
+              required
             />
           </div>
 
@@ -165,10 +165,10 @@ function TrackOrderContent() {
           ) : (
             <Card bordered className="p-8 text-center bg-[#FFFDF8]">
               <p className="text-[18px] text-[#B3261E] font-bold">
-                ⚠️ দুঃখিত, প্রদত্ত নম্বরগুলোর জন্য কোনো অর্ডার পাওয়া যায়নি।
+                ⚠️ দুঃখিত, প্রদত্ত তথ্যের জন্য কোনো অর্ডার পাওয়া যায়নি।
               </p>
               <p className="text-[16px] text-[#5B5650] mt-1">
-                আপনার ইনভয়েসের অর্ডার নম্বর ও মোবাইল নম্বর পুনরায় চেক করুন।
+                আপনার মোবাইল নম্বর এবং প্রযোজ্য হলে অর্ডার নম্বর পুনরায় চেক করুন।
               </p>
             </Card>
           )}

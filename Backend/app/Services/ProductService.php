@@ -119,6 +119,7 @@ class ProductService
             'price_asc' => $query->orderByRaw("{$effectivePriceExpression} asc")->orderBy('products.id'),
             'price_desc' => $query->orderByRaw("{$effectivePriceExpression} desc")->orderBy('products.id'),
             'best_selling' => $query->orderByDesc('sold_count'),
+            'rating' => $query->orderByDesc('average_rating')->orderByDesc('review_count')->orderByDesc('products.created_at'),
             default => $query->latest('products.created_at'),
         };
 

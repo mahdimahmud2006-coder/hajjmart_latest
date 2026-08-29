@@ -65,4 +65,29 @@ class HajjMartApiTest extends TestCase
             ->assertJsonValidationErrors(['password']);
     }
 
+    public function test_customer_can_register_and_login_with_bangladesh_mobile_number(): void
+    {
+        $register = $this->postJson('/api/v1/auth/register', [
+            'name' => 'Phone Customer',
+            'email_or_phone' => '+8801713039318',
+            'password' => 'Password123!',
+            'password_confirmation' => 'Password123!',
+        ]);
+
+        $register
+            ->assertCreated()
+            ->assertJsonPath('data.user.phone', '01713039318')
+            ->assertJsonPath('data.user.email', null);
+
+        $this->postJson('/api/v1/auth/login', [
+            'email_or_phone' => '01713039318',
+            'password' => 'Password123!',
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.user.phone', '01713039318')
+            ->assertJsonStructure(['data' => ['token', 'user']]);
+    }
+
+
+
 }

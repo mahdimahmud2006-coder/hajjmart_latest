@@ -28,13 +28,13 @@ export function SortControls({
   ];
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-4 p-4 bg-[#FFFDF8] border border-[#DDD6C7] rounded-[8px] mb-4">
+    <div className="flex flex-wrap items-center justify-between gap-3 sm:gap-4 p-3 sm:p-4 bg-[#FFFDF8] border border-[#DDD6C7] rounded-[8px] mb-4">
       {/* Total items counter */}
-      <div className="text-[18px] font-bold text-[#1A1A1A]">
+      <div className="w-full sm:w-auto text-[16px] sm:text-[18px] font-bold text-[#1A1A1A]">
         মোট <span className="text-[#1F5D42]">{totalProducts}টি</span> পণ্য পাওয়া গেছে
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="w-full sm:w-auto flex flex-wrap items-center gap-2 sm:gap-3">
         {/* Mobile Filter Trigger Button (<1024px) */}
         {onOpenMobileFilter && (
           <Button
@@ -54,12 +54,12 @@ export function SortControls({
         )}
 
         {/* Sort Select Dropdown */}
-        <div className="flex items-center gap-2">
+        <div className="min-w-0 flex flex-1 sm:flex-initial items-center gap-2">
           <ArrowUpDown className="w-4 h-4 text-[#5B5650] shrink-0" />
           <select
             value={currentSort}
             onChange={(e) => onSortChange(e.target.value)}
-            className="min-h-[44px] px-3 py-2 text-[18px] text-[#1A1A1A] bg-[#FFFDF8] border border-[#DDD6C7] rounded-[6px] focus:outline-none focus:ring-2 focus:ring-[#1F5D42] cursor-pointer"
+            className="min-w-0 max-w-full flex-1 sm:flex-initial min-h-[44px] px-2 sm:px-3 py-2 text-[16px] sm:text-[18px] text-[#1A1A1A] bg-[#FFFDF8] border border-[#DDD6C7] rounded-[6px] focus:outline-none focus:ring-2 focus:ring-[#1F5D42] cursor-pointer"
             aria-label="Sort products"
           >
             {sortOptions.map((opt) => (

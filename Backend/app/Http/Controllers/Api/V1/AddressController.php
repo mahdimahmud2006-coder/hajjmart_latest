@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\UserAddress;
 use App\Support\ApiResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class AddressController extends Controller
@@ -14,7 +15,10 @@ class AddressController extends Controller
 
     public function index(Request $request)
     {
-        return $this->success($request->user()->addresses()->latest()->get(), 'Addresses retrieved.');
+        return $this->success(
+            $request->user()->addresses()->orderByDesc('is_default')->latest()->get(),
+            'Addresses retrieved.'
+        );
     }
 
     public function store(Request $request)
@@ -23,15 +27,23 @@ class AddressController extends Controller
         $data['country'] = $data['country'] ?? 'Bangladesh';
         $data['mobile_number'] = $data['mobile_number'] ?? $data['phone'];
         $data['full_address'] = $data['full_address'] ?? $data['address_line_1'];
+        $data['address_line_1'] = $data['address_line_1'] ?? $data['full_address'];
 
-        if ($data['is_default'] ?? false) {
-            $request->user()->addresses()->update(['is_default' => false]);
-        }
+        $address = DB::transaction(function () use ($request, $data) {
+            $makeDefault = ! $request->user()->addresses()->exists() || ($data['is_default'] ?? false);
+            $data['is_default'] = $makeDefault;
 
-        $address = $request->user()->addresses()->create($data);
-        if ($address->is_default) {
-            $request->user()->update(['address_default_id' => $address->id]);
-        }
+            if ($makeDefault) {
+                $request->user()->addresses()->update(['is_default' => false]);
+            }
+
+            $address = $request->user()->addresses()->create($data);
+            if ($makeDefault) {
+                $request->user()->update(['address_default_id' => $address->id]);
+            }
+
+            return $address;
+        });
 
         return $this->success($address, 'Address created.', 201);
     }
@@ -44,26 +56,50 @@ class AddressController extends Controller
         if (isset($data['phone']) && ! isset($data['mobile_number'])) {
             $data['mobile_number'] = $data['phone'];
         }
+        if (isset($data['full_address']) && ! isset($data['address_line_1'])) {
+            $data['address_line_1'] = $data['full_address'];
+        }
         if (isset($data['address_line_1']) && ! isset($data['full_address'])) {
             $data['full_address'] = $data['address_line_1'];
         }
 
-        if ($data['is_default'] ?? false) {
-            $request->user()->addresses()->where('id', '!=', $address->id)->update(['is_default' => false]);
-        }
+        $address = DB::transaction(function () use ($request, $address, $data) {
+            if ($data['is_default'] ?? false) {
+                $request->user()->addresses()->where('id', '!=', $address->id)->update(['is_default' => false]);
+            }
 
-        $address->update($data);
-        if ($address->is_default) {
-            $request->user()->update(['address_default_id' => $address->id]);
-        }
+            $address->update($data);
+            if ($address->is_default) {
+                $request->user()->update(['address_default_id' => $address->id]);
+            }
 
-        return $this->success($address->fresh(), 'Address updated.');
+            return $address->fresh();
+        });
+
+        return $this->success($address, 'Address updated.');
     }
 
     public function destroy(Request $request, UserAddress $address)
     {
         abort_unless($address->user_id === $request->user()->id, 403);
-        $address->delete();
+
+        DB::transaction(function () use ($request, $address) {
+            $wasDefault = $address->is_default;
+            $address->delete();
+
+            if (! $wasDefault) {
+                return;
+            }
+
+            $replacement = $request->user()->addresses()->latest()->first();
+            if ($replacement) {
+                $replacement->update(['is_default' => true]);
+                $request->user()->update(['address_default_id' => $replacement->id]);
+            } else {
+                $request->user()->update(['address_default_id' => null]);
+            }
+        });
+
         return $this->success(null, 'Address deleted.');
     }
 
@@ -85,7 +121,7 @@ class AddressController extends Controller
             'city' => ['nullable', 'string', 'max:100'],
             'district' => [$required, 'string', Rule::in($districts)],
             'division' => ['nullable', 'string', Rule::in(config('hajjmart.divisions', []))],
-            'upazila' => ['nullable', 'string', 'max:100'],
+            'upazila' => [$required, 'string', 'max:100'],
             'area' => ['nullable', 'string', 'max:100'],
             'landmark' => ['nullable', 'string', 'max:200'],
             'postal_code' => ['nullable', 'string', 'max:10'],

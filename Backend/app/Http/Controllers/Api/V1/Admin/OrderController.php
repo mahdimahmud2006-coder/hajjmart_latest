@@ -102,6 +102,127 @@ class OrderController extends Controller
         ]), 'Order retrieved.');
     }
 
+    public function update(Request $request, Order $order)
+    {
+        $source = strtolower((string) $order->source_channel);
+        if ($source === 'ecommerce') {
+            $source = 'website';
+        }
+        if (! in_array($source, ['website', 'social_commerce'], true)) {
+            return $this->error('Only Website and Social Commerce orders can be edited.', 422);
+        }
+        if ($order->pathao_consignment_id) {
+            return $this->error('This order already has a Pathao consignment and can no longer be edited.', 422);
+        }
+        if (in_array(strtolower((string) $order->status), ['delivered', 'returned', 'cancelled'], true)) {
+            return $this->error('Completed, returned, or cancelled orders cannot be edited.', 422);
+        }
+
+        $data = $request->validate([
+            'customer_name' => ['required', 'string', 'max:150'],
+            'mobile_number' => ['required', 'string', 'max:30'],
+            'email' => ['nullable', 'email', 'max:150'],
+            'full_address' => ['required', 'string', 'max:1000'],
+            'district' => ['nullable', 'string', 'max:100'],
+            'source_reference' => ['nullable', 'string', 'max:150'],
+            'customer_note' => ['nullable', 'string', 'max:2000'],
+            'admin_note' => ['nullable', 'string', 'max:2000'],
+            'priority' => ['nullable', Rule::in(['low', 'normal', 'high', 'urgent'])],
+            'items' => ['sometimes', 'array', 'min:1'],
+            'items.*.product_id' => ['required_with:items', 'integer', 'exists:products,id'],
+            'items.*.variant_id' => ['nullable', 'integer', 'exists:product_variants,id'],
+            'items.*.quantity' => ['required_with:items', 'integer', 'min:1'],
+        ]);
+
+        $order->loadMissing('items');
+        $before = $order->only([
+            'checkout_name', 'checkout_mobile_number', 'checkout_email', 'checkout_full_address',
+            'checkout_district', 'source_reference', 'customer_note', 'admin_note', 'priority',
+            'subtotal', 'net_subtotal', 'item_discount_total', 'discount_total', 'grand_total', 'due_amount', 'payment_status',
+        ]);
+        $before['items'] = $order->items->map(fn ($item): array => [
+            'product_id' => $item->product_id,
+            'variant_id' => $item->variant_id,
+            'quantity' => $item->quantity,
+            'unit_price' => $item->unit_price,
+            'line_grand_total' => $item->line_grand_total,
+        ])->values()->all();
+
+        $deliverySnapshot = [
+            'name' => $data['customer_name'],
+            'country' => $order->checkout_country ?: 'Bangladesh',
+            'full_address' => $data['full_address'],
+            'district' => $data['district'] ?? null,
+            'mobile_number' => $data['mobile_number'],
+            'email' => $data['email'] ?? null,
+        ];
+
+        DB::transaction(function () use ($data, $order, $deliverySnapshot, $request): void {
+            if (array_key_exists('items', $data)) {
+                $this->orders->replaceEditableItems($order, $data['items'], $request->user()->id);
+                $order->refresh();
+            }
+
+            $order->update([
+                'checkout_name' => $data['customer_name'],
+                'checkout_mobile_number' => $data['mobile_number'],
+                'checkout_email' => $data['email'] ?? null,
+                'checkout_full_address' => $data['full_address'],
+                'checkout_district' => $data['district'] ?? null,
+                'shipping_full_address' => $data['full_address'],
+                'shipping_district' => $data['district'] ?? null,
+                'shipping_mobile_number' => $data['mobile_number'],
+                'shipping_email' => $data['email'] ?? null,
+                'shipping_address_snapshot' => $deliverySnapshot,
+                'billing_address_snapshot' => $deliverySnapshot,
+                'source_reference' => $data['source_reference'] ?? null,
+                'customer_note' => $data['customer_note'] ?? null,
+                'admin_note' => $data['admin_note'] ?? null,
+                'priority' => $data['priority'] ?? ($order->priority ?: 'normal'),
+                // Keep legacy fields in sync for older reports/integrations.
+                'customer_details' => array_merge((array) ($order->customer_details ?? []), [
+                    'name' => $data['customer_name'],
+                    'email' => $data['email'] ?? null,
+                    'phone' => $data['mobile_number'],
+                ]),
+                'address' => array_merge((array) ($order->address ?? []), [
+                    'street' => $data['full_address'],
+                    'district' => $data['district'] ?? null,
+                ]),
+            ]);
+        });
+
+        $updated = $order->fresh([
+            'shop:id,name,code', 'creator:id,name', 'assignee:id,name', 'packer:id,name', 'customer:id,name,email,phone',
+            'items.product:id,name,sku,slug,image_src', 'items.variant:id,sku', 'payments', 'returnRequests', 'statusHistory',
+        ]);
+
+        \App\Jobs\CheckOrderFraudJob::dispatch($updated->id);
+
+        $this->activities->record(
+            'orders',
+            'updated',
+            "Edited {$updated->order_number}",
+            $updated,
+            $before,
+            array_merge(
+                $updated->only(array_values(array_filter(array_keys($before), fn (string $key): bool => $key !== 'items'))),
+                ['items' => $updated->items->map(fn ($item): array => [
+                    'product_id' => $item->product_id,
+                    'variant_id' => $item->variant_id,
+                    'quantity' => $item->quantity,
+                    'unit_price' => $item->unit_price,
+                    'line_grand_total' => $item->line_grand_total,
+                ])->values()->all()],
+            ),
+            $request->user()->id,
+            $updated->shop_id,
+            $request
+        );
+
+        return $this->success($updated, 'Order updated.');
+    }
+
     public function store(Request $request)
     {
         $data = $request->validate([
@@ -128,9 +249,6 @@ class OrderController extends Controller
             'split_payments.*.reference' => ['nullable', 'string'],
             'shipping_total' => ['nullable', 'numeric', 'min:0'],
             'manual_discount' => ['nullable', 'numeric', 'min:0'],
-            'coupon_code' => ['nullable', 'string', 'max:100'],
-            'coupon_codes' => ['nullable', 'array'],
-            'coupon_codes.*' => ['string', 'max:100'],
             'order_date' => ['nullable', 'date'],
             'source_reference' => ['nullable', 'string', 'max:150'],
             'priority' => ['nullable', Rule::in(['low', 'normal', 'high', 'urgent'])],
@@ -147,6 +265,10 @@ class OrderController extends Controller
         $source = $data['source_channel'] === 'ecommerce' ? 'website' : $data['source_channel'];
         $paymentMethod = $data['payment_method'] === 'split' ? 'split' : (in_array($data['payment_method'], ['online', 'card', 'bkash', 'nagad', 'bank'], true) ? 'online' : 'cod');
         $shopId = (int) ($data['shop_id'] ?? $request->user()->shop_id ?? Shop::defaultStore()->id);
+
+        if ($source !== 'pos' && isset($data['shipping_total']) && (float) $data['shipping_total'] <= 0) {
+            return $this->error('Shipping charge must be greater than zero.', 422);
+        }
 
         if ($source === 'social_commerce' && blank($data['customer_name'] ?? null) && blank($data['mobile_number'] ?? null)) {
             return $this->error('Enter a mobile number or customer name before saving the order.', 422);

@@ -10,7 +10,10 @@ use App\Models\Product;
 use App\Models\Shop;
 use App\Models\User;
 use App\Services\OrderService;
+use App\Services\PathaoService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
+use RuntimeException;
 use Tests\TestCase;
 
 class OrderWorkflowEnhancementTest extends TestCase
@@ -72,6 +75,40 @@ class OrderWorkflowEnhancementTest extends TestCase
         $this->assertSame(OrderStatus::SHIPPED->value, $shipped->status);
         $this->assertSame($this->user->id, $shipped->packed_by);
         $this->assertNotNull($shipped->shipped_at);
+    }
+
+    public function test_non_cod_order_defaults_to_confirmed_but_waits_for_fraud_check_before_shipping(): void
+    {
+        Queue::fake();
+        $order = app(OrderService::class)->place([
+            'source_channel' => 'social_commerce',
+            'shop_id' => $this->shop->id,
+            'created_by' => $this->user->id,
+            'customer_name' => 'Online Customer',
+            'mobile_number' => '01711000002',
+            'payment_method' => 'online',
+            'items' => [['product_id' => $this->product->id, 'quantity' => 1]],
+        ]);
+
+        $this->assertSame(OrderStatus::CONFIRMED->value, $order->status);
+        $this->expectException(RuntimeException::class);
+        app(OrderService::class)->transition($order, OrderStatus::SHIPPED->value, $this->user->id);
+    }
+
+    public function test_pathao_rejects_order_until_it_is_manually_shipped(): void
+    {
+        Queue::fake();
+        $order = app(OrderService::class)->place([
+            'source_channel' => 'social_commerce',
+            'shop_id' => $this->shop->id,
+            'created_by' => $this->user->id,
+            'customer_name' => 'Packed Later',
+            'mobile_number' => '01711000003',
+            'items' => [['product_id' => $this->product->id, 'quantity' => 1]],
+        ]);
+
+        $this->expectException(RuntimeException::class);
+        app(PathaoService::class)->sendOrderToPathao($order);
     }
 
     public function test_shipped_order_refused_delivery_restocks_inventory_and_clears_due(): void

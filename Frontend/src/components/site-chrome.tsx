@@ -14,7 +14,7 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen bg-[#FBF8F1] text-[#1A1A1A] flex flex-col font-sans">
+    <div className="min-h-screen bg-[#FBF8F1] text-[#1A1A1A] flex flex-col font-sans overflow-x-hidden">
       <StorefrontHeader />
       <MiniCartDrawer />
       <main className="flex-1 pb-20 lg:pb-8">{children}</main>

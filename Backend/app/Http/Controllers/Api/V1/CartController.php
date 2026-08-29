@@ -93,15 +93,10 @@ class CartController extends Controller
             'items.*.product_id' => ['required', 'integer', 'exists:products,id'],
             'items.*.variant_id' => ['nullable', 'integer', 'exists:product_variants,id'],
             'items.*.quantity' => ['required', 'integer', 'min:1'],
-            'coupon_code' => ['nullable', 'string', 'max:100'],
-            'coupon_codes' => ['nullable', 'array'],
-            'coupon_codes.*' => ['string', 'max:100'],
             'payment_method' => ['nullable', 'string'],
             'district' => ['nullable', 'string'],
             'email' => ['nullable', 'email'],
             'mobile_number' => ['nullable', 'string'],
-            'shipping_total' => ['nullable', 'numeric', 'min:0'],
-            'delivery_charge' => ['nullable', 'numeric', 'min:0'],
         ]);
 
         try {

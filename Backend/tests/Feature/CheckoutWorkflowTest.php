@@ -9,6 +9,7 @@ use App\Models\Payment;
 use App\Models\Product;
 use App\Models\ReservedProduct;
 use App\Models\Shop;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -69,6 +70,7 @@ class CheckoutWorkflowTest extends TestCase
 
         $order = Order::firstOrFail();
         $this->assertSame('website', $order->source_channel);
+        $this->assertNull($order->customer_id);
         $this->assertSame('confirmed', $order->status);
         $this->assertSame('due', $order->payment_status);
         $this->assertNull($order->checkout_email);
@@ -77,6 +79,71 @@ class CheckoutWorkflowTest extends TestCase
         $inventory = $this->inventory->fresh();
         $this->assertSame(10, $inventory->quantity);
         $this->assertSame(2, $inventory->reserved);
+    }
+
+    public function test_login_repairs_matching_unowned_order_created_by_old_guest_checkout_bug(): void
+    {
+        $customer = User::factory()->create([
+            'name' => 'Rahim',
+            'email' => 'rahim-repair@example.com',
+            'phone' => '01720601515',
+            'password' => 'Password123!',
+            'is_employee' => false,
+            'is_active' => true,
+        ]);
+
+        $guest = $this->postJson(
+            '/api/v1/checkout/place-order',
+            $this->checkoutPayload('cod', (string) Str::uuid()) + ['email' => 'rahim-repair@example.com']
+        )->assertCreated();
+
+        $orderNumber = $guest->json('data.order_number');
+        $this->assertDatabaseHas('orders', ['order_number' => $orderNumber, 'customer_id' => null]);
+
+        $this->postJson('/api/v1/auth/login', [
+            'email_or_phone' => '01720601515',
+            'password' => 'Password123!',
+        ])->assertOk();
+
+        $this->assertDatabaseHas('orders', [
+            'order_number' => $orderNumber,
+            'customer_id' => $customer->id,
+        ]);
+    }
+
+    public function test_authenticated_website_checkout_is_linked_to_customer_and_visible_in_order_history(): void
+    {
+        $customer = User::factory()->create([
+            'name' => 'Rahim',
+            'email' => 'rahim@example.com',
+            'phone' => '01720601515',
+            'is_employee' => false,
+            'is_admin' => false,
+            'is_active' => true,
+        ]);
+
+        $placed = $this->actingAs($customer, 'sanctum')
+            ->postJson('/api/v1/orders', $this->checkoutPayload('cod', (string) Str::uuid()) + [
+                'name' => 'Rahim',
+                'email' => 'rahim@example.com',
+            ])
+            ->assertCreated()
+            ->assertJsonPath('data.payment_method', 'cod');
+
+        $orderNumber = $placed->json('data.order_number');
+        $this->assertDatabaseHas('orders', [
+            'order_number' => $orderNumber,
+            'customer_id' => $customer->id,
+            'source_channel' => 'website',
+        ]);
+
+        $this->actingAs($customer, 'sanctum')
+            ->getJson('/api/v1/orders')
+            ->assertOk()
+            ->assertJsonPath('data.0.order_number', $orderNumber)
+            ->assertJsonPath('data.0.order_status', 'confirmed')
+            ->assertJsonPath('data.0.items.0.product_id', $this->product->id)
+            ->assertJsonPath('data.0.items.0.name', 'Ihram');
     }
 
     public function test_paid_pos_sale_posts_revenue_and_cogs_to_general_ledger(): void
@@ -254,6 +321,20 @@ class CheckoutWorkflowTest extends TestCase
         $this->assertArrayNotHasKey('checkout_full_address', $response->json('data.orders.0'));
         $this->assertArrayNotHasKey('customer_note', $response->json('data.orders.0'));
         $this->assertArrayNotHasKey('payments', $response->json('data.orders.0'));
+    }
+
+    public function test_public_progress_lookup_can_optionally_filter_by_order_number(): void
+    {
+        $first = $this->postJson('/api/v1/checkout/place-order', $this->checkoutPayload('cod', (string) Str::uuid()))->assertCreated();
+        $second = $this->postJson('/api/v1/checkout/place-order', $this->checkoutPayload('cod', (string) Str::uuid()))->assertCreated();
+
+        $response = $this->getJson('/api/v1/track-order?mobile_number=01720601515&order_number='.$first->json('data.order_number'));
+
+        $response->assertOk()
+            ->assertJsonCount(1, 'data.orders')
+            ->assertJsonPath('data.orders.0.order_number', $first->json('data.order_number'));
+
+        $this->assertNotSame($first->json('data.order_number'), $second->json('data.order_number'));
     }
 
     public function test_public_progress_lookup_rejects_invalid_mobile(): void

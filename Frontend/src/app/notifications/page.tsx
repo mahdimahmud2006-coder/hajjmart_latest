@@ -2,32 +2,57 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useStore } from "@/context/store-context";
 import { getNotifications, markNotificationRead, type UserNotification } from "@/lib/api";
 import { Button, Card, Badge } from "@/components/ui/storefront-primitives";
 import { Bell, CheckCheck, ExternalLink, ArrowLeft } from "lucide-react";
 
 export default function NotificationsPage() {
-  const { token, notify } = useStore();
+  const router = useRouter();
+  const { token, notify, hydrated, refreshNotificationCount } = useStore();
   const [notifications, setNotifications] = useState<UserNotification[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Redirect if not logged in
   useEffect(() => {
-    setLoading(true);
-    getNotifications(token)
-      .then((list) => setNotifications(list))
-      .catch(() => setNotifications([]))
-      .finally(() => setLoading(false));
+    if (hydrated && !token) {
+      router.push("/auth/login");
+    }
+  }, [hydrated, token, router]);
+
+  useEffect(() => {
+    if (token) {
+      setLoading(true);
+      getNotifications(token)
+        .then((list) => setNotifications(list))
+        .catch(() => setNotifications([]))
+        .finally(() => setLoading(false));
+    }
   }, [token]);
 
-  const handleMarkAllRead = () => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+  if (!hydrated || !token) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 py-8 w-full flex items-center justify-center min-h-[400px]">
+        <div className="text-center text-[#5B5650] text-[18px]">
+          লোড হচ্ছে...
+        </div>
+      </div>
+    );
+  }
+
+  const handleMarkAllRead = async () => {
+    const unreadIds = notifications.filter((notification) => !notification.read).map((notification) => notification.id);
+    setNotifications((prev) => prev.map((notification) => ({ ...notification, read: true })));
+    await Promise.allSettled(unreadIds.map((id) => markNotificationRead(id, token)));
+    await refreshNotificationCount();
     notify("সব নোটিফিকেশন পঠিত হিসেবে চিহ্নিত করা হয়েছে।", "success");
   };
 
-  const handleMarkOneRead = (id: string) => {
-    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
-    markNotificationRead(id, token);
+  const handleMarkOneRead = async (id: string) => {
+    setNotifications((prev) => prev.map((notification) => (notification.id === id ? { ...notification, read: true } : notification)));
+    await markNotificationRead(id, token);
+    await refreshNotificationCount();
   };
 
   const unreadCount = notifications.filter((n) => !n.read).length;
@@ -35,9 +60,9 @@ export default function NotificationsPage() {
   return (
     <div className="max-w-3xl mx-auto px-4 py-8 w-full">
       {/* Page Header */}
-      <div className="flex items-center justify-between border-b border-[#DDD6C7] pb-4 mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-[#DDD6C7] pb-4 mb-6">
         <div>
-          <h1 className="text-[26px] sm:text-[32px] font-bold text-[#1A1A1A] flex items-center gap-2">
+          <h1 className="text-[24px] sm:text-[32px] font-bold text-[#1A1A1A] flex flex-wrap items-center gap-2 leading-tight">
             <Bell className="w-7 h-7 text-[#1F5D42]" />
             <span>নোটিফিকেশন সেন্টার</span>
             {unreadCount > 0 && (

@@ -15,7 +15,7 @@ interface ProductCardProps {
 
 export function ProductCard({ product, className = "" }: ProductCardProps) {
   const { t } = useLanguage();
-  const { wishlist, toggleWishlist, addToCart, notify } = useStore();
+  const { wishlist, toggleWishlist, addToCart, token } = useStore();
 
   const isSaved = wishlist.includes(product.id);
   const imageUrl =
@@ -41,19 +41,12 @@ export function ProductCard({ product, className = "" }: ProductCardProps) {
     e.preventDefault();
     e.stopPropagation();
     addToCart(product, null, 1);
-    notify(`"${product.name}" কার্টে যোগ করা হয়েছে।`, "success");
   };
 
   const handleToggleWishlist = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    toggleWishlist(product.id);
-    notify(
-      isSaved
-        ? `"${product.name}" পছন্দের তালিকা থেকে সরানো হয়েছে।`
-        : `"${product.name}" পছন্দের তালিকায় যোগ করা হয়েছে।`,
-      "neutral"
-    );
+    toggleWishlist(product.id, product.name);
   };
 
   return (
@@ -86,18 +79,20 @@ export function ProductCard({ product, className = "" }: ProductCardProps) {
           </div>
 
           {/* Wishlist Heart Toggle Button */}
-          <button
-            type="button"
-            onClick={handleToggleWishlist}
-            className="absolute top-2 right-2 w-9 h-9 rounded-full bg-white/90 shadow-xs flex items-center justify-center text-[#1A1A1A] hover:text-[#B3261E] focus:outline-none transition-colors z-10"
-            aria-label="Save to Wishlist"
-          >
-            <Heart
-              className={`w-5 h-5 ${
-                isSaved ? "fill-[#B3261E] text-[#B3261E]" : "text-[#5B5650]"
-              }`}
-            />
-          </button>
+          {token && (
+            <button
+              type="button"
+              onClick={handleToggleWishlist}
+              className="absolute top-2 right-2 w-9 h-9 rounded-full bg-white/90 shadow-xs flex items-center justify-center text-[#1A1A1A] hover:text-[#B3261E] focus:outline-none transition-colors z-10"
+              aria-label="Save to Wishlist"
+            >
+              <Heart
+                className={`w-5 h-5 ${
+                  isSaved ? "fill-[#B3261E] text-[#B3261E]" : "text-[#5B5650]"
+                }`}
+              />
+            </button>
+          )}
         </div>
 
         {/* Rating Summary */}
@@ -109,7 +104,7 @@ export function ProductCard({ product, className = "" }: ProductCardProps) {
 
         {/* Product Title */}
         <Link href={`/products/${product.slug}`}>
-          <h3 className="text-[18px] font-bold text-[#1A1A1A] group-hover:text-[#1F5D42] transition-colors line-clamp-2 mb-2">
+          <h3 className="text-[16px] sm:text-[18px] font-bold text-[#1A1A1A] group-hover:text-[#1F5D42] transition-colors line-clamp-2 mb-2">
             {product.name}
           </h3>
         </Link>

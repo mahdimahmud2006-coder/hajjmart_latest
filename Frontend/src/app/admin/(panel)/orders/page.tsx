@@ -9,7 +9,7 @@ import { useStore } from "@/context/store-context";
 import { adminRequest, markOrdersPrintedApi, pageRows, queryString } from "@/lib/admin-api";
 import { demoOrders, demoProductsAdmin, demoReturns } from "@/lib/admin-demo";
 import type { AdminTranslationKey } from "@/lib/admin-i18n";
-import type { AdminOrder, AdminProduct, AdminReturn, Paginated } from "@/lib/admin-types";
+import type { AdminOrder, AdminProduct, AdminProductVariant, AdminReturn, Paginated } from "@/lib/admin-types";
 import { formatPrice } from "@/lib/utils";
 import { exportOrdersCsv, exportOrdersPdf, exportOrdersWord } from "@/lib/orders-export";
 import { printBulkInvoicesDocument, printOrderInvoiceDocument } from "@/lib/invoice-print";
@@ -35,6 +35,14 @@ import { OrderDetailPanel } from "@/components/admin/order-detail-panel";
 type StatusGroup = "all" | "potential_fraud" | "pending" | "confirmed" | "shipped" | "delivered" | "returned";
 type ChannelFilter = "all" | "online" | "website" | "social_commerce" | "pos";
 export type PrintedFilter = "all" | "printed" | "not_printed";
+type EditOrderLine = {
+  product_id: number;
+  variant_id: number | null;
+  quantity: number;
+  original_quantity: number;
+  name: string;
+  sku?: string | null;
+};
 
 function getTodayDateString(): string {
   const d = new Date();
@@ -80,7 +88,6 @@ const paymentStatusKeys: Record<string, AdminTranslationKey> = {
 const nextActions: Record<string, NextAction | undefined> = {
   pending: { to: "confirmed", label: "orders.confirmOrder" },
   confirmed: { to: "shipped", label: "orders.markShipped" },
-  shipped: { to: "delivered", label: "orders.markDelivered" },
 };
 
 function normalizeChannel(value: string): "website" | "social_commerce" | "pos" {
@@ -136,6 +143,23 @@ function defaultPaymentMethod(order: AdminOrder) {
   return "cash";
 }
 
+function inventoryAvailable(row: { quantity: number; reserved: number; available?: number } | null | undefined): number {
+  if (!row) return 0;
+  return Math.max(0, Number(row.available ?? Number(row.quantity || 0) - Number(row.reserved || 0)));
+}
+
+function productAvailable(product: AdminProduct, shopId?: number): number {
+  const row = (product.inventory || []).find((inventory) => !shopId || Number(inventory.shop_id) === Number(shopId));
+  return row ? inventoryAvailable(row) : Math.max(0, Number(product.available_stock || 0));
+}
+
+function variantAvailable(variant: AdminProductVariant, shopId?: number): number {
+  const row = (variant.inventories || []).find((inventory) => !shopId || Number(inventory.shop_id) === Number(shopId));
+  if (row) return inventoryAvailable(row);
+  if (!shopId || !variant.inventory?.shop_id || Number(variant.inventory.shop_id) === Number(shopId)) return inventoryAvailable(variant.inventory);
+  return Math.max(0, Number(variant.available_stock || 0));
+}
+
 export default function OrdersPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -161,6 +185,11 @@ export default function OrdersPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editItems, setEditItems] = useState<EditOrderLine[]>([]);
+  const [editProducts, setEditProducts] = useState<AdminProduct[]>([]);
+  const [editProductChoice, setEditProductChoice] = useState("");
+  const [editProductsLoading, setEditProductsLoading] = useState(false);
   const [returnOpen, setReturnOpen] = useState(false);
   const [returnType, setReturnType] = useState<"return" | "exchange">("return");
   const [returnQuantities, setReturnQuantities] = useState<Record<number, number>>({});
@@ -333,6 +362,24 @@ export default function OrdersPage() {
     return () => controller.abort();
   }, [returnOpen, token, demoMode, products.length, t]);
 
+  useEffect(() => {
+    if (!editOpen || !selected || !["pending", "confirmed"].includes(String(selected.status || "").toLowerCase())) return;
+    if (demoMode) { setEditProducts(demoProductsAdmin); setEditProductsLoading(false); return; }
+    if (!token) return;
+    const controller = new AbortController();
+    setEditProductsLoading(true);
+    void adminRequest<Paginated<AdminProduct> | AdminProduct[]>(`/products${queryString({
+      shop_id: selected.shop?.id,
+      in_stock: 1,
+      per_page: 250,
+      price_mode: selected.price_mode || "retail",
+    })}`, { token, signal: controller.signal })
+      .then((data) => { if (!controller.signal.aborted) setEditProducts(pageRows(data)); })
+      .catch(() => { if (!controller.signal.aborted) setError("Could not load available products for this store."); })
+      .finally(() => { if (!controller.signal.aborted) setEditProductsLoading(false); });
+    return () => controller.abort();
+  }, [editOpen, selected, token, demoMode]);
+
   function setOrderQuery(id: number) {
     const params = new URLSearchParams(searchParams.toString());
     params.delete("open");
@@ -344,6 +391,7 @@ export default function OrdersPage() {
     if (selected) lastClosedOrderRef.current = selected.id;
     setSelected(null);
     setPaymentOpen(false);
+    setEditOpen(false);
     setReturnOpen(false);
     setCancelOpen(false);
     const params = new URLSearchParams(searchParams.toString());
@@ -358,6 +406,7 @@ export default function OrdersPage() {
     setSelected(order);
     setError(null);
     setPaymentOpen(false);
+    setEditOpen(false);
     setReturnOpen(false);
     setCancelOpen(false);
     if (demoMode) {
@@ -440,6 +489,122 @@ export default function OrdersPage() {
     if (await changeSelectedStatus("cancelled")) setCancelOpen(false);
   }
 
+  function openOrderEdit() {
+    if (!selected) return;
+    setError(null);
+    setEditItems((selected.items || []).map((item) => ({
+      product_id: item.product_id,
+      variant_id: item.variant_id || null,
+      quantity: item.quantity,
+      original_quantity: item.quantity,
+      name: item.product?.name || `Product #${item.product_id}`,
+      sku: item.variant?.sku || item.product?.sku || null,
+    })));
+    setEditProducts([]);
+    setEditProductsLoading(false);
+    setEditProductChoice("");
+    setEditOpen(true);
+  }
+
+  function editLineExtraAvailable(line: EditOrderLine): number {
+    const product = editProducts.find((row) => row.id === line.product_id);
+    if (!product) return 0;
+    const shopId = selected?.shop?.id;
+    if (line.variant_id) {
+      const variants = product.product_variants || product.productVariants || [];
+      const variant = variants.find((row) => row.id === line.variant_id);
+      return variant ? variantAvailable(variant, shopId) : 0;
+    }
+    return productAvailable(product, shopId);
+  }
+
+  function addEditItem() {
+    if (!editProductChoice) return;
+    const [productPart, variantPart] = editProductChoice.split(":");
+    const productId = Number(productPart);
+    const variantId = Number(variantPart) || null;
+    const product = editProducts.find((row) => row.id === productId);
+    if (!product) return;
+    const variants = product.product_variants || product.productVariants || [];
+    const variant = variantId ? variants.find((row) => row.id === variantId) : null;
+    const available = variant ? variantAvailable(variant, selected?.shop?.id) : productAvailable(product, selected?.shop?.id);
+    if (available < 1) return;
+
+    setEditItems((current) => {
+      const index = current.findIndex((row) => row.product_id === productId && (row.variant_id || null) === variantId);
+      if (index >= 0) {
+        const rows = [...current];
+        const line = rows[index];
+        rows[index] = { ...line, quantity: Math.min(line.original_quantity + available, line.quantity + 1) };
+        return rows;
+      }
+      return [...current, {
+        product_id: productId,
+        variant_id: variantId,
+        quantity: 1,
+        original_quantity: 0,
+        name: product.name,
+        sku: variant?.sku || product.sku || null,
+      }];
+    });
+    setEditProductChoice("");
+  }
+
+  async function saveOrderEdit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selected) return;
+    const data = new FormData(event.currentTarget);
+    const submitItems = ["pending", "confirmed"].includes(String(selected.status || "").toLowerCase());
+    if (submitItems && editItems.length < 1) {
+      setError("Keep at least one item, or cancel the order to release all stock.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const body = {
+        customer_name: String(data.get("customer_name") || "").trim(),
+        mobile_number: String(data.get("mobile_number") || "").trim(),
+        email: String(data.get("email") || "").trim() || null,
+        full_address: String(data.get("full_address") || "").trim(),
+        district: String(data.get("district") || "").trim() || null,
+        source_reference: String(data.get("source_reference") || "").trim() || null,
+        customer_note: String(data.get("customer_note") || "").trim() || null,
+        admin_note: String(data.get("admin_note") || "").trim() || null,
+        priority: String(data.get("priority") || "normal"),
+        ...(submitItems ? {
+          items: editItems.map((item) => ({ product_id: item.product_id, variant_id: item.variant_id, quantity: item.quantity })),
+        } : {}),
+      };
+      let value: AdminOrder;
+      if (demoMode) value = {
+        ...selected,
+        checkout_name: body.customer_name,
+        checkout_mobile_number: body.mobile_number,
+        checkout_email: body.email,
+        checkout_full_address: body.full_address,
+        checkout_district: body.district,
+        source_reference: body.source_reference,
+        customer_note: body.customer_note,
+        admin_note: body.admin_note,
+        priority: body.priority,
+        items: submitItems ? editItems.map((line, index) => {
+          const existing = selected.items.find((item) => item.product_id === line.product_id && (item.variant_id || null) === line.variant_id);
+          const product = editProducts.find((item) => item.id === line.product_id) || existing?.product;
+          const variant = line.variant_id ? (product?.product_variants || product?.productVariants || []).find((item) => item.id === line.variant_id) : existing?.variant;
+          return { ...(existing || {}), id: existing?.id || -(index + 1), product_id: line.product_id, variant_id: line.variant_id, quantity: line.quantity, unit_price: existing?.unit_price || product?.retail_price || product?.selling_price || 0, product: product!, variant: variant ? { id: variant.id, sku: variant.sku } : undefined };
+        }) : selected.items,
+      };
+      else if (!token) throw new Error(t("orders.authError"));
+      else value = await adminRequest<AdminOrder>(`/orders/${selected.id}`, { method: "PUT", token, body });
+      sync(value);
+      setEditOpen(false);
+      notify(t("orders.editSuccess"));
+    } catch (reason) {
+      setError(reason instanceof Error && reason.message ? reason.message : t("orders.editError"));
+    } finally { setBusy(false); }
+  }
+
   async function collect(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selected) return;
@@ -506,6 +671,11 @@ export default function OrdersPage() {
   }
 
   const selectedRows = useMemo(() => orders.filter((order) => selectedOrderIds.includes(order.id)), [orders, selectedOrderIds]);
+  const pathaoReady = selectedRows.length > 0
+    && selectedRows.length === selectedOrderIds.length
+    && selectedRows.every((order) => order.status === "shipped"
+      && !order.pathao_consignment_id
+      && ["website", "ecommerce", "social_commerce"].includes(order.source_channel));
   const bulkPlan = useMemo(() => {
     if (!selectedRows.length || selectedRows.length !== selectedOrderIds.length) return null;
     const first = nextActions[selectedRows[0].status];
@@ -606,35 +776,28 @@ export default function OrdersPage() {
     } finally { setExporting(false); }
   }
 
-  async function handleSendSingleToPathao(targetOrder: AdminOrder) {
-    setBusy(true);
-    setError(null);
-    try {
-      if (demoMode || !token) {
-        const mockCid = `PTH-SANDBOX-${Date.now().toString().slice(-6)}`;
-        const updated = { ...targetOrder, pathao_consignment_id: mockCid };
-        sync(updated);
-        notify(`Demo Mode: Sent to Pathao (CID: ${mockCid})`);
-        return;
-      }
-      const res = await adminRequest<{ consignment_id: string; message: string }>(`/orders/${targetOrder.id}/send-pathao`, {
-        method: "POST",
-        token,
-      });
-      const updated = { ...targetOrder, pathao_consignment_id: res.consignment_id };
-      sync(updated);
-      notify(res.message || `Sent to Pathao (Consignment ID: ${res.consignment_id})`);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to send order to Pathao.";
-      setError(msg);
-    } finally {
-      setBusy(false);
-    }
-  }
-
   const primaryNextAction = selected ? nextActions[selected.status] : undefined;
   const canCancel = selected && !["delivered", "completed", "cancelled", "return_requested", "returned", "refunded"].includes(selected.status);
   const canReturn = selected && ["delivered", "completed", "return_requested"].includes(selected.status);
+  const canEdit = Boolean(selected
+    && ["website", "social_commerce"].includes(normalizeChannel(selected.source_channel))
+    && !selected.pathao_consignment_id
+    && !["delivered", "completed", "cancelled", "returned", "refunded"].includes(selected.status));
+  const canEditItems = Boolean(selected && ["pending", "confirmed"].includes(String(selected.status || "").toLowerCase()));
+  const editProductOptions = useMemo(() => editProducts.flatMap((product) => {
+    const variants = (product.product_variants || product.productVariants || []).filter((variant) => variant.is_active !== false);
+    if (variants.length) {
+      return variants
+        .map((variant) => ({
+          value: `${product.id}:${variant.id}`,
+          label: `${product.name} — ${variant.sku || Object.values(variant.attributes_json || {}).join(" / ") || `#${variant.id}`}`,
+          available: variantAvailable(variant, selected?.shop?.id),
+        }))
+        .filter((option) => option.available > 0);
+    }
+    const available = productAvailable(product, selected?.shop?.id);
+    return available > 0 ? [{ value: `${product.id}:0`, label: `${product.name} — ${product.sku || "No SKU"}`, available }] : [];
+  }), [editProducts, selected?.shop?.id]);
   const paymentDefault = selected ? defaultPaymentMethod(selected) : "cash";
 
   const todayStr = getTodayDateString();
@@ -759,7 +922,7 @@ export default function OrdersPage() {
       {loading && <div className="admin-list-loading"><span/><p>{t("orders.loading")}</p></div>}
 
       {orders.length ? <DataList
-        desktop={<TableShell bulkAction={<BulkActionBar selected={selectedOrderIds.length} label={t("orders.selectedLabel")} onClear={() => setSelectedOrderIds([])}>{bulkPlan ? <button type="button" disabled={busy || demoMode} onClick={() => void bulkAdvanceOrders()}>{busy ? t("shared.working") : `${t(bulkPlan.label)} (${selectedRows.length})`}</button> : <span className="admin-orders-bulk-help">{t("orders.bulkIncompatible")}</span>}<button type="button" disabled={busy} onClick={() => setBulkPathaoOpen(true)} className="admin-button secondary"><AdminIcon name="truck" size={16}/><span>Send to Pathao ({selectedRows.length})</span></button><button type="button" disabled={busy} onClick={() => void handlePrintBulkInvoices()} className="admin-button secondary"><AdminIcon name="print" size={16}/><span>{t("orders.printSelectedInvoices")} ({selectedRows.length})</span></button></BulkActionBar>}><thead><tr><th className="admin-select-cell"><input type="checkbox" aria-label={t("orders.selectAllPage")} checked={orders.length > 0 && orders.every((order) => selectedOrderIds.includes(order.id))} onChange={(event) => setSelectedOrderIds(event.target.checked ? orders.map((order) => order.id) : [])}/></th><th style={{ minWidth: "150px" }}>{t("orders.order")}</th><th style={{ minWidth: "140px" }}>{t("orders.customer")}</th><th style={{ minWidth: "110px" }}>{t("orders.channel")}</th><th style={{ minWidth: "140px" }}>{t("orders.status")}</th><th style={{ minWidth: "140px" }}>{t("orders.store")}</th><th className="admin-numeric" style={{ minWidth: "90px" }}>{t("orders.total")}</th><th style={{ minWidth: "170px" }}>Action</th></tr></thead><tbody>{orders.map((order) => <tr key={order.id} className="admin-clickable-row" onClick={() => void openOrder(order)}><td className="admin-select-cell" onClick={(event) => event.stopPropagation()}><input type="checkbox" aria-label={`${t("orders.selectOrder")} ${order.order_number}`} checked={selectedOrderIds.includes(order.id)} onChange={(event) => setSelectedOrderIds((current) => event.target.checked ? [...new Set([...current, order.id])] : current.filter((id) => id !== order.id))}/></td><td><span className="admin-primary-cell"><strong style={{ fontSize: "14px", fontWeight: 700, whiteSpace: "nowrap", display: "inline-block", color: "var(--neutral-900)" }}>{order.order_number}</strong><small style={{ fontSize: "12px", whiteSpace: "nowrap" }}>{formatDate(order.order_date || order.created_at, true)}</small>{order.is_potential_fraud && <span style={{ fontSize: "11px", fontWeight: 700, color: "#dc2626", backgroundColor: "#fef2f2", padding: "2px 6px", borderRadius: "4px", border: "1px solid #fca5a5", display: "inline-flex", alignItems: "center", gap: "3px", marginTop: "2px", width: "fit-content", whiteSpace: "nowrap" }}>⚠️ Potential Fraud</span>}{order.invoice_printed_at && <span style={{ fontSize: "11px", fontWeight: 700, color: "#16a34a", display: "inline-flex", alignItems: "center", gap: "3px", marginTop: "2px", width: "fit-content", whiteSpace: "nowrap" }}>✓ {t("orders.invoicePrinted")}</span>}{order.pathao_consignment_id && <span style={{ fontSize: "11px", fontWeight: 700, color: "#2563eb", display: "inline-flex", alignItems: "center", gap: "3px", marginTop: "2px", width: "fit-content", whiteSpace: "nowrap" }}>🚚 CID: {order.pathao_consignment_id}</span>}</span></td><td><strong style={{ fontSize: "14px", display: "block" }}>{order.checkout_name || t("orders.walkIn")}</strong><small style={{ fontSize: "12px", whiteSpace: "nowrap" }}>{order.checkout_mobile_number || t("orders.noPhone")}</small></td><td><StatusChip value={channelLabel(order.source_channel)} channel={channelChip(order.source_channel)}/>{order.source_reference && <small style={{ fontSize: "12px", display: "block", marginTop: "2px" }}>{order.source_reference}</small>}</td><td><StatusChip value={statusLabel(order.status)} tone={statusTone(order.status)}/><small style={{ fontSize: "12px", display: "block", marginTop: "2px", whiteSpace: "nowrap" }}>{paymentStatusLabel(order.payment_status)} · {formatPrice(order.due_amount || 0)} {t("orders.due").toLowerCase()}</small></td><td><strong style={{ fontSize: "14px", display: "block" }}>{order.shop?.name || t("orders.defaultStore")}</strong><small style={{ fontSize: "12px", display: "block", marginTop: "2px" }}>{order.packer?.name ? `${t("orders.packedBy")}: ${order.packer.name}` : order.creator?.name || "—"}</small></td><td className="align-right"><span className="admin-money" style={{ fontSize: "14px" }}>{formatPrice(order.grand_total)}</span></td><td onClick={(event) => event.stopPropagation()} style={{ display: "flex", gap: "4px", alignItems: "center" }}><AdminButton variant="ghost" icon="print" onClick={() => void handlePrintSingleInvoice(order)}>{t("orders.printInvoice")}</AdminButton>{!order.pathao_consignment_id && ["website", "ecommerce", "social_commerce"].includes(order.source_channel) && <AdminButton variant="ghost" icon="truck" onClick={() => void handleSendSingleToPathao(order)}>Pathao</AdminButton>}</td></tr>)}</tbody></TableShell>}
+        desktop={<TableShell bulkAction={<BulkActionBar selected={selectedOrderIds.length} label={t("orders.selectedLabel")} onClear={() => setSelectedOrderIds([])}>{bulkPlan ? <button type="button" disabled={busy || demoMode} onClick={() => void bulkAdvanceOrders()}>{busy ? t("shared.working") : `${t(bulkPlan.label)} (${selectedRows.length})`}</button> : <span className="admin-orders-bulk-help">{t("orders.bulkIncompatible")}</span>}<button type="button" disabled={busy || !pathaoReady} onClick={() => setBulkPathaoOpen(true)} className="admin-button secondary" title={pathaoReady ? "Send shipped orders to Pathao" : "Only shipped online/social orders without a consignment ID can be sent to Pathao"}><AdminIcon name="truck" size={16}/><span>Send Shipped to Pathao ({selectedRows.length})</span></button><button type="button" disabled={busy} onClick={() => void handlePrintBulkInvoices()} className="admin-button secondary"><AdminIcon name="print" size={16}/><span>{t("orders.printSelectedInvoices")} ({selectedRows.length})</span></button></BulkActionBar>}><thead><tr><th className="admin-select-cell"><input type="checkbox" aria-label={t("orders.selectAllPage")} checked={orders.length > 0 && orders.every((order) => selectedOrderIds.includes(order.id))} onChange={(event) => setSelectedOrderIds(event.target.checked ? orders.map((order) => order.id) : [])}/></th><th style={{ minWidth: "150px" }}>{t("orders.order")}</th><th style={{ minWidth: "140px" }}>{t("orders.customer")}</th><th style={{ minWidth: "110px" }}>{t("orders.channel")}</th><th style={{ minWidth: "140px" }}>{t("orders.status")}</th><th style={{ minWidth: "140px" }}>{t("orders.store")}</th><th className="admin-numeric" style={{ minWidth: "90px" }}>{t("orders.total")}</th><th style={{ minWidth: "170px" }}>Action</th></tr></thead><tbody>{orders.map((order) => <tr key={order.id} className="admin-clickable-row" onClick={() => void openOrder(order)}><td className="admin-select-cell" onClick={(event) => event.stopPropagation()}><input type="checkbox" aria-label={`${t("orders.selectOrder")} ${order.order_number}`} checked={selectedOrderIds.includes(order.id)} onChange={(event) => setSelectedOrderIds((current) => event.target.checked ? [...new Set([...current, order.id])] : current.filter((id) => id !== order.id))}/></td><td><span className="admin-primary-cell"><strong style={{ fontSize: "14px", fontWeight: 700, whiteSpace: "nowrap", display: "inline-block", color: "var(--neutral-900)" }}>{order.order_number}</strong><small style={{ fontSize: "12px", whiteSpace: "nowrap" }}>{formatDate(order.order_date || order.created_at, true)}</small>{order.is_potential_fraud && <span style={{ fontSize: "11px", fontWeight: 700, color: "#dc2626", backgroundColor: "#fef2f2", padding: "2px 6px", borderRadius: "4px", border: "1px solid #fca5a5", display: "inline-flex", alignItems: "center", gap: "3px", marginTop: "2px", width: "fit-content", whiteSpace: "nowrap" }}>⚠️ Potential Fraud</span>}{order.invoice_printed_at && <span style={{ fontSize: "11px", fontWeight: 700, color: "#16a34a", display: "inline-flex", alignItems: "center", gap: "3px", marginTop: "2px", width: "fit-content", whiteSpace: "nowrap" }}>✓ {t("orders.invoicePrinted")}</span>}{order.pathao_consignment_id && <span style={{ fontSize: "11px", fontWeight: 700, color: "#2563eb", display: "inline-flex", alignItems: "center", gap: "3px", marginTop: "2px", width: "fit-content", whiteSpace: "nowrap" }}>🚚 CID: {order.pathao_consignment_id}</span>}</span></td><td><strong style={{ fontSize: "14px", display: "block" }}>{order.checkout_name || t("orders.walkIn")}</strong><small style={{ fontSize: "12px", whiteSpace: "nowrap" }}>{order.checkout_mobile_number || t("orders.noPhone")}</small></td><td><StatusChip value={channelLabel(order.source_channel)} channel={channelChip(order.source_channel)}/>{order.source_reference && <small style={{ fontSize: "12px", display: "block", marginTop: "2px" }}>{order.source_reference}</small>}</td><td><StatusChip value={statusLabel(order.status)} tone={statusTone(order.status)}/><small style={{ fontSize: "12px", display: "block", marginTop: "2px", whiteSpace: "nowrap" }}>{paymentStatusLabel(order.payment_status)} · {formatPrice(order.due_amount || 0)} {t("orders.due").toLowerCase()}</small></td><td><strong style={{ fontSize: "14px", display: "block" }}>{order.shop?.name || t("orders.defaultStore")}</strong><small style={{ fontSize: "12px", display: "block", marginTop: "2px" }}>{order.packer?.name ? `${t("orders.packedBy")}: ${order.packer.name}` : order.creator?.name || "—"}</small></td><td className="align-right"><span className="admin-money" style={{ fontSize: "14px" }}>{formatPrice(order.grand_total)}</span></td><td onClick={(event) => event.stopPropagation()}><AdminButton variant="ghost" icon="print" onClick={() => void handlePrintSingleInvoice(order)}>{t("orders.printInvoice")}</AdminButton></td></tr>)}</tbody></TableShell>}
         mobile={<div className="admin-order-cards">{orders.map((order) => <article key={order.id} className="admin-order-card"><label className="admin-order-card-select"><input type="checkbox" aria-label={`${t("orders.selectOrder")} ${order.order_number}`} checked={selectedOrderIds.includes(order.id)} onChange={(event) => setSelectedOrderIds((current) => event.target.checked ? [...new Set([...current, order.id])] : current.filter((id) => id !== order.id))}/></label><button type="button" onClick={() => void openOrder(order)}><div className="admin-order-card-top"><strong>{order.order_number}</strong><StatusChip value={channelLabel(order.source_channel)} channel={channelChip(order.source_channel)}/>{order.is_potential_fraud && <span style={{ fontSize: "10px", fontWeight: 700, color: "#dc2626", backgroundColor: "#fef2f2", padding: "1px 5px", borderRadius: "4px", border: "1px solid #fca5a5" }}>⚠️ Potential Fraud</span>}{order.invoice_printed_at && <span style={{ fontSize: "10px", fontWeight: 700, color: "#16a34a" }}>✓ {t("orders.invoicePrinted")}</span>}</div><div className="admin-order-card-customer"><strong>{order.checkout_name || t("orders.walkIn")}</strong><span>{order.checkout_mobile_number || t("orders.noPhone")}</span></div><div className="admin-order-card-money"><strong>{formatPrice(order.grand_total)}</strong><StatusChip value={statusLabel(order.status)} tone={statusTone(order.status)}/></div><div className="admin-order-card-meta"><span>{formatDate(order.order_date || order.created_at, true)}</span><span>{order.shop?.name || t("orders.defaultStore")}</span></div></button></article>)}</div>}
       /> : !loading && <EmptyState title={t("orders.emptyTitle")} description={t("orders.emptyDescription")} icon="orders" action={<Link href="/admin/social-commerce" className="admin-button primary"><AdminIcon name="plus"/><span>{t("orders.createOrder")}</span></Link>}/>} 
 
@@ -772,10 +935,9 @@ export default function OrdersPage() {
         loading={detailLoading}
         busy={busy}
         onPrintInvoice={() => void handlePrintSingleInvoice(selected)}
-        onSendToPathao={(!selected.pathao_consignment_id && ["website", "ecommerce", "social_commerce"].includes(selected.source_channel)) ? () => void handleSendSingleToPathao(selected) : undefined}
         onCancel={!demoMode && canCancel ? () => setCancelOpen(true) : undefined}
         primaryAction={primaryNextAction ? <AdminButton icon="check" disabled={busy || demoMode} onClick={() => void changeSelectedStatus(primaryNextAction.to)}>{t(primaryNextAction.label)}</AdminButton> : undefined}
-        secondaryActions={<>{Number(selected.due_amount || 0) > 0 && <AdminButton variant="secondary" icon="money" disabled={demoMode} onClick={() => { setError(null); setPaymentOpen(true); }}>{t("orders.collectPayment")}</AdminButton>}{selected.status === "shipped" && <AdminButton variant="ghost" icon="returns" disabled={busy || demoMode} onClick={() => { if (window.confirm(t("orders.refusedConfirm"))) { void changeSelectedStatus("returned", "Customer returned without accepting delivery."); } }}>{t("orders.markRefusedReturn")}</AdminButton>}{canReturn && <AdminButton variant="ghost" icon="returns" disabled={demoMode} onClick={() => { setError(null); setReturnType("return"); setReturnQuantities({}); setReturnReplacements({}); setReturnOpen(true); }}>{t("orders.returnExchange")}</AdminButton>}</>}
+        secondaryActions={<>{canEdit && <AdminButton variant="secondary" icon="edit" disabled={busy} onClick={openOrderEdit}>{t("orders.editOrder")}</AdminButton>}{Number(selected.due_amount || 0) > 0 && <AdminButton variant="secondary" icon="money" disabled={demoMode} onClick={() => { setError(null); setPaymentOpen(true); }}>{t("orders.collectPayment")}</AdminButton>}{selected.status === "shipped" && <AdminButton variant="ghost" icon="returns" disabled={busy || demoMode} onClick={() => { if (window.confirm(t("orders.refusedConfirm"))) { void changeSelectedStatus("returned", "Customer returned without accepting delivery."); } }}>{t("orders.markRefusedReturn")}</AdminButton>}{canReturn && <AdminButton variant="ghost" icon="returns" disabled={demoMode} onClick={() => { setError(null); setReturnType("return"); setReturnQuantities({}); setReturnReplacements({}); setReturnOpen(true); }}>{t("orders.returnExchange")}</AdminButton>}</>}
       />}
     </Sheet>
 
@@ -833,6 +995,60 @@ export default function OrdersPage() {
 
     <Sheet open={exportOpen} onClose={() => !exporting && setExportOpen(false)} title={t("orders.exportTitle")} subtitle={t("orders.exportDescription")}>
       <div className="admin-stack"><Field label={t("orders.fromDate")} required><input type="date" value={exportFrom} max={exportTo || undefined} onChange={(event) => setExportFrom(event.target.value)} required/></Field><Field label={t("orders.toDate")} required><input type="date" value={exportTo} min={exportFrom || undefined} onChange={(event) => setExportTo(event.target.value)} required/></Field><p className="admin-export-note">{t("orders.exportNote")}</p><div className="admin-export-grid"><button type="button" disabled={exporting} onClick={() => void runExport("csv")}><AdminIcon name="download" size={22}/>CSV</button><button type="button" disabled={exporting} onClick={() => void runExport("word")}><AdminIcon name="reports" size={22}/>Word</button><button type="button" disabled={exporting} onClick={() => void runExport("pdf")}><AdminIcon name="eye" size={22}/>PDF</button></div>{exporting && <p className="admin-export-note">{t("orders.exportLoading")}</p>}{error && <p className="admin-form-error">{error}</p>}</div>
+    </Sheet>
+
+    <Sheet open={editOpen} onClose={() => !busy && setEditOpen(false)} title={t("orders.editOrder")} subtitle={selected?.order_number} wide>
+      {selected && <form className="admin-stack" onSubmit={saveOrderEdit}>
+        {canEditItems ? <Panel title="Order items" description="Increase only when this store has stock. Reducing or removing an item releases its reserved stock immediately.">
+          <div className="admin-return-init-items">
+            {editItems.map((line) => {
+              const extraAvailable = editLineExtraAvailable(line);
+              const maxQuantity = Math.max(1, line.original_quantity + extraAvailable);
+              return <div key={`${line.product_id}:${line.variant_id || 0}`} className="admin-return-init-item">
+                <div>
+                  <strong>{line.name}</strong>
+                  <small>{line.sku || "No SKU"} · {extraAvailable} more available</small>
+                </div>
+                <Field label={t("orders.quantity")}>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min="1"
+                    max={maxQuantity}
+                    value={line.quantity}
+                    onChange={(event) => setEditItems((current) => current.map((item) => item.product_id === line.product_id && (item.variant_id || null) === line.variant_id
+                      ? { ...item, quantity: Math.max(1, Math.min(maxQuantity, Number(event.target.value) || 1)) }
+                      : item))}
+                  />
+                </Field>
+                <AdminButton type="button" variant="ghost" icon="trash" disabled={busy} onClick={() => setEditItems((current) => current.filter((item) => !(item.product_id === line.product_id && (item.variant_id || null) === line.variant_id)))}>Remove</AdminButton>
+              </div>;
+            })}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: "8px", alignItems: "end", marginTop: "12px" }}>
+            <Field label="Add product">
+              <select value={editProductChoice} onChange={(event) => setEditProductChoice(event.target.value)} disabled={editProductsLoading || busy}>
+                <option value="">{editProductsLoading ? "Loading available stock…" : "Choose an in-stock product"}</option>
+                {editProductOptions.map((option) => <option key={option.value} value={option.value}>{option.label} · {option.available} available</option>)}
+              </select>
+            </Field>
+            <AdminButton type="button" variant="secondary" icon="plus" disabled={!editProductChoice || editProductsLoading || busy} onClick={addEditItem}>Add</AdminButton>
+          </div>
+          {editItems.length < 1 && <p className="admin-form-error">Keep at least one item, or cancel the order to release all stock.</p>}
+        </Panel> : <p className="admin-export-note">Products and quantities are locked after shipping. Customer and delivery details can still be corrected here.</p>}
+        <Field label={t("orders.customer")} required><input name="customer_name" defaultValue={selected.checkout_name || ""} required/></Field>
+        <Field label={t("orders.phone")} required><input name="mobile_number" defaultValue={selected.checkout_mobile_number || ""} required/></Field>
+        <Field label={t("orders.email")}><input name="email" type="email" defaultValue={selected.checkout_email || ""}/></Field>
+        <Field label={t("orders.address")} required><textarea name="full_address" rows={3} defaultValue={selected.checkout_full_address || ""} required/></Field>
+        <Field label={t("orders.district")}><input name="district" defaultValue={selected.checkout_district || ""}/></Field>
+        <Field label={t("orders.sourceReference")}><input name="source_reference" defaultValue={selected.source_reference || ""}/></Field>
+        <Field label={t("orders.priority")}><select name="priority" defaultValue={selected.priority || "normal"}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></Field>
+        <Field label={t("orders.customerNote")}><textarea name="customer_note" rows={2} defaultValue={selected.customer_note || ""}/></Field>
+        <Field label={t("orders.adminNote")}><textarea name="admin_note" rows={2} defaultValue={selected.admin_note || ""}/></Field>
+        <p className="admin-export-note">{t("orders.editScopeNote")}</p>
+        {error && <p className="admin-form-error">{error}</p>}
+        <AdminButton icon="check" disabled={busy}>{busy ? t("shared.working") : t("orders.saveChanges")}</AdminButton>
+      </form>}
     </Sheet>
 
     <Sheet open={paymentOpen} onClose={() => !busy && setPaymentOpen(false)} title={t("orders.paymentTitle")} subtitle={selected?.order_number}>

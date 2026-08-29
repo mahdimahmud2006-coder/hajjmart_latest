@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Truck, ShieldCheck, Banknote, RefreshCw } from "lucide-react";
+import { Truck, ShieldCheck, Banknote, PackageCheck } from "lucide-react";
 import { Card } from "@/components/ui/storefront-primitives";
 
 export function TrustBar() {
@@ -22,9 +22,9 @@ export function TrustBar() {
       subtitle: "পণ্য হাতে পেয়ে মূল্য পরিশোধের সুবিধা",
     },
     {
-      icon: <RefreshCw className="w-7 h-7 text-[#1F5D42]" />,
-      title: "সহজ রিটার্ন সুবিধা",
-      subtitle: "৭ দিনের মধ্যে সহজ এক্সচেঞ্জ ও রিফান্ড",
+      icon: <PackageCheck className="w-7 h-7 text-[#1F5D42]" />,
+      title: "নিরাপদ প্যাকেজিং",
+      subtitle: "যত্নসহকারে প্যাক করে আপনার অর্ডার পাঠানো হয়",
     },
   ];
 

@@ -9,12 +9,12 @@ class HajjMartPromotionSeeder extends Seeder
 {
     public function run(): void
     {
-        Coupon::whereIn('code', ['FREESHIPBD'])->delete();
+        Coupon::whereIn('code', ['FREESHIPBD', 'UMRAH5'])->delete();
 
         Coupon::updateOrCreate(
-            ['code' => 'UMRAH5'],
+            ['title' => 'Umrah Preparation Sale — 5% Off'],
             [
-                'title' => 'Umrah Preparation Sale — 5% Off',
+                'code' => null,
                 'description' => 'Public HajjMart promotion valid across the catalogue.',
                 'type' => 'percent',
                 'value' => 5,
@@ -28,7 +28,7 @@ class HajjMartPromotionSeeder extends Seeder
                 'promotion_type' => 'public_sale',
                 'discount_scope' => 'items',
                 'stackable' => false,
-                'auto_apply' => false,
+                'auto_apply' => true,
                 'priority' => 20,
                 'applicable_to' => 'all',
                 'starts_at' => now()->subDays(30),

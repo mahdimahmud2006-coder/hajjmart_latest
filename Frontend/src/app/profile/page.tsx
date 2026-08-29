@@ -56,7 +56,6 @@ export default function ProfileDashboardPage() {
   const [addressRecipient, setAddressRecipient] = useState("");
   const [addressPhone, setAddressPhone] = useState("");
   const [addressDistrict, setAddressDistrict] = useState("Dhaka");
-  const [addressThana, setAddressThana] = useState("");
   const [addressLine, setAddressLine] = useState("");
   const [addressDefault, setAddressDefault] = useState(false);
 
@@ -157,7 +156,6 @@ export default function ProfileDashboardPage() {
     setAddressRecipient("");
     setAddressPhone("");
     setAddressDistrict("Dhaka");
-    setAddressThana("");
     setAddressLine("");
     setAddressDefault(false);
   };
@@ -165,11 +163,6 @@ export default function ProfileDashboardPage() {
   const handleAddAddress = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!token || savingAddress) return;
-    if (!addressThana.trim()) {
-      notify("থানা / উপজেলা লিখুন।", "error");
-      return;
-    }
-
     setSavingAddress(true);
     try {
       const created = await createCustomerAddress({
@@ -177,7 +170,6 @@ export default function ProfileDashboardPage() {
         recipient_name: addressRecipient.trim(),
         phone: addressPhone.trim(),
         district: addressDistrict,
-        upazila: addressThana.trim(),
         full_address: addressLine.trim(),
         is_default: addressDefault || addresses.length === 0,
       }, token);
@@ -189,7 +181,7 @@ export default function ProfileDashboardPage() {
       resetAddressForm();
       notify("নতুন ঠিকানা সংরক্ষণ করা হয়েছে।", "success");
     } catch {
-      notify("ঠিকানা সংরক্ষণ করা যায়নি। মোবাইল নম্বর, জেলা ও থানা/উপজেলা যাচাই করে আবার চেষ্টা করুন।", "error");
+      notify("ঠিকানা সংরক্ষণ করা যায়নি। মোবাইল নম্বর, জেলা ও বিস্তারিত ঠিকানা যাচাই করে আবার চেষ্টা করুন।", "error");
     } finally {
       setSavingAddress(false);
     }
@@ -452,13 +444,6 @@ export default function ProfileDashboardPage() {
                         ))}
                       </select>
                     </div>
-                    <TextInput
-                      label="থানা / উপজেলা"
-                      value={addressThana}
-                      onChange={(e) => setAddressThana(e.target.value)}
-                      placeholder="যেমন: উত্তরা পশ্চিম"
-                      required
-                    />
                     <div className="md:col-span-2">
                       <TextInput
                         label="বিস্তারিত ঠিকানা"
@@ -499,7 +484,7 @@ export default function ProfileDashboardPage() {
                     </div>
                     <p className="font-bold text-[#1A1A1A]">{addr.recipient_name}</p>
                     <p className="text-[16px] text-[#5B5650] mt-1">{addr.phone}</p>
-                    <p className="text-[16px] text-[#5B5650] mt-1">{addr.district} · {addr.thana}</p>
+                    <p className="text-[16px] text-[#5B5650] mt-1">{addr.district}</p>
                     <p className="text-[16px] text-[#5B5650] mt-1">{addr.address_line}</p>
                     {!addr.is_default && addr.id && (
                       <Button

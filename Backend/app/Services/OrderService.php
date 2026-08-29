@@ -8,6 +8,7 @@ use App\Actions\ReserveInventoryAction;
 use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
 use App\Models\Order;
+use App\Models\DeliveryCharge;
 use App\Models\OrderItem;
 use App\Models\OrderItemBatch;
 use App\Models\OrderList;
@@ -205,7 +206,7 @@ class OrderService
             'checkout_district' => $data['district'] ?? null,
             'payment_method' => strtolower((string) ($data['payment_method'] ?? 'cod')),
             'coupon_code' => $data['coupon_code'] ?? null,
-            'shipping_total' => $this->calculateDeliveryCharge($data['district'] ?? null, $subtotal),
+            'shipping_total' => $this->calculateDeliveryChargeForDistrict($data['district'] ?? null),
             'tax_total' => 0,
             'price_mode' => 'retail',
         ];
@@ -332,11 +333,12 @@ class OrderService
                 )), 2);
 
                 if ($sourceChannel === 'website') {
-                    $data['shipping_total'] = $this->calculateDeliveryCharge($checkout['district'], $subtotal);
+                    $data['delivery_area'] = DeliveryCharge::areaForDistrict($checkout['district']);
+                    $data['shipping_total'] = $this->calculateDeliveryChargeForDistrict($checkout['district']);
                     $data['tax_total'] = 0;
                     $data['manual_discount'] = 0;
                 } elseif ($sourceChannel !== 'pos' && (float) ($data['shipping_total'] ?? 0) <= 0) {
-                    $data['shipping_total'] = $this->calculateDeliveryCharge($checkout['district'], $subtotal);
+                    $data['shipping_total'] = $this->calculateDeliveryCharge($data['delivery_area'] ?? null);
                 }
 
                 $quote = $snapshotAuthorized
@@ -405,6 +407,7 @@ class OrderService
                     'tax_total' => $quote['tax_total'],
                     'shipping_total' => $quote['shipping_total'],
                     'delivery_method' => $sourceChannel === 'website' ? 'home_delivery' : ($data['delivery_method'] ?? 'home_delivery'),
+                    'delivery_area' => $data['delivery_area'] ?? null,
                     'discount_total' => $quote['discount_total'],
                     'item_discount_total' => $quote['item_discount_total'],
                     'shipping_discount_total' => $quote['shipping_discount_total'],
@@ -810,10 +813,6 @@ class OrderService
         $shipDifferent = (bool) ($data['ship_to_different_address'] ?? false);
 
         $fullAddress = $data['checkout_full_address'] ?? $data['full_address'] ?? $billing['full_address'] ?? null;
-        $upazilaThana = trim((string) ($data['upazila_thana'] ?? ''));
-        if ($fullAddress && $upazilaThana !== '' && ! str_starts_with((string) $fullAddress, 'Upazila/Thana:')) {
-            $fullAddress = "Upazila/Thana: {$upazilaThana}\n" . $fullAddress;
-        }
 
         $billingSnapshot = [
             'name' => $data['checkout_name'] ?? $data['billing_name'] ?? $data['customer_name'] ?? $data['name'] ?? $billing['name'] ?? null,
@@ -852,9 +851,14 @@ class OrderService
         ];
     }
 
-    private function calculateDeliveryCharge(?string $district, float $subtotal): float
+    private function calculateDeliveryCharge(?string $deliveryArea): float
     {
-        return round(max(1, (float) config('hajjmart.default_delivery_charge', 80)), 2);
+        return round(DeliveryCharge::calculate($deliveryArea), 2);
+    }
+
+    private function calculateDeliveryChargeForDistrict(?string $district): float
+    {
+        return round(DeliveryCharge::calculateForDistrict($district), 2);
     }
 
     private function findExistingWebsiteCheckout(string $key, ?int $customerId, ?string $mobile): ?Order

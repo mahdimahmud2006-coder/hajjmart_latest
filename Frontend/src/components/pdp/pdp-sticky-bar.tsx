@@ -7,6 +7,7 @@ import { ShoppingBag } from "lucide-react";
 interface PDPStickyBarProps {
   price: number;
   regularPrice?: number;
+  discountLabel?: string;
   inStock: boolean;
   onAddToCart: () => void;
 }
@@ -14,6 +15,7 @@ interface PDPStickyBarProps {
 export function PDPStickyBar({
   price,
   regularPrice,
+  discountLabel,
   inStock,
   onAddToCart,
 }: PDPStickyBarProps) {
@@ -39,7 +41,7 @@ export function PDPStickyBar({
     <div className="fixed bottom-[60px] left-0 right-0 z-[55] bg-[#FFFDF8] border-t border-[#DDD6C7] p-3 shadow-[0_-4px_10px_rgba(0,0,0,0.10)] flex items-center justify-between gap-4 lg:hidden">
       <div>
         <span className="text-[14px] text-[#5B5650] block">মোট মূল্য:</span>
-        <PriceDisplay price={price} regularPrice={regularPrice} size="sm" />
+        <PriceDisplay price={price} regularPrice={regularPrice} size="sm" discountLabel={discountLabel} />
       </div>
 
       <Button

@@ -8,10 +8,12 @@ import { CheckoutForm, type CheckoutFormData } from "@/components/checkout/check
 import { CheckoutSummary } from "@/components/checkout/checkout-summary";
 import {
   getCustomerAddresses,
+  getCheckoutOptions,
   quoteCheckout,
   placeCustomerOrder,
   placeGuestOrder,
   type CheckoutQuoteResponse,
+  type CheckoutOptions,
 } from "@/lib/api";
 
 export default function CheckoutPage() {
@@ -23,7 +25,6 @@ export default function CheckoutPage() {
     mobileNumber: "",
     email: "",
     district: district || "Dhaka",
-    thana: "Dhanmondi",
     shippingAddress: "",
     paymentMethod: "cod",
   });
@@ -31,9 +32,14 @@ export default function CheckoutPage() {
   const [phoneError, setPhoneError] = useState<string | undefined>();
   const [couponCode, setCouponCode] = useState<string | null>(null);
   const [quote, setQuote] = useState<CheckoutQuoteResponse | null>(null);
+  const [checkoutOptions, setCheckoutOptions] = useState<CheckoutOptions | null>(null);
   const [loadingQuote, setLoadingQuote] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const prefilledSession = useRef<string | null>(null);
+
+  useEffect(() => {
+    void getCheckoutOptions().then(setCheckoutOptions).catch(() => setCheckoutOptions(null));
+  }, []);
 
   // Address data is account-scoped. Signed-in customers start from their saved
   // default address; guests keep only their own browser checkout draft.
@@ -47,7 +53,13 @@ export default function CheckoutPage() {
     if (!user || !token) {
       try {
         const saved = localStorage.getItem("hajjmart_checkout_form_guest") || localStorage.getItem("hajjmart_checkout_form");
-        if (saved) setFormData(JSON.parse(saved));
+        if (saved) {
+          const draft = JSON.parse(saved) as Partial<CheckoutFormData>;
+          setFormData((current) => ({
+            ...current,
+            ...draft,
+          }));
+        }
       } catch {
         // Ignore storage errors.
       }
@@ -64,7 +76,6 @@ export default function CheckoutPage() {
             mobileNumber: defaultAddress.phone || user.phone || current.mobileNumber,
             email: user.email || current.email,
             district: defaultAddress.district || current.district,
-            thana: defaultAddress.thana || current.thana,
             shippingAddress: defaultAddress.address_line || current.shippingAddress,
           }));
           return;
@@ -126,14 +137,13 @@ export default function CheckoutPage() {
         quantity: item.quantity,
       })),
       district: formData.district,
-      thana: formData.thana,
       coupon_code: couponCode,
       payment_method: formData.paymentMethod,
     }, token)
       .then((q) => setQuote(q))
       .catch(() => setQuote(null))
       .finally(() => setLoadingQuote(false));
-  }, [cart, formData.district, formData.thana, formData.paymentMethod, couponCode, token]);
+  }, [cart, formData.district, formData.paymentMethod, couponCode, token]);
 
   const handleApplyCoupon = (code: string) => {
     const normalized = code.trim().toUpperCase();
@@ -164,11 +174,6 @@ export default function CheckoutPage() {
     }
     setPhoneError(undefined);
 
-    if (!formData.thana.trim()) {
-      notify("অনুগ্রহ করে থানা / উপজেলা লিখুন।", "error");
-      return;
-    }
-
     if (!formData.shippingAddress.trim()) {
       notify("অনুগ্রহ করে আপনার বিস্তারিত ঠিকানা লিখুন।", "error");
       return;
@@ -182,9 +187,7 @@ export default function CheckoutPage() {
         mobile_number: cleanPhone,
         email: formData.email.trim() || undefined,
         district: formData.district,
-        thana: formData.thana,
-        upazila_thana: formData.thana,
-        full_address: formData.shippingAddress.trim(),
+          full_address: formData.shippingAddress.trim(),
         shipping_address: formData.shippingAddress.trim(),
         payment_method: formData.paymentMethod,
         allocation_token: quote?.allocation_token,
@@ -276,6 +279,7 @@ export default function CheckoutPage() {
               onApplyCoupon={handleApplyCoupon}
               onRemoveCoupon={handleRemoveCoupon}
               onSubmitOrder={handleSubmitOrder}
+              fallbackDelivery={checkoutOptions?.delivery_charges?.[formData.district === "Dhaka" ? "inside_dhaka" : "outside_dhaka"] || 0}
             />
           </div>
         </div>

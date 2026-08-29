@@ -14,6 +14,7 @@ interface CheckoutSummaryProps {
   onApplyCoupon: (code: string) => void;
   onRemoveCoupon: () => void;
   onSubmitOrder: () => void;
+  fallbackDelivery?: number;
 }
 
 export function CheckoutSummary({
@@ -24,14 +25,15 @@ export function CheckoutSummary({
   onApplyCoupon,
   onRemoveCoupon,
   onSubmitOrder,
+  fallbackDelivery = 0,
 }: CheckoutSummaryProps) {
-  const { cart, cartSubtotal, shippingTotal, grandTotal } = useStore();
+  const { cart, cartSubtotal } = useStore();
   const [couponInput, setCouponInput] = useState("");
 
   const displaySubtotal = quote ? quote.subtotal : cartSubtotal;
-  const displayDelivery = quote ? quote.delivery : shippingTotal;
+  const displayDelivery = quote ? quote.delivery : fallbackDelivery;
   const displayDiscount = quote ? quote.discount : 0;
-  const displayGrandTotal = quote ? quote.grand_total : grandTotal;
+  const displayGrandTotal = quote ? quote.grand_total : cartSubtotal + fallbackDelivery;
   const couponApplied = Boolean(couponCode && quote?.coupon_applied === true);
   const couponRejected = Boolean(couponCode && !loading && quote?.coupon_applied === false);
 

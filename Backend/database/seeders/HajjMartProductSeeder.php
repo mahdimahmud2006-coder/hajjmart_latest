@@ -25,6 +25,23 @@ class HajjMartProductSeeder extends Seeder
         $service = app(ProductService::class);
         DB::transaction(function () use ($products, $service): void {
             foreach ($products as $item) {
+                // Source data contains historical regular/sale prices. HajjMart now
+                // has one retail base price; promotions are the only storefront
+                // discount layer. Normalize the imported aliases before saving.
+                $retailPrice = $item['retail_price'] ?? $item['selling_price'] ?? $item['sale_price'] ?? $item['regular_price'] ?? 0;
+                $item['retail_price'] = $retailPrice;
+                $item['selling_price'] = $retailPrice;
+                $item['sale_price'] = $retailPrice;
+                $item['regular_price'] = $retailPrice;
+                $item['base_price'] = $retailPrice;
+                foreach (($item['variations'] ?? []) as $index => $variation) {
+                    $variantRetail = $variation['retail_price'] ?? $variation['sale_price'] ?? $variation['price'] ?? $variation['regular_price'] ?? $retailPrice;
+                    $item['variations'][$index]['retail_price'] = $variantRetail;
+                    $item['variations'][$index]['sale_price'] = $variantRetail;
+                    $item['variations'][$index]['price'] = $variantRetail;
+                    $item['variations'][$index]['regular_price'] = $variantRetail;
+                }
+
                 $item['slug'] = $this->uniqueSlug($item['slug'] ?? Str::slug($item['name']), $item['product_id'] ?? null);
                 $existing = Product::where('source_product_id', $item['product_id'] ?? 0)->first();
 

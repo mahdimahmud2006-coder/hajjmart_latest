@@ -8,7 +8,7 @@ import { SearchBar } from "./search-bar";
 import { CategoryNav } from "./category-menu";
 import { useLanguage } from "@/context/language-context";
 import { useStore } from "@/context/store-context";
-import { Home, Search, ShoppingBag, User, Menu, Globe, X, Heart, Bell } from "lucide-react";
+import { Home, Search, ShoppingBag, User, Menu, Globe, X, Heart, Bell, Truck } from "lucide-react";
 
 export function MobileNav() {
   const pathname = usePathname();
@@ -37,10 +37,10 @@ export function MobileNav() {
           <button
             type="button"
             onClick={() => setIsCategoryDrawerOpen(true)}
-            className="p-2 text-[#1F5D42] focus:outline-none w-10 h-10 flex items-center justify-center shrink-0"
+            className="p-1.5 text-[#1F5D42] focus:outline-none w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center shrink-0"
             aria-label="Open categories menu"
           >
-            <Menu className="w-6 h-6" />
+            <Menu className="w-5 h-5 sm:w-6 sm:h-6" />
           </button>
 
           <Link href="/" className="flex items-center shrink-0" aria-label="Hajj Mart home">
@@ -50,18 +50,18 @@ export function MobileNav() {
               width={1200}
               height={625}
               priority
-              className="h-[40px] w-auto max-w-[76px] sm:max-w-[92px] object-contain"
+              className="h-[36px] sm:h-[40px] w-auto max-w-[64px] sm:max-w-[92px] object-contain"
             />
           </Link>
         </div>
 
-        <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
+        <div className="flex items-center gap-0 sm:gap-1 shrink-0">
           {token && (
             <>
               <Link
                 href="/notifications"
                 onClick={closeMobilePanels}
-                className="relative w-9 h-9 flex items-center justify-center rounded-full text-[#1A1A1A] hover:bg-[#E4EFE8] hover:text-[#1F5D42]"
+                className="relative w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full text-[#1A1A1A] hover:bg-[#E4EFE8] hover:text-[#1F5D42]"
                 aria-label="Notifications"
               >
                 <Bell className="w-5 h-5" />
@@ -74,7 +74,7 @@ export function MobileNav() {
               <Link
                 href="/wishlist"
                 onClick={closeMobilePanels}
-                className="relative w-9 h-9 flex items-center justify-center rounded-full text-[#1A1A1A] hover:bg-[#FEE2E2] hover:text-[#B3261E]"
+                className="relative w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full text-[#1A1A1A] hover:bg-[#FEE2E2] hover:text-[#B3261E]"
                 aria-label="Wishlist"
               >
                 <Heart className="w-5 h-5" />
@@ -87,13 +87,26 @@ export function MobileNav() {
             </>
           )}
 
+          <Link
+            href="/track-order"
+            onClick={closeMobilePanels}
+            className={`h-8 sm:h-9 px-1.5 sm:px-2 flex items-center justify-center gap-1 rounded-full text-[10px] sm:text-[12px] font-bold whitespace-nowrap hover:bg-[#E4EFE8] hover:text-[#1F5D42] ${
+              pathname?.startsWith("/track-order") ? "text-[#1F5D42] bg-[#E4EFE8]" : "text-[#1A1A1A]"
+            }`}
+            aria-label={t("nav.track_order")}
+            title={t("nav.track_order")}
+          >
+            <Truck className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
+            <span>{t("nav.track_order")}</span>
+          </Link>
+
           <button
             type="button"
             onClick={toggleLanguage}
-            className="flex items-center gap-1 px-2 sm:px-3 py-1.5 bg-[#E4EFE8] text-[#1F5D42] text-[12px] sm:text-[14px] font-bold rounded-full focus:outline-none whitespace-nowrap"
+            className="flex items-center gap-0.5 sm:gap-1 px-1.5 sm:px-3 py-1.5 bg-[#E4EFE8] text-[#1F5D42] text-[11px] sm:text-[14px] font-bold rounded-full focus:outline-none whitespace-nowrap"
             aria-label="Toggle language"
           >
-            <Globe className="w-3.5 h-3.5" />
+            <Globe className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
             <span>{language === "bn" ? "বাং / EN" : "EN / বাং"}</span>
           </button>
         </div>

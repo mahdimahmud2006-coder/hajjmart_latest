@@ -109,8 +109,12 @@ class CouponController extends Controller
         $promotionType = (string) ($request->input('promotion_type') ?: ($partial && $ignoreId ? Coupon::whereKey($ignoreId)->value('promotion_type') : 'coupon'));
         $target = (string) $request->input('applicable_to', '');
 
+        $codeRules = $partial
+            ? ['sometimes', 'nullable', 'string', 'max:100', Rule::unique('coupons', 'code')->ignore($ignoreId)]
+            : [Rule::requiredIf($promotionType !== 'public_sale'), 'nullable', 'string', 'max:100', Rule::unique('coupons', 'code')->ignore($ignoreId)];
+
         return $request->validate([
-            'code' => [Rule::requiredIf($promotionType !== 'public_sale'), 'nullable', 'string', 'max:100', Rule::unique('coupons', 'code')->ignore($ignoreId)],
+            'code' => $codeRules,
             'title' => ['nullable', 'string', 'max:150'],
             'description' => ['nullable', 'string', 'max:2000'],
             'type' => [$required, Rule::in(['fixed', 'percent'])],

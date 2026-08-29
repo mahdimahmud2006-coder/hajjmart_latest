@@ -110,11 +110,31 @@ function PromotionForm({ promotion, products, subcategories, busy, error, onSubm
     </Field>
 
     <Field label={t("promotions.targetLabel")} required>
-      <select name="applicable_to" value={target} onChange={(event) => setTarget(event.target.value as PromotionTarget)}>
+      <input type="hidden" name="applicable_to" value={target}/>
+      <select className="admin-promotion-target-desktop" value={target} onChange={(event) => setTarget(event.target.value as PromotionTarget)}>
         <option value="all">{t("promotions.targetAll")}</option>
         <option value="product">{t("promotions.targetProducts")}</option>
         <option value="category">{t("promotions.targetSubcategories")}</option>
       </select>
+      <div className="admin-promotion-target-mobile" role="radiogroup" aria-label={t("promotions.targetLabel")}>
+        {([
+          ["all", t("promotions.targetAll")],
+          ["product", t("promotions.targetProducts")],
+          ["category", t("promotions.targetSubcategories")],
+        ] as Array<[PromotionTarget, string]>).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            role="radio"
+            aria-checked={target === value}
+            className={target === value ? "active" : ""}
+            onClick={() => setTarget(value)}
+          >
+            <span>{label}</span>
+            {target === value && <AdminIcon name="check"/>}
+          </button>
+        ))}
+      </div>
     </Field>
 
     {target === "product" && <div className="admin-field admin-promotion-product-picker"><span>{t("promotions.selectProducts")} <b aria-hidden="true">*</b></span>
@@ -270,6 +290,24 @@ export default function PromotionsPage() {
     } finally { setBusy(false); }
   }
 
+  async function deletePromotion(promotion: AdminPromotion) {
+    if (!window.confirm(t("promotions.deleteConfirm"))) return;
+    setBusy(true);
+    try {
+      if (!demoMode && token) {
+        await adminRequest(`/coupons/${promotion.id}`, { method: "DELETE", token });
+      }
+      setRows((current) => current.filter((row) => row.id !== promotion.id));
+      setSelected(null);
+      if (editing?.id === promotion.id) { setEditing(null); setFormOpen(false); }
+      showToast(t("promotions.deletedToast"), { tone: "success" });
+    } catch {
+      showToast(t("promotions.deleteError"), { tone: "error" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function setActive(promotion: AdminPromotion, active: boolean, offerUndo = true) {
     const previous = Boolean(promotion.is_active);
     const optimistic = { ...promotion, is_active: active };
@@ -301,7 +339,7 @@ export default function PromotionsPage() {
     </Sheet>
 
     <Sheet open={Boolean(selected)} onClose={() => setSelected(null)} title={selected?.title || selected?.code || t("promotions.detailTitle")} subtitle={selected ? (kindOf(selected) === "public_sale" ? t("promotions.publicSale") : t("promotions.coupon")) : undefined}>
-      {selected && <div className="admin-stack admin-promotion-detail"><div className="admin-promotion-detail-value"><span>{selected.code || t("promotions.autoApplied")}</span><strong>{selected.type === "percent" ? `${Number(selected.value)}%` : formatPrice(selected.value)}</strong><StatusChip value={selected.is_active ? t("promotions.active") : t("promotions.paused")} tone={selected.is_active ? "success" : "neutral"}/></div><Panel title={t("promotions.details")}><div className="admin-detail-grid"><div><span>{t("promotions.dates")}</span><strong>{formatDate(selected.starts_at)} → {formatDate(selected.expires_at)}</strong></div><div><span>{t("promotions.usage")}</span><strong>{selected.used_count || 0}{selected.usage_limit ? ` / ${selected.usage_limit}` : ""}</strong></div><div><span>{t("promotions.targetLabel")}</span><strong>{targetSummary(selected)}</strong></div><div><span>{t("promotions.application")}</span><strong>{selected.auto_apply ? t("promotions.autoApply") : t("promotions.enterCode")}</strong></div></div></Panel><div className="admin-action-strip"><AdminButton icon="edit" onClick={() => openEdit(selected)}>{t("promotions.edit")}</AdminButton><AdminButton variant="secondary" onClick={() => void setActive(selected, !selected.is_active)}>{selected.is_active ? t("promotions.pause") : t("promotions.activate")}</AdminButton></div></div>}
+      {selected && <div className="admin-stack admin-promotion-detail"><div className="admin-promotion-detail-value"><span>{selected.code || t("promotions.autoApplied")}</span><strong>{selected.type === "percent" ? `${Number(selected.value)}%` : formatPrice(selected.value)}</strong><StatusChip value={selected.is_active ? t("promotions.active") : t("promotions.paused")} tone={selected.is_active ? "success" : "neutral"}/></div><Panel title={t("promotions.details")}><div className="admin-detail-grid"><div><span>{t("promotions.dates")}</span><strong>{formatDate(selected.starts_at)} → {formatDate(selected.expires_at)}</strong></div><div><span>{t("promotions.usage")}</span><strong>{selected.used_count || 0}{selected.usage_limit ? ` / ${selected.usage_limit}` : ""}</strong></div><div><span>{t("promotions.targetLabel")}</span><strong>{targetSummary(selected)}</strong></div><div><span>{t("promotions.application")}</span><strong>{selected.auto_apply ? t("promotions.autoApply") : t("promotions.enterCode")}</strong></div></div></Panel><div className="admin-action-strip"><AdminButton icon="edit" onClick={() => openEdit(selected)}>{t("promotions.edit")}</AdminButton><AdminButton variant="secondary" disabled={busy} onClick={() => void setActive(selected, !selected.is_active)}>{selected.is_active ? t("promotions.pause") : t("promotions.activate")}</AdminButton><AdminButton variant="danger" icon="trash" disabled={busy} onClick={() => void deletePromotion(selected)}>{t("promotions.delete")}</AdminButton></div></div>}
     </Sheet>
   </div>;
 }

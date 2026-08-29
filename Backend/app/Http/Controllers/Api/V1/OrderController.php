@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Exceptions\InventoryConflictException;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
+use App\Models\DeliveryCharge;
 use App\Models\CustomerCartItem;
 use App\Services\CancellationService;
 use App\Services\OrderService;
@@ -34,18 +35,17 @@ class OrderController extends Controller
             'country' => config('hajjmart.country', 'Bangladesh'),
             'currency' => config('hajjmart.currency', 'BDT'),
             'currency_symbol' => config('hajjmart.currency_symbol', '৳'),
-            'default_delivery_charge' => config('hajjmart.default_delivery_charge', 80),
+            'delivery_charges' => DeliveryCharge::rates(),
             'districts' => config('hajjmart.districts', []),
             'payment_methods' => config('hajjmart.payment_methods', []),
             'checkout_fields' => [
-                'name', 'mobile_number', 'email', 'district', 'upazila_thana', 'full_address',
+                'name', 'mobile_number', 'email', 'district', 'full_address',
                 'payment_method', 'coupon_code', 'customer_note', 'checkout_idempotency_key', 'terms_accepted',
             ],
             'promotion_support' => [
                 'public_sales' => true,
                 'private_coupons' => true,
                 'promotion_stacking' => 'Disabled: each product line can receive only one promotion.',
-                'return_exchange_policy' => 'Refund/exchange credit uses net paid amount after prorated coupon allocation.',
             ],
         ], 'Checkout options retrieved.');
     }
@@ -230,14 +230,20 @@ class OrderController extends Controller
             ->firstOrFail();
 
         abort_unless($request->user()->is_employee || $order->customer_id === $request->user()->id, 403);
-        return $this->success($order, 'Order retrieved.');
+        return $request->user()->is_employee
+            ? $this->success($order, 'Order retrieved.')
+            : $this->success($this->customerOrderResponse($order), 'Order retrieved.');
     }
 
     public function cancel(Request $request, string $orderNumber)
     {
         $order = Order::where('order_number', $orderNumber)->orWhere('order_id', $orderNumber)->firstOrFail();
         abort_unless($request->user()->is_employee || $order->customer_id === $request->user()->id, 403);
-        return $this->success($this->orders->cancel($order, $request->user()->id, $request->input('reason')), 'Order cancelled.');
+        $cancelled = $this->orders->cancel($order, $request->user()->id, $request->input('reason'));
+
+        return $request->user()->is_employee
+            ? $this->success($cancelled, 'Order cancelled.')
+            : $this->success($this->customerOrderResponse($cancelled->fresh(['items.product', 'payments'])), 'Order cancelled.');
     }
 
     public function updatePaymentMethod(Request $request, string $orderNumber)
@@ -334,7 +340,6 @@ class OrderController extends Controller
             'mobile_number' => ['required', 'string', 'regex:/^(?:\+?88)?01[3-9]\d{8}$/'],
             'email' => ['nullable', 'email', 'max:255'],
             'district' => ['required', 'string', Rule::in($districts)],
-            'upazila_thana' => ['nullable', 'string', 'max:150'],
             'full_address' => ['required', 'string', 'max:1000'],
             'payment_method' => ['required', 'string', Rule::in(['cod', 'online', 'COD', 'Online'])],
             'coupon_code' => ['nullable', 'string', 'max:100'],

@@ -83,7 +83,7 @@ Artisan::command('hajjmart:verify-seed', function (): int {
         ['Generated customers', \App\Models\User::where('email', 'like', 'customer%@example.com')->count(), 200],
         ['Active administrators', \App\Models\User::where('is_employee', true)->where('is_admin', true)->where('is_active', true)->count(), 1],
         ['Seeded direct batches', \App\Models\ProductBatch::where('batch_reference', 'like', 'SEED-%')->distinct('batch_reference')->count('batch_reference'), $expectedInventory],
-        ['Seeded promotions/coupons', \App\Models\Coupon::where('code', 'like', 'HAJJSALE%')->count(), 20],
+        ['Default promotions/coupons', \App\Models\Coupon::count(), 0],
         ['Product reviews', \App\Models\ProductReview::count(), 300],
         ['Product questions', \App\Models\ProductQuestion::count(), 150],
         ['Contact messages', \App\Models\ContactMessage::count(), 150],

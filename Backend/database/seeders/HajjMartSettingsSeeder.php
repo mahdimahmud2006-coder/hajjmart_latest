@@ -14,6 +14,8 @@ class HajjMartSettingsSeeder extends Seeder
         SiteSetting::setValue('currency_symbol', '৳');
         SiteSetting::setValue('timezone', 'Asia/Dhaka');
         SiteSetting::setValue('delivery_charge', '80.00');
+        SiteSetting::setValue('delivery_charge_inside_dhaka', '80.00');
+        SiteSetting::setValue('delivery_charge_outside_dhaka', '80.00');
         SiteSetting::setValue('default_payment_methods', 'cod,online');
     }
 }

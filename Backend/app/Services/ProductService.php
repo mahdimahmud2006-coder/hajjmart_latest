@@ -161,6 +161,10 @@ class ProductService
         $slug = $data['slug'] ?? ($creating ? Str::slug($data['name'] ?? Str::random(8)) : null);
         $retailPrice = $data['retail_price'] ?? $data['selling_price'] ?? $data['sale_price'] ?? $data['price'] ?? ($creating ? 0 : null);
         $wholesalePrice = $data['wholesale_price'] ?? ($creating ? $retailPrice : null);
+        $hasRetailPrice = array_key_exists('retail_price', $data)
+            || array_key_exists('selling_price', $data)
+            || array_key_exists('sale_price', $data)
+            || array_key_exists('price', $data);
         $payload = [
             'category_id' => $data['category_id'] ?? null,
             'source_product_id' => $data['product_id'] ?? $data['source_product_id'] ?? null,
@@ -179,8 +183,11 @@ class ProductService
             'selling_price' => $retailPrice,
             'retail_price' => $retailPrice,
             'wholesale_price' => $wholesalePrice,
-            'regular_price' => $data['regular_price'] ?? null,
-            'base_price' => $data['base_price'] ?? $data['regular_price'] ?? null,
+            // Retail price is the only customer-facing base price. Legacy source
+            // sale/regular/base aliases are kept in sync so they cannot create a
+            // second, hidden pre-discount price on the storefront.
+            'regular_price' => $hasRetailPrice ? $retailPrice : ($data['regular_price'] ?? null),
+            'base_price' => $hasRetailPrice ? $retailPrice : ($data['base_price'] ?? $data['regular_price'] ?? null),
             'sale_price' => $retailPrice,
             'cost_price' => $data['cost_price'] ?? null,
             'price_min' => $data['price_min'] ?? null,
@@ -292,6 +299,7 @@ class ProductService
                     'price' => $retailPrice,
                     'sale_price' => $retailPrice,
                     'retail_price' => $retailPrice,
+                    'regular_price' => $retailPrice,
                     'wholesale_price' => $wholesalePrice,
                     'cost_price' => $costPrice,
                     'attributes_json' => $variant['attributes'] ?? [],

@@ -15616,3 +15616,53 @@ td.admin-actions-col {
     gap: 4px;
   }
 }
+/* Promotion target: avoid native select popovers escaping narrow admin sheets. */
+.admin-promotion-target-mobile {
+  display: none;
+}
+
+@media (max-width: 599px) {
+  .admin-promotion-target-desktop {
+    display: none;
+  }
+
+  .admin-promotion-target-mobile {
+    display: grid;
+    gap: 8px;
+  }
+
+  .admin-promotion-target-mobile button {
+    width: 100%;
+    min-height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 11px 14px;
+    border: 1px solid var(--neutral-300);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--neutral-900);
+    font: inherit;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .admin-promotion-target-mobile button.active {
+    border-color: var(--primary);
+    background: color-mix(in srgb, var(--primary) 8%, white);
+    color: var(--primary);
+  }
+
+  .admin-promotion-target-mobile button span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .admin-promotion-target-mobile button svg {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 auto;
+  }
+}

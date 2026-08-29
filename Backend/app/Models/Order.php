@@ -17,7 +17,7 @@ class Order extends Model
         'shipping_full_address', 'shipping_district', 'shipping_mobile_number', 'shipping_email',
         'checkout_note', 'status', 'order_status', 'payment_status', 'payment_method',
         'payment_channel', 'terms_accepted', 'source_channel', 'price_mode', 'subtotal', 'tax_total',
-        'shipping_total', 'delivery_method', 'discount_total', 'coupon_code', 'coupon_codes',
+        'shipping_total', 'delivery_method', 'delivery_area', 'discount_total', 'coupon_code', 'coupon_codes',
         'promotion_snapshot', 'net_subtotal', 'item_discount_total', 'shipping_discount_total',
         'grand_total', 'total_cogs', 'gross_profit', 'refund_total', 'exchange_due_total',
         'currency', 'shipping_address_snapshot', 'billing_address_snapshot', 'customer_note',

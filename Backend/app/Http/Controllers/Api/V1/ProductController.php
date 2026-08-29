@@ -77,12 +77,15 @@ class ProductController extends Controller
                         'selling_price' => $data['retail_price'],
                         'retail_price' => $data['retail_price'],
                         'sale_price' => $data['retail_price'],
+                        'regular_price' => $data['retail_price'],
+                        'base_price' => $data['retail_price'],
                         'wholesale_price' => $data['wholesale_price'],
                     ]);
                     $product->productVariants()->where('is_active', true)->update([
                         'price' => $data['retail_price'],
                         'sale_price' => $data['retail_price'],
                         'retail_price' => $data['retail_price'],
+                        'regular_price' => $data['retail_price'],
                         'wholesale_price' => $data['wholesale_price'],
                     ]);
                 } else {

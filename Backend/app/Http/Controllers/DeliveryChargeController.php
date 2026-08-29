@@ -3,43 +3,39 @@
 namespace App\Http\Controllers;
 
 use App\Models\DeliveryCharge;
-use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\Validator;
+use Illuminate\Http\Request;
 
 class DeliveryChargeController extends Controller
 {
-    /**
-     * Calculate and display delivery charge.
-     */
-    /**
-     * Get the current global delivery charge.
-     */
     public function getDeliveryCharge(): JsonResponse
     {
-        $charge = DeliveryCharge::calculate();
-
-        return response()->json([
-            'success'         => true,
-            'delivery_charge' => $charge
-        ]);
-    }
-
-    /**
-     * Update the global delivery charge.
-     */
-    public function updateDeliveryCharge(Request $request): JsonResponse
-    {
-        $validated = $request->validate([
-            'delivery_charge' => 'required|numeric|min:1'
-        ]);
-
-        \App\Models\SiteSetting::setValue('delivery_charge', $validated['delivery_charge']);
+        $rates = DeliveryCharge::rates();
 
         return response()->json([
             'success' => true,
-            'message' => 'Delivery charge updated successfully.',
-            'delivery_charge' => $validated['delivery_charge']
+            'inside_dhaka' => $rates[DeliveryCharge::INSIDE_DHAKA],
+            'outside_dhaka' => $rates[DeliveryCharge::OUTSIDE_DHAKA],
+        ]);
+    }
+
+    public function updateDeliveryCharge(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'inside_dhaka' => ['required', 'numeric', 'min:1'],
+            'outside_dhaka' => ['required', 'numeric', 'min:1'],
+        ]);
+
+        $rates = DeliveryCharge::updateRates(
+            (float) $validated['inside_dhaka'],
+            (float) $validated['outside_dhaka'],
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Delivery charges updated successfully.',
+            'inside_dhaka' => $rates[DeliveryCharge::INSIDE_DHAKA],
+            'outside_dhaka' => $rates[DeliveryCharge::OUTSIDE_DHAKA],
         ]);
     }
 }

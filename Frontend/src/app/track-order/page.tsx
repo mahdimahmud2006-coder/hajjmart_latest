@@ -57,20 +57,20 @@ function TrackOrderContent() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8 w-full">
+    <div className="max-w-4xl mx-auto px-3 sm:px-4 py-5 sm:py-8 pb-20 lg:pb-8 w-full overflow-x-hidden">
       {/* Page Title Context */}
-      <div className="text-center max-w-xl mx-auto mb-8">
-        <h1 className="text-[28px] sm:text-[36px] font-bold text-[#1A1A1A] flex items-center justify-center gap-2">
-          <Truck className="w-8 h-8 text-[#1F5D42]" />
+      <div className="text-center max-w-xl mx-auto mb-5 sm:mb-8">
+        <h1 className="text-[25px] sm:text-[36px] font-bold text-[#1A1A1A] flex flex-col sm:flex-row items-center justify-center gap-1.5 sm:gap-2 leading-tight">
+          <Truck className="w-7 h-7 sm:w-8 sm:h-8 text-[#1F5D42] shrink-0" />
           <span>অর্ডার ট্র্যাকিং (Order Tracker)</span>
         </h1>
-        <p className="text-[18px] text-[#5B5650] mt-1">
+        <p className="text-[16px] sm:text-[18px] text-[#5B5650] mt-2 leading-relaxed">
           আপনার মোবাইল নম্বর এবং চাইলে অর্ডার নম্বর দিয়ে লাইভ পার্সেল স্ট্যাটাস ট্র্যাক করুন
         </p>
       </div>
 
       {/* Search Form Card */}
-      <Card bordered className="p-6 bg-[#FFFDF8] mb-8 shadow-xs">
+      <Card bordered className="p-4 sm:p-6 bg-[#FFFDF8] mb-5 sm:mb-8 shadow-xs">
         <form onSubmit={handleSearchSubmit} className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-end">
           <div className="sm:col-span-5">
             <TextInput
@@ -115,7 +115,7 @@ function TrackOrderContent() {
               <p className="text-[18px] text-[#5B5650]">ট্র্যাকিং ডাটা লোড করা হচ্ছে...</p>
             </Card>
           ) : trackingData ? (
-            <Card bordered className="p-6 sm:p-8 bg-[#FFFDF8] shadow-xs flex flex-col gap-6">
+            <Card bordered className="p-4 sm:p-8 bg-[#FFFDF8] shadow-xs flex flex-col gap-5 sm:gap-6">
               {/* Header Info */}
               <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#DDD6C7] pb-4">
                 <div>
@@ -126,7 +126,7 @@ function TrackOrderContent() {
                 </div>
 
                 {trackingData.courier_name && (
-                  <div className="text-right">
+                  <div className="text-left sm:text-right min-w-0">
                     <span className="text-[14px] text-[#5B5650] block">ডেলিভারি কুরিয়ার:</span>
                     <Badge variant="primary-tint" icon={<Package className="w-4 h-4" />}>
                       {trackingData.courier_name} ({trackingData.consignment_id || "প্রসেসিং"})
@@ -137,8 +137,8 @@ function TrackOrderContent() {
 
               {/* Pathao Official Direct Link */}
               {trackingData.tracking_url && (
-                <div className="p-4 bg-[#E4EFE8] border border-[#C4DFC3] rounded-[8px] flex items-center justify-between flex-wrap gap-3">
-                  <div className="flex items-center gap-2 text-[#1F5D42] font-bold text-[18px]">
+                <div className="p-4 bg-[#E4EFE8] border border-[#C4DFC3] rounded-[8px] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div className="flex items-start sm:items-center gap-2 text-[#1F5D42] font-bold text-[16px] sm:text-[18px] leading-snug">
                     <CheckCircle2 className="w-5 h-5" />
                     <span>পাঠাও কুরিয়ার লাইভ ট্র্যাকিং সক্রিয়</span>
                   </div>
@@ -146,7 +146,7 @@ function TrackOrderContent() {
                     href={trackingData.tracking_url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#1F5D42] text-white rounded-[6px] font-bold text-[16px] hover:bg-[#164430] transition-colors"
+                    className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-[#1F5D42] text-white rounded-[6px] font-bold text-[15px] sm:text-[16px] hover:bg-[#164430] transition-colors text-center"
                   >
                     <span>পাঠাও পোর্টালে লাইভ ট্র্যাক করুন</span>
                     <ExternalLink className="w-4 h-4" />

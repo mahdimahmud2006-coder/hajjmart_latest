@@ -20,17 +20,17 @@ export function formatPrice(value: unknown): string {
 
 export function productPrice(product: Product, variant?: ProductVariant | null): number {
   if (variant) {
-    return toNumber(variant.sale_price ?? variant.price ?? variant.regular_price);
+    return toNumber(variant.retail_price ?? variant.sale_price ?? variant.price ?? variant.regular_price);
   }
   return toNumber(
-    product.sale_price ?? product.selling_price ?? product.price_min ?? product.regular_price,
+    product.retail_price ?? product.selling_price ?? product.sale_price ?? product.price_min ?? product.regular_price,
   );
 }
 
-export function regularProductPrice(product: Product, variant?: ProductVariant | null): number | null {
-  const regular = toNumber(variant?.regular_price ?? product.regular_price, 0);
-  const sale = productPrice(product, variant);
-  return regular > sale ? regular : null;
+// Legacy regular/sale prices are not a second storefront discount layer.
+// Public promotions are the only source of customer-facing markdowns.
+export function regularProductPrice(_product: Product, _variant?: ProductVariant | null): number | null {
+  return null;
 }
 
 function imageUrl(image: ProductImage | undefined): string | null {

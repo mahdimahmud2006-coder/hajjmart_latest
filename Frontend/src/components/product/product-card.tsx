@@ -7,6 +7,7 @@ import { Badge, Button, Card, PriceDisplay } from "@/components/ui/storefront-pr
 import { useStore } from "@/context/store-context";
 import { Heart, Star, ShoppingBag } from "lucide-react";
 import { useLanguage } from "@/context/language-context";
+import { resolvePromotionUnitPrice } from "@/lib/promotion-price";
 
 interface ProductCardProps {
   product: Product;
@@ -15,7 +16,7 @@ interface ProductCardProps {
 
 export function ProductCard({ product, className = "" }: ProductCardProps) {
   const { t } = useLanguage();
-  const { wishlist, toggleWishlist, addToCart, token } = useStore();
+  const { wishlist, toggleWishlist, addToCart, token, publicPromotions } = useStore();
 
   const isSaved = wishlist.includes(product.id);
   const imageUrl =
@@ -24,12 +25,14 @@ export function ProductCard({ product, className = "" }: ProductCardProps) {
     product.product_images?.[0]?.source_url ||
     "/placeholder.jpg";
 
-  const sellingPrice =
+  const baseSellingPrice =
     typeof product.retail_price === "number"
       ? product.retail_price
       : Number(product.retail_price || product.selling_price || 0);
-
-  const regularPrice = product.regular_price ? Number(product.regular_price) : undefined;
+  const categoryIds = (product.categories || []).map((category) => Number(category.id));
+  const promoted = resolvePromotionUnitPrice(baseSellingPrice, product.id, categoryIds, publicPromotions);
+  const sellingPrice = promoted.price;
+  const regularPrice = promoted.promotion ? baseSellingPrice : undefined;
   const inStock =
     product.in_stock ??
     (product.stock_status === "instock" || (product.available_stock ?? 0) > 0);

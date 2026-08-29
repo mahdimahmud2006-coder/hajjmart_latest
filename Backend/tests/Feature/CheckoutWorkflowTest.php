@@ -9,6 +9,7 @@ use App\Models\Payment;
 use App\Models\Product;
 use App\Models\ReservedProduct;
 use App\Models\Shop;
+use App\Models\SiteSetting;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
@@ -263,6 +264,40 @@ class CheckoutWorkflowTest extends TestCase
         $this->assertSame(2780.0, (float) Order::firstOrFail()->grand_total);
     }
 
+    public function test_district_automatically_uses_admin_managed_delivery_rate_and_is_saved_on_order(): void
+    {
+        SiteSetting::setValue('delivery_charge_inside_dhaka', '65.00');
+        SiteSetting::setValue('delivery_charge_outside_dhaka', '125.00');
+
+        $quote = $this->postJson('/api/v1/checkout/quote', [
+            'items' => [['product_id' => $this->product->id, 'variant_id' => null, 'quantity' => 1]],
+            'district' => 'Gazipur',
+            'coupon_code' => null,
+            'payment_method' => 'cod',
+        ])->assertOk();
+
+        $quote->assertJsonPath('data.delivery', 125);
+
+        $payload = $this->checkoutPayload('cod', (string) Str::uuid());
+        $payload['district'] = 'Gazipur';
+        // Browser-supplied delivery_area is ignored; the backend derives it from district.
+        $payload['delivery_area'] = 'inside_dhaka';
+        $this->postJson('/api/v1/checkout/place-order', $payload)->assertCreated();
+
+        $order = Order::firstOrFail();
+        $this->assertSame('outside_dhaka', $order->delivery_area);
+        $this->assertSame(125.0, (float) $order->shipping_total);
+
+        $payload = $this->checkoutPayload('cod', (string) Str::uuid());
+        $payload['district'] = 'Dhaka';
+        $payload['delivery_area'] = 'outside_dhaka';
+        $this->postJson('/api/v1/checkout/place-order', $payload)->assertCreated();
+
+        $dhakaOrder = Order::query()->latest('id')->firstOrFail();
+        $this->assertSame('inside_dhaka', $dhakaOrder->delivery_area);
+        $this->assertSame(65.0, (float) $dhakaOrder->shipping_total);
+    }
+
     public function test_invalid_bangladesh_mobile_is_rejected_before_order_creation(): void
     {
         $payload = $this->checkoutPayload('cod', (string) Str::uuid());
@@ -397,7 +432,6 @@ class CheckoutWorkflowTest extends TestCase
             'mobile_number' => '01720601515',
             'email' => null,
             'district' => 'Dhaka',
-            'upazila_thana' => 'Savar',
             'full_address' => 'Village/Area, Union/Ward, Savar, near landmark',
             'payment_method' => $paymentMethod,
             'coupon_code' => null,

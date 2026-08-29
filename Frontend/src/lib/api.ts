@@ -117,10 +117,24 @@ export async function searchProducts(
   );
 }
 
+export type DeliveryArea = "inside_dhaka" | "outside_dhaka";
+
+export interface CheckoutOptions {
+  country: string;
+  currency: string;
+  currency_symbol: string;
+  districts: string[];
+  delivery_charges: Record<DeliveryArea, number>;
+}
+
+export async function getCheckoutOptions(): Promise<CheckoutOptions> {
+  const res = await clientApi<CheckoutOptions>("/checkout/options");
+  return res.data;
+}
+
 export interface CheckoutQuotePayload {
   items: Array<{ product_id: number; variant_id?: number | null; quantity: number }>;
   district?: string;
-  thana?: string;
   coupon_code?: string | null;
   payment_method?: string;
 }
@@ -144,8 +158,6 @@ export interface PlaceOrderPayload {
   mobile_number: string;
   email?: string;
   district: string;
-  thana?: string;
-  upazila_thana?: string;
   shipping_address?: string;
   full_address?: string;
   payment_method: string;
@@ -184,16 +196,12 @@ function generateCheckoutUuid(): string {
 function checkoutRequestBody(payload: PlaceOrderPayload) {
   const name = payload.name || payload.customer_name || "গ্রাহক";
   const fullAddress = payload.full_address || payload.shipping_address || "";
-  const upazilaThana = payload.upazila_thana || payload.thana || "";
-
   return {
     name,
     customer_name: name,
     mobile_number: payload.mobile_number,
     email: payload.email,
     district: payload.district,
-    upazila_thana: upazilaThana,
-    thana: upazilaThana,
     full_address: fullAddress,
     shipping_address: fullAddress,
     payment_method: normalizeCheckoutPaymentMethod(payload.payment_method),
@@ -362,7 +370,6 @@ export interface CustomerAddress {
   recipient_name: string;
   phone: string;
   district: string;
-  thana: string;
   address_line: string;
   is_default?: boolean;
 }
@@ -445,8 +452,6 @@ type CustomerAddressApi = {
   phone?: string | null;
   mobile_number?: string | null;
   district: string;
-  upazila?: string | null;
-  area?: string | null;
   full_address?: string | null;
   address_line_1?: string | null;
   is_default?: boolean;
@@ -459,7 +464,6 @@ function normalizeCustomerAddress(address: CustomerAddressApi): CustomerAddress 
     recipient_name: address.recipient_name,
     phone: address.phone || address.mobile_number || "",
     district: address.district,
-    thana: address.upazila || address.area || "",
     address_line: address.full_address || address.address_line_1 || "",
     is_default: Boolean(address.is_default),
   };
@@ -477,7 +481,6 @@ export async function createCustomerAddress(
     recipient_name: string;
     phone: string;
     district: string;
-    upazila: string;
     full_address: string;
     is_default?: boolean;
   },
@@ -497,7 +500,6 @@ export async function updateCustomerAddress(
     recipient_name: string;
     phone: string;
     district: string;
-    upazila: string;
     full_address: string;
     is_default: boolean;
   }>,
@@ -646,6 +648,8 @@ export interface Promotion {
   applicable_to?: "all" | "product" | "category";
   included_product_ids?: number[] | null;
   included_category_ids?: number[] | null;
+  priority?: number | null;
+  max_discount_amount?: number | string | null;
   starts_at?: string | null;
   expires_at?: string | null;
 }

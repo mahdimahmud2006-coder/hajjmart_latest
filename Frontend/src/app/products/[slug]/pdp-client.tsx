@@ -12,6 +12,7 @@ import { ProductCard } from "@/components/product/product-card";
 import { Button, PriceDisplay, QuantityStepper } from "@/components/ui/storefront-primitives";
 import { useStore } from "@/context/store-context";
 import { Heart, ShoppingBag, Zap, Star, ChevronRight, Truck, ShieldCheck } from "lucide-react";
+import { resolvePromotionUnitPrice } from "@/lib/promotion-price";
 
 interface PDPClientProps {
   product: Product;
@@ -20,7 +21,7 @@ interface PDPClientProps {
 
 export function PDPClient({ product, relatedProducts }: PDPClientProps) {
   const router = useRouter();
-  const { wishlist, toggleWishlist, addToCart, token } = useStore();
+  const { wishlist, toggleWishlist, addToCart, token, publicPromotions } = useStore();
 
   const [selectedVariant, setSelectedVariant] = useState<ProductVariant | null>(null);
   const [quantity, setQuantity] = useState(1);
@@ -31,19 +32,18 @@ export function PDPClient({ product, relatedProducts }: PDPClientProps) {
   const variantsList = product.product_variants || product.productVariants || [];
 
   // Determine pricing based on selected variation or base product
-  const currentPrice = selectedVariant?.retail_price
+  const baseCurrentPrice = selectedVariant?.retail_price
     ? Number(selectedVariant.retail_price)
     : selectedVariant?.sale_price
     ? Number(selectedVariant.sale_price)
     : typeof product.retail_price === "number"
     ? product.retail_price
     : Number(product.retail_price || product.selling_price || 0);
+  const categoryIds = (product.categories || []).map((category) => Number(category.id));
+  const promoted = resolvePromotionUnitPrice(baseCurrentPrice, product.id, categoryIds, publicPromotions);
+  const currentPrice = promoted.price;
 
-  const regularPrice = selectedVariant?.regular_price
-    ? Number(selectedVariant.regular_price)
-    : product.regular_price
-    ? Number(product.regular_price)
-    : undefined;
+  const regularPrice = promoted.promotion ? baseCurrentPrice : undefined;
 
   const inStock = selectedVariant
     ? selectedVariant.in_stock !== false
@@ -233,6 +233,7 @@ export function PDPClient({ product, relatedProducts }: PDPClientProps) {
       <PDPStickyBar
         price={currentPrice}
         regularPrice={regularPrice}
+       
         inStock={inStock}
         onAddToCart={handleAddToCart}
       />

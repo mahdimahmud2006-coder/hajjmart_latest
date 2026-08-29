@@ -115,7 +115,7 @@ Route::middleware(['auth:sanctum', EnsureEmployee::class])->group(function () {
     Route::delete('/admin/contact/{id}', [ContactMessageController::class, 'deleteMessage']);
 
     // Admin Settings
-    Route::post('/admin/settings/delivery', [DeliveryChargeController::class, 'updateDeliveryCharge']);
+    Route::post('/admin/settings/delivery', [DeliveryChargeController::class, 'updateDeliveryCharge'])->middleware(EnsureAdmin::class);
 });
 /*
 |--------------------------------------------------------------------------
@@ -152,6 +152,7 @@ use App\Http\Controllers\Api\V1\Admin\OfflineSessionController as AdminOfflineSe
 use App\Http\Controllers\Api\V1\Admin\OfflineOperationsController as AdminOfflineOperationsController;
 use App\Http\Controllers\Api\V1\Admin\StockTransferController as AdminStockTransferController;
 use App\Http\Controllers\Api\V1\Admin\ExternalAccountController as AdminExternalAccountController;
+use App\Http\Controllers\Api\V1\Admin\DeliveryChargeController as AdminDeliveryChargeController;
 
 Route::prefix('v1')->group(function () {
     Route::get('/homepage', [V1HomepageController::class, 'index']);
@@ -199,7 +200,6 @@ Route::prefix('v1')->group(function () {
         Route::get('/orders/{orderNumber}', [V1OrderController::class, 'show']);
         Route::post('/orders/{orderNumber}/cancel', [V1OrderController::class, 'cancel']);
         Route::put('/orders/{orderNumber}/payment-method', [V1OrderController::class, 'updatePaymentMethod']);
-        Route::post('/orders/{orderNumber}/return-exchange', [V1OrderController::class, 'returnExchange']);
 
         Route::get('/payments/{order}/initiate', [V1PaymentController::class, 'initiate']);
         Route::get('/payments/{order}/status', [V1PaymentController::class, 'status']);
@@ -268,6 +268,9 @@ Route::prefix('v1')->group(function () {
 
             Route::get('/external-accounts', [AdminExternalAccountController::class, 'show']);
             Route::post('/external-accounts/pathao', [AdminExternalAccountController::class, 'updatePathao']);
+
+            Route::get('/delivery-charges', [AdminDeliveryChargeController::class, 'show']);
+            Route::put('/delivery-charges', [AdminDeliveryChargeController::class, 'update'])->middleware(EnsureAdmin::class);
 
             Route::get('/orders', [AdminOrderController::class, 'index']);
             Route::post('/orders', [AdminOrderController::class, 'store']);

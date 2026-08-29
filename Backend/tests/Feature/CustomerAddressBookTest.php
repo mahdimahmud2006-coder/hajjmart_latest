@@ -19,7 +19,6 @@ class CustomerAddressBookTest extends TestCase
             'recipient_name' => 'Rahim',
             'phone' => '01714049448',
             'district' => 'Dhaka',
-            'upazila' => 'Uttara West',
             'full_address' => 'House 08 Sector 3 Road 8',
             'is_default' => false,
         ])->assertCreated()->json('data');
@@ -28,25 +27,15 @@ class CustomerAddressBookTest extends TestCase
         $this->assertDatabaseHas('user_addresses', [
             'id' => $first['id'],
             'address_line_1' => 'House 08 Sector 3 Road 8',
-            'upazila' => 'Uttara West',
             'is_default' => true,
         ]);
         $this->assertSame($first['id'], $user->fresh()->address_default_id);
-
-        $this->actingAs($user, 'sanctum')->postJson('/api/v1/addresses', [
-            'label' => 'Office',
-            'recipient_name' => 'Rahim',
-            'phone' => '01714049448',
-            'district' => 'Dhaka',
-            'full_address' => 'Office road',
-        ])->assertUnprocessable()->assertJsonValidationErrors(['upazila']);
 
         $second = $this->actingAs($user, 'sanctum')->postJson('/api/v1/addresses', [
             'label' => 'Office',
             'recipient_name' => 'Rahim',
             'phone' => '01714049448',
             'district' => 'Dhaka',
-            'upazila' => 'Banani',
             'full_address' => 'Office road',
         ])->assertCreated()->json('data');
 

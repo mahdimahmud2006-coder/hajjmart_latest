@@ -44,7 +44,7 @@ class HajjMartRealisticDatabaseSeeder extends Seeder
                 'Stores' => fn () => $this->seedStores(),
                 'Admin attribution' => fn () => $this->seedEmployees(),
                 'Customers and addresses' => fn () => $this->seedCustomers(),
-                'Coupons and promotions' => fn () => $this->seedCoupons(),
+                'Promotions reset (empty)' => fn () => $this->seedCoupons(),
                 'Product catalogue' => fn () => $this->loadProducts(),
                 'Store inventory and batches' => fn () => $this->seedCompleteInventory(),
                 'Homepage and contact messages' => fn () => $this->seedHomepageAndMessages(),
@@ -135,15 +135,11 @@ class HajjMartRealisticDatabaseSeeder extends Seeder
 
     private function seedCoupons(): void
     {
-        foreach ($this->data['coupons'] ?? [] as $row) {
-            $id = $this->upsert('coupons', ['code' => $row['code']], [
-                ...$row,
-                'starts_at' => $this->anchor->subDays((int) $row['starts_days_ago']),
-                'expires_at' => $this->anchor->addDays((int) $row['expires_days_from_now']),
-                'used_count' => 0, 'applicable_to' => 'all', 'created_at' => $this->anchor->subDays(30), 'updated_at' => $this->anchor,
-            ]);
-            $this->coupons[] = $id;
-        }
+        // Promotions are intentionally not seeded. Admin creates/removes them during testing.
+        if (Schema::hasTable('coupon_applications')) DB::table('coupon_applications')->delete();
+        if (Schema::hasTable('coupon_usages')) DB::table('coupon_usages')->delete();
+        if (Schema::hasTable('coupons')) DB::table('coupons')->delete();
+        $this->coupons = [];
     }
 
     private function loadProducts(): void

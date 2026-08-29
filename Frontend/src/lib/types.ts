@@ -122,7 +122,9 @@ export type CartItem = {
   name: string;
   image?: string | null;
   unitPrice: number;
+  baseUnitPrice?: number | null;
   regularPrice?: number | null;
+  categoryIds?: number[];
   quantity: number;
   maxStock?: number | null;
   variantLabel?: string | null;

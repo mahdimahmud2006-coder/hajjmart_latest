@@ -281,6 +281,7 @@ export interface PriceDisplayProps {
   currency?: string;
   size?: "sm" | "md" | "lg";
   className?: string;
+  discountLabel?: string;
 }
 
 export function PriceDisplay({
@@ -289,6 +290,7 @@ export function PriceDisplay({
   currency = "৳",
   size = "md",
   className = "",
+  discountLabel,
 }: PriceDisplayProps) {
   const isDiscounted = regularPrice && regularPrice > price;
   const savings = isDiscounted ? regularPrice - price : 0;
@@ -317,7 +319,7 @@ export function PriceDisplay({
             {currency}{formatPrice(regularPrice)}
           </span>
           <Badge variant="gold-tint">
-            {currency}{formatPrice(savings)} ছাড় ({discountPercent}% Off)
+            {discountLabel || `${currency}${formatPrice(savings)} ছাড় (${discountPercent}% Off)`}
           </Badge>
         </>
       )}

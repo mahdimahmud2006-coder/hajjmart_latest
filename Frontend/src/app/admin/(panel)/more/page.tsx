@@ -13,6 +13,7 @@ const items: MoreItem[] = [
   { href: "/admin/offline-operations", icon: "activity", labelKey: "more.offline.label", descriptionKey: "more.offline.description" },
   { href: "/admin/returns", icon: "returns", labelKey: "more.returns.label", descriptionKey: "more.returns.description" },
   { href: "/admin/promotions", icon: "promotions", labelKey: "more.promotions.label", descriptionKey: "more.promotions.description" },
+  { href: "/admin/delivery-charge", icon: "truck", labelKey: "more.delivery.label", descriptionKey: "more.delivery.description" },
   { href: "/admin/stores", icon: "stores", labelKey: "more.stores.label", descriptionKey: "more.stores.description" },
   { href: "/admin/employees", icon: "employees", labelKey: "more.employees.label", descriptionKey: "more.employees.description" },
   { href: "/admin/reports", icon: "reports", labelKey: "more.reports.label", descriptionKey: "more.reports.description" },

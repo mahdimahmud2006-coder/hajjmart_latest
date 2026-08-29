@@ -121,7 +121,7 @@ class AddressController extends Controller
             'city' => ['nullable', 'string', 'max:100'],
             'district' => [$required, 'string', Rule::in($districts)],
             'division' => ['nullable', 'string', Rule::in(config('hajjmart.divisions', []))],
-            'upazila' => [$required, 'string', 'max:100'],
+            'upazila' => ['nullable', 'string', 'max:100'],
             'area' => ['nullable', 'string', 'max:100'],
             'landmark' => ['nullable', 'string', 'max:200'],
             'postal_code' => ['nullable', 'string', 'max:10'],

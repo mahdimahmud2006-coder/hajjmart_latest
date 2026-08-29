@@ -3,7 +3,8 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { ToastMessage, type ToastTone } from "@/components/interaction-kit";
 import type { CartItem, Product, ProductVariant, User } from "@/lib/types";
-import { addWishlistProduct, getCustomerProfile, getNotifications, getWishlistProductIds, logoutCustomer, removeWishlistProduct } from "@/lib/api";
+import { addWishlistProduct, getCustomerProfile, getNotifications, getPublicPromotions, getWishlistProductIds, logoutCustomer, removeWishlistProduct, type Promotion } from "@/lib/api";
+import { resolvePromotionUnitPrice } from "@/lib/promotion-price";
 
 type Toast = {
   id: number;
@@ -21,6 +22,7 @@ type StoreContextValue = {
   cartSubtotal: number;
   cartOpen: boolean;
   wishlist: number[];
+  publicPromotions: Promotion[];
   unreadNotificationCount: number;
   token: string | null;
   user: User | null;
@@ -51,6 +53,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [cart, setCart] = useState<StoreCartItem[]>([]);
   const [cartOpen, setCartOpen] = useState(false);
   const [wishlist, setWishlist] = useState<number[]>([]);
+  const [publicPromotions, setPublicPromotions] = useState<Promotion[]>([]);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
@@ -187,30 +190,54 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // Public sales are storefront-visible; coupons remain checkout-only.
+  useEffect(() => {
+    if (!hydrated) return;
+    let cancelled = false;
+    void getPublicPromotions().then((promotions) => {
+      if (cancelled) return;
+      setPublicPromotions(promotions);
+      setCart((current) => {
+        const updated = current.map((item) => {
+          const base = Number(item.baseUnitPrice ?? item.unitPrice);
+          const resolved = resolvePromotionUnitPrice(base, item.productId, item.categoryIds || [], promotions);
+          return {
+            ...item,
+            baseUnitPrice: base,
+            unitPrice: resolved.price,
+            regularPrice: resolved.promotion ? base : undefined,
+          };
+        });
+        try { localStorage.setItem("hajjmart_cart", JSON.stringify(updated)); } catch { /* ignore */ }
+        return updated;
+      });
+    }).catch(() => { if (!cancelled) setPublicPromotions([]); });
+    return () => { cancelled = true; };
+  }, [hydrated]);
+
   // Add Item to Cart
   const addToCart = (product?: Product, variant?: ProductVariant | null, qty: number = 1, options?: { silent?: boolean }) => {
     if (!product) return;
 
-    const unitPrice = variant?.retail_price
+    const baseUnitPrice = variant?.retail_price
       ? Number(variant.retail_price)
       : variant?.sale_price
       ? Number(variant.sale_price)
       : typeof product.retail_price === "number"
       ? product.retail_price
       : Number(product.retail_price || product.selling_price || 0);
+    const categoryIds = (product.categories || []).map((category) => Number(category.id));
+    const promoted = resolvePromotionUnitPrice(baseUnitPrice, product.id, categoryIds, publicPromotions);
+    const unitPrice = promoted.price;
 
-    const regularPrice = variant?.regular_price
-      ? Number(variant.regular_price)
-      : product.regular_price
-      ? Number(product.regular_price)
-      : undefined;
+    const regularPrice = promoted.promotion ? baseUnitPrice : undefined;
 
     const itemKey = `${product.id}:${variant?.id || "base"}`;
     const existingIndex = cart.findIndex((item) => item.key === itemKey);
 
     if (existingIndex > -1) {
       const updated = cart.map((item, idx) =>
-        idx === existingIndex ? { ...item, quantity: item.quantity + qty } : item
+        idx === existingIndex ? { ...item, quantity: item.quantity + qty, unitPrice, baseUnitPrice, regularPrice, categoryIds } : item
       );
       saveCartState(updated);
     } else {
@@ -228,7 +255,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         name: product.name,
         image: product.primary_image_url || product.image_src?.[0] || null,
         unitPrice,
+        baseUnitPrice,
         regularPrice,
+        categoryIds,
         quantity: qty,
         maxStock: product.available_stock || 99,
         variantLabel,
@@ -349,9 +378,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     (total, item) => total + item.unitPrice * item.quantity,
     0
   );
-  const baseShipping = district.toLowerCase() === "dhaka" ? 70 : 130;
-  const shippingTotal = baseShipping;
-  const grandTotal = Math.max(0, cartSubtotal + shippingTotal);
+  // Delivery charge is selected and quoted by the server at checkout.
+  const shippingTotal = 0;
+  const grandTotal = cartSubtotal;
 
   const value: StoreContextValue = {
     cart,
@@ -359,6 +388,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     cartSubtotal,
     cartOpen,
     wishlist,
+    publicPromotions,
     unreadNotificationCount,
     token,
     user,

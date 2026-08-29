@@ -100,12 +100,7 @@ export const demoCustomers: AdminCustomer[] = demoOrders
   }, [])
   .sort((a, b) => String(b.last_order_at || "").localeCompare(String(a.last_order_at || "")));
 
-export const demoPromotions: AdminPromotion[] = [
-  { id: 1, code: null, title: "Sacred Journey Sale", description: "Public five percent discount across the catalogue.", type: "percent", value: 5, visibility: "public", promotion_type: "public_sale", applicable_to: "all", is_active: true, auto_apply: true, starts_at: "2026-07-01", expires_at: "2026-08-15", used_count: 234, usage_limit: 1200, min_order_amount: 1000 },
-  { id: 2, code: "PILGRIM500", title: "Pilgrim Package Coupon", description: "Checkout coupon for selected package products.", type: "fixed", value: 500, visibility: "private", promotion_type: "coupon", applicable_to: "product", included_product_ids: [2], is_active: true, auto_apply: false, starts_at: "2026-07-10", expires_at: "2026-07-31", used_count: 38, usage_limit: 100, min_order_amount: 5000 },
-  { id: 3, code: null, title: "Travel Essentials Sale", description: "Public fixed discount on selected travel products.", type: "fixed", value: 100, visibility: "public", promotion_type: "public_sale", applicable_to: "product", included_product_ids: [4, 8], is_active: true, auto_apply: true, starts_at: "2026-07-18", expires_at: "2026-07-25", used_count: 119, usage_limit: 300, min_order_amount: 0 },
-  { id: 4, code: "WELCOME10", title: "First Order Welcome", description: "Checkout coupon for eligible products.", type: "percent", value: 10, visibility: "private", promotion_type: "coupon", applicable_to: "all", is_active: false, auto_apply: false, starts_at: "2026-06-01", expires_at: "2026-06-30", used_count: 82, usage_limit: 100, min_order_amount: 2000 },
-];
+export const demoPromotions: AdminPromotion[] = [];
 
 export const demoReturns: AdminReturn[] = [
   { id: 1, rr_number: "RR-260720-0018", type: "exchange", status: "approved", reason: "Sandal size did not fit; exchange requested for next size.", refund_total: 0, exchange_due_total: 100, created_at: "2026-07-20T14:06:00", order: demoOrders[1], items: [{ id: 1, quantity: 1, refundable_amount: 1200, order_item: demoOrders[1].items[0] }] },

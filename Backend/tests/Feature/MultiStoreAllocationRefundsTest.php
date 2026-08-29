@@ -255,6 +255,7 @@ class MultiStoreAllocationRefundsTest extends TestCase
         $quote = $orderService->quoteCheckout([
             'items' => [['product_id' => $this->product1->id, 'quantity' => 2]],
             'district' => 'Dhaka',
+            'delivery_area' => 'inside_dhaka',
             'payment_method' => 'cod',
         ]);
 

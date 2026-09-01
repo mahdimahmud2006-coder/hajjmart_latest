@@ -22,7 +22,7 @@ class Order extends Model
         'grand_total', 'total_cogs', 'gross_profit', 'refund_total', 'exchange_due_total',
         'currency', 'shipping_address_snapshot', 'billing_address_snapshot', 'customer_note',
         'admin_note', 'shop_id', 'created_by', 'assigned_to', 'packed_by', 'order_date', 'paid_amount', 'due_amount',
-        'source_reference', 'terminal_id', 'client_transaction_id', 'offline_inventory_session_id', 'local_sequence', 'reconciliation_status', 'preempted_by_session_id', 'cancellation_reason_code', 'checkout_idempotency_key', 'offline_created_at', 'synced_at', 'priority', 'delivery_status', 'placed_at', 'confirmed_at', 'shipped_at', 'delivered_at', 'cancelled_at',
+        'source_reference', 'terminal_id', 'client_transaction_id', 'offline_inventory_session_id', 'local_sequence', 'reconciliation_status', 'preempted_by_session_id', 'cancellation_reason_code', 'checkout_idempotency_key', 'offline_created_at', 'synced_at', 'delivery_status', 'placed_at', 'confirmed_at', 'shipped_at', 'delivered_at', 'cancelled_at',
         'offline_recovery_case_id', 'manual_outage_reference', 'manual_outage_occurred_at',
         'ordered_products', 'customer_details', 'address', 'delivery_charge', 'total_price', 'invoice_printed_at', 'pathao_consignment_id',
         'is_potential_fraud', 'fraud_score', 'fraud_reasons', 'fraud_checked_at',

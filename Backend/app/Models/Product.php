@@ -640,15 +640,4 @@ class Product extends Model
     {
         return $this->belongsToMany(ProductTag::class, 'product_tag_pivot', 'product_id', 'tag_id');
     }
-
-    public function reviews(): HasMany
-    {
-        return $this->hasMany(ProductReview::class);
-    }
-
-    public function approvedReviews(): HasMany
-    {
-        return $this->hasMany(ProductReview::class)->where('status', 'approved')->where('is_approved', true);
-    }
-
 }

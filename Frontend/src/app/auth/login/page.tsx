@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useStore } from "@/context/store-context";
 import { loginCustomer } from "@/lib/api";
 import { Button, Card, TextInput } from "@/components/ui/storefront-primitives";
-import { LogIn, Lock, ArrowRight } from "lucide-react";
+import { LogIn, ArrowRight } from "lucide-react";
 
 export default function CustomerLoginPage() {
   const router = useRouter();
@@ -67,15 +67,6 @@ export default function CustomerLoginPage() {
             required
           />
 
-          <div className="flex justify-end">
-            <Link
-              href="/auth/forgot-password"
-              className="text-[14px] text-[#1F5D42] font-bold hover:underline"
-            >
-              পাসওয়ার্ড ভুলে গেছেন?
-            </Link>
-          </div>
-
           <Button
             variant="primary"
             size="lg"
@@ -83,6 +74,7 @@ export default function CustomerLoginPage() {
             loading={loading}
             fullWidth
             icon={<ArrowRight className="w-5 h-5" />}
+            className="mt-2"
           >
             লগইন করুন
           </Button>

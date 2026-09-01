@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { useAdminLanguage } from "@/context/admin-language-context";
-import type { AdminTranslationKey } from "@/lib/admin-i18n";
+import { type AdminTranslationKey, translateFraudReason } from "@/lib/admin-i18n";
 import type { AdminOrder } from "@/lib/admin-types";
 import { formatPrice } from "@/lib/utils";
 import { AdminButton, AdminIcon, Panel, StatusChip, formatDate } from "./admin-ui";
@@ -80,7 +80,7 @@ export function OrderDetailPanel({
   onCancel?: () => void;
   busy?: boolean;
 }) {
-  const { t } = useAdminLanguage();
+  const { language, t } = useAdminLanguage();
   const statusLabel = (value: string) => statusKeys[value] ? t(statusKeys[value]) : value.replaceAll("_", " ");
   const paymentStatusLabel = (value: string) => paymentStatusKeys[value] ? t(paymentStatusKeys[value]) : value.replaceAll("_", " ");
   const returnStatusLabel = (value: string) => returnStatusKeys[value] ? t(returnStatusKeys[value]) : value.replaceAll("_", " ");
@@ -119,17 +119,21 @@ export function OrderDetailPanel({
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: 700, fontSize: "14px", marginBottom: "6px" }}>
           <span style={{ fontSize: "18px" }}>⚠️</span>
-          <span>Potential Fraud Order (Risk Score: {order.fraud_score ?? 50}/100)</span>
+          <span>{t("orders.fraudBannerTitle")} ({t("orders.fraudRiskScore")}: {order.fraud_score ?? 50}/100)</span>
         </div>
         <p style={{ fontSize: "12.5px", margin: "0 0 8px", color: "#b91c1c", lineHeight: 1.4 }}>
-          This order was marked as potential fraud and moved to <strong>Pending</strong> status. An employee must confirm this order before shipping.
+          {t("orders.fraudBannerDescription")}
         </p>
         {order.fraud_reasons && order.fraud_reasons.length > 0 && (
           <div style={{ background: "#fff", borderRadius: "6px", padding: "8px 12px", border: "1px solid #fee2e2" }}>
-            <span style={{ fontSize: "11px", fontWeight: 700, color: "#991b1b", display: "block", marginBottom: "4px" }}>Risk Signals / Reasons:</span>
+            <span style={{ fontSize: "11px", fontWeight: 700, color: "#991b1b", display: "block", marginBottom: "4px" }}>
+              {t("orders.fraudSignalsHeading")}
+            </span>
             <ul style={{ margin: 0, paddingLeft: "18px", fontSize: "12px", color: "#7f1d1d" }}>
               {order.fraud_reasons.map((reason, idx) => (
-                <li key={idx} style={{ marginBottom: "2px" }}>{reason}</li>
+                <li key={idx} style={{ marginBottom: "2px" }}>
+                  {translateFraudReason(reason, language)}
+                </li>
               ))}
             </ul>
           </div>
@@ -159,7 +163,7 @@ export function OrderDetailPanel({
       <div className="admin-detail-grid prd04-detail-grid">
         <div><span>{t("orders.customer")}</span><strong>{order.checkout_name || t("orders.walkIn")}</strong><small>{order.checkout_mobile_number || t("orders.noPhone")}<br/>{order.checkout_email || ""}</small></div>
         <div><span>{t("orders.delivery")}</span><strong>{order.checkout_district || t("orders.defaultStore")}</strong><small>{order.checkout_full_address || "—"}</small></div>
-        <div>
+        <div className="admin-detail-grid-full">
           <span>Pathao Delivery</span>
           {order.pathao_consignment_id ? (
             <strong style={{ color: "#2563eb", fontFamily: "monospace" }}>CID: {order.pathao_consignment_id}</strong>

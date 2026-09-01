@@ -116,10 +116,13 @@ export function selectionForProduct(product: AdminProduct, variant: AdminProduct
 export function selectionForCode(product: AdminProduct, code: string, priceMode: PriceMode): ProductSelection | null {
   const needle = code.trim().toLowerCase();
   if (!needle) return null;
+  const hmId = `hm-${product.id}`.toLowerCase();
+  const rawId = String(product.id);
+  const hashId = `#${product.id}`;
   const variants = productVariants(product);
   const variant = variants.find((item) => [item.sku, item.barcode].some((value) => String(value || "").trim().toLowerCase() === needle));
   if (variant) return selectionForProduct(product, variant, priceMode);
-  const productMatches = [product.sku, product.barcode].some((value) => String(value || "").trim().toLowerCase() === needle);
+  const productMatches = [product.sku, product.barcode, hmId, rawId, hashId, product.name].some((value) => String(value || "").trim().toLowerCase() === needle);
   if (!productMatches) return null;
   return selectionForProduct(product, variants[0] || null, priceMode);
 }
@@ -133,12 +136,29 @@ function productMinimumPrice(product: AdminProduct, priceMode: PriceMode): numbe
 }
 
 function localProductPage(source: AdminProduct[], search: string, page: number, perPage: number, sort: ProductSort, priceMode: PriceMode, _channel?: "social" | "pos"): Paginated<AdminProduct> {
-  const term = search.toLowerCase();
+  const raw = search.trim().toLowerCase();
+  const tokens = raw ? raw.split(/\s+/).filter(Boolean) : [];
   const filtered = source.filter((product) => {
+    if (!tokens.length) return true;
     const variants = productVariants(product).map((variant) => `${variant.sku || ""} ${variant.barcode || ""} ${variantLabel(variant)}`).join(" ");
-    return `${product.name} ${product.sku || ""} ${product.barcode || ""} ${product.brand || ""} ${variants}`.toLowerCase().includes(term);
+    const categories = (product.categories || []).map((c) => `${c.name || ""} ${c.slug || ""}`).join(" ");
+    const hmId = `hm-${product.id} #${product.id} ${product.id}`;
+    const haystack = `${product.name} ${product.sku || ""} ${product.barcode || ""} ${product.brand || ""} ${hmId} ${categories} ${variants}`.toLowerCase();
+    return tokens.every((token) => haystack.includes(token));
   });
   const sorted = [...filtered].sort((a, b) => {
+    if (raw) {
+      const aName = (a.name || "").toLowerCase();
+      const bName = (b.name || "").toLowerCase();
+      const aExact = aName === raw || (a.sku || "").toLowerCase() === raw || `hm-${a.id}` === raw;
+      const bExact = bName === raw || (b.sku || "").toLowerCase() === raw || `hm-${b.id}` === raw;
+      if (aExact && !bExact) return -1;
+      if (!aExact && bExact) return 1;
+      const aStarts = aName.startsWith(raw);
+      const bStarts = bName.startsWith(raw);
+      if (aStarts && !bStarts) return -1;
+      if (!aStarts && bStarts) return 1;
+    }
     if (sort === "price_asc") return productMinimumPrice(a, priceMode) - productMinimumPrice(b, priceMode);
     if (sort === "price_desc") return productMinimumPrice(b, priceMode) - productMinimumPrice(a, priceMode);
     return Number(b.id) - Number(a.id);
@@ -169,28 +189,48 @@ export function ProductPicker({ cart, onAdd, priceMode = "retail", preferOffline
   const resolvedStore = storeId ?? contextStore;
   const perPage = channel === "pos" ? 15 : 20;
 
-  useEffect(() => subscribeOfflineCommerceChanges(() => setOfflineRevision((value) => value + 1)), []);
+  const isOfflineMode = Boolean(!token || preferOffline);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 280);
+    if (!isOfflineMode) return;
+    return subscribeOfflineCommerceChanges(() => setOfflineRevision((value) => value + 1));
+  }, [isOfflineMode]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedSearch(search.trim());
+      setPage(1);
+    }, 280);
     return () => window.clearTimeout(timer);
   }, [search]);
 
-  useEffect(() => { setPage(1); }, [debouncedSearch, resolvedStore, sort, priceMode]);
+  useEffect(() => { setPage(1); }, [resolvedStore, sort, priceMode]);
 
   useEffect(() => {
     if (!showPopular || !resolvedStore) { setPopularProducts([]); return; }
     if (demoMode) { setPopularProducts(localProductPage(demoProductsAdmin, "", 1, 6, "newest", priceMode, channel).data); return; }
-    if (commerceV2 && channel) { void getOfflineCommerceProducts(Number(resolvedStore), channel).then((cached) => setPopularProducts(localProductPage(cached, "", 1, 6, "newest", priceMode, channel).data)).catch(() => setPopularProducts([])); return; }
-    if (!token) { setPopularProducts([]); return; }
+    if (!token) {
+      const loadOffline = commerceV2 && channel
+        ? getOfflineCommerceProducts(Number(resolvedStore), channel).catch(() => getCachedCatalog(Number(resolvedStore)))
+        : getCachedCatalog(Number(resolvedStore));
+      void loadOffline.then((cached) => setPopularProducts(localProductPage(cached, "", 1, 6, "newest", priceMode, channel).data)).catch(() => setPopularProducts([]));
+      return;
+    }
     const controller = new AbortController();
     void adminRequest<Paginated<AdminProduct>>(`/products${queryString({ shop_id: resolvedStore, in_stock: 1, page: 1, per_page: 6, sort: "best_selling", price_mode: priceMode, channel })}`, { token, signal: controller.signal })
       .then((result) => setPopularProducts(pageRows(result)))
       .catch(async () => {
-        try { setPopularProducts(localProductPage(await getCachedCatalog(Number(resolvedStore)), "", 1, 6, "newest", priceMode, channel).data); } catch { setPopularProducts([]); }
+        try {
+          const cached = commerceV2 && channel
+            ? await getOfflineCommerceProducts(Number(resolvedStore), channel).catch(() => getCachedCatalog(Number(resolvedStore)))
+            : await getCachedCatalog(Number(resolvedStore));
+          setPopularProducts(localProductPage(cached, "", 1, 6, "newest", priceMode, channel).data);
+        } catch {
+          setPopularProducts([]);
+        }
       });
     return () => controller.abort();
-  }, [channel, commerceV2, demoMode, offlineRevision, priceMode, resolvedStore, showPopular, token]);
+  }, [channel, commerceV2, demoMode, isOfflineMode ? offlineRevision : 0, isOfflineMode, priceMode, resolvedStore, showPopular, token]);
 
   useEffect(() => {
     const sequence = ++requestSequence.current;
@@ -202,27 +242,40 @@ export function ProductPicker({ cart, onAdd, priceMode = "retail", preferOffline
       setLoading(false);
       return;
     }
-    if (commerceV2 && resolvedStore && channel) {
-      void getOfflineCommerceProducts(Number(resolvedStore), channel).then((cached) => {
-        if (sequence !== requestSequence.current) return;
-        const result = localProductPage(cached, debouncedSearch, page, perPage, sort, priceMode, channel);
-        setProducts(result.data);
-        setMeta({ currentPage: result.current_page || 1, lastPage: result.last_page || 1, total: result.total || 0 });
-        setDataSource("offline");
-      }).catch(() => { if (sequence === requestSequence.current) { setProducts([]); setMeta({ currentPage: 1, lastPage: 1, total: 0 }); } })
-        .finally(() => { if (sequence === requestSequence.current) setLoading(false); });
-      return;
-    }
 
     if (!token) {
-      setProducts([]);
-      setMeta({ currentPage: 1, lastPage: 1, total: 0 });
-      setLoading(false);
+      if (resolvedStore) {
+        const loadOffline = commerceV2 && channel
+          ? getOfflineCommerceProducts(Number(resolvedStore), channel).catch(() => getCachedCatalog(Number(resolvedStore)))
+          : getCachedCatalog(Number(resolvedStore));
+
+        void loadOffline.then((cached) => {
+          if (sequence !== requestSequence.current) return;
+          const result = localProductPage(cached, debouncedSearch, page, perPage, sort, priceMode, channel);
+          setProducts(result.data);
+          setMeta({ currentPage: result.current_page || 1, lastPage: result.last_page || 1, total: result.total || 0 });
+          setDataSource("offline");
+        }).catch(() => {
+          if (sequence !== requestSequence.current) return;
+          setProducts([]);
+          setMeta({ currentPage: 1, lastPage: 1, total: 0 });
+        }).finally(() => {
+          if (sequence === requestSequence.current) setLoading(false);
+        });
+      } else {
+        setProducts([]);
+        setMeta({ currentPage: 1, lastPage: 1, total: 0 });
+        setLoading(false);
+      }
       return;
     }
 
     if (preferOffline && resolvedStore) {
-      void getCachedCatalog(Number(resolvedStore)).then((cached) => {
+      const loadOffline = commerceV2 && channel
+        ? getOfflineCommerceProducts(Number(resolvedStore), channel).catch(() => getCachedCatalog(Number(resolvedStore)))
+        : getCachedCatalog(Number(resolvedStore));
+
+      void loadOffline.then((cached) => {
         if (sequence !== requestSequence.current) return;
         const result = localProductPage(cached, debouncedSearch, page, perPage, sort, priceMode, channel);
         setProducts(result.data);
@@ -232,7 +285,9 @@ export function ProductPicker({ cart, onAdd, priceMode = "retail", preferOffline
         if (sequence !== requestSequence.current) return;
         setProducts([]);
         setMeta({ currentPage: 1, lastPage: 1, total: 0 });
-      }).finally(() => { if (sequence === requestSequence.current) setLoading(false); });
+      }).finally(() => {
+        if (sequence === requestSequence.current) setLoading(false);
+      });
       return;
     }
 
@@ -246,7 +301,9 @@ export function ProductPicker({ cart, onAdd, priceMode = "retail", preferOffline
       .catch(async () => {
         if (sequence !== requestSequence.current || !resolvedStore) return;
         try {
-          const cached = await getCachedCatalog(Number(resolvedStore));
+          const cached = commerceV2 && channel
+            ? await getOfflineCommerceProducts(Number(resolvedStore), channel).catch(() => getCachedCatalog(Number(resolvedStore)))
+            : await getCachedCatalog(Number(resolvedStore));
           const result = localProductPage(cached, debouncedSearch, page, perPage, sort, priceMode, channel);
           if (sequence !== requestSequence.current) return;
           setProducts(result.data);
@@ -259,7 +316,7 @@ export function ProductPicker({ cart, onAdd, priceMode = "retail", preferOffline
         }
       })
       .finally(() => { if (sequence === requestSequence.current) setLoading(false); });
-  }, [channel, commerceV2, demoMode, token, debouncedSearch, resolvedStore, page, sort, priceMode, preferOffline, offlineRevision]);
+  }, [channel, commerceV2, demoMode, token, debouncedSearch, resolvedStore, page, sort, priceMode, preferOffline, isOfflineMode ? offlineRevision : 0, isOfflineMode]);
 
   useEffect(() => {
     setChoices((current) => {
@@ -404,7 +461,7 @@ export function SaleCart({
                       <div className="admin-pos-table-product">
                         <strong className="product-name">{line.product.name}</strong>
                         {displayVariant && <span className="product-variant">{displayVariant}</span>}
-                        {displayCode && <span className="product-code">Batch: {displayCode}</span>}
+                        {displayCode && <span className="product-code">SKU: {displayCode}</span>}
                       </div>
                     </td>
 

@@ -386,6 +386,8 @@ class MultiStoreAllocationRefundsTest extends TestCase
             'checkout_district' => 'Dhaka',
             'checkout_full_address' => 'Dhaka',
             'terms_accepted' => true,
+            'fraud_checked_at' => now(),
+            'is_potential_fraud' => false,
         ]);
 
         // Reconciliation finishes and promotes status

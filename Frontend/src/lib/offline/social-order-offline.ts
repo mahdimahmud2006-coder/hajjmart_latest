@@ -27,7 +27,6 @@ export type SocialOrderPayload = {
   payment_reference: string | null;
   shipping_total: number;
   manual_discount: number;
-  priority: string;
   assigned_to: number | null;
   customer_note: string | null;
   admin_note: string | null;

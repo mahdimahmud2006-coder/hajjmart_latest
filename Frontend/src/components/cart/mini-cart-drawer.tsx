@@ -123,10 +123,6 @@ export function MiniCartDrawer() {
               </span>
             </div>
 
-            <p className="text-[14px] text-[#5B5650]">
-              ℹ️ শিপিং খরচ ও কুপন ডিসকাউন্ট চেকআউটে যোগ করা হবে।
-            </p>
-
             <div className="flex flex-col gap-2 mt-1">
               <Link href="/checkout" onClick={() => setCartOpen(false)}>
                 <Button

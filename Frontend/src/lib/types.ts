@@ -82,8 +82,6 @@ export type Product = {
   in_stock?: boolean;
   has_variations?: boolean;
   is_featured?: boolean;
-  average_rating?: string | number | null;
-  review_count?: number;
   sold_count?: number;
   primary_image_url?: string | null;
   image_src?: string[] | null;

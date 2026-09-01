@@ -125,7 +125,8 @@ export default function PosPage() {
   const itemCount = useMemo(() => cart.reduce((sum, line) => sum + line.quantity, 0), [cart]);
   const defaultUserStore = user?.shop_id || user?.shop?.id || stores.find((s) => s.is_default)?.id || stores[0]?.id;
   const contextStore = selectedStoreId === "all" ? defaultUserStore : selectedStoreId;
-  const resolvedStore = offline.registeredDevice && offline.boundShopId ? offline.boundShopId : (sellingStoreId ?? (contextStore ? Number(contextStore) : null));
+  const boundStore = offline.registeredDevice && offline.boundShopId ? offline.boundShopId : null;
+  const resolvedStore = sellingStoreId ?? boundStore ?? (contextStore ? Number(contextStore) : (stores[0]?.id ? Number(stores[0].id) : null));
   const currentStore = stores.find((store) => Number(store.id) === Number(resolvedStore));
   const needsAttentionCount = useMemo(() => queueSales.filter((sale) => ["conflict", "rejected", "failed", "needs_review"].includes(sale.status)).length, [queueSales]);
 
@@ -145,8 +146,8 @@ export default function PosPage() {
 
   useEffect(() => {
     if (!stores.length) return;
-    setSellingStoreId((current) => current && stores.some((store) => Number(store.id) === current) ? current : Number(contextStore || stores[0].id));
-  }, [contextStore, stores]);
+    setSellingStoreId((current) => current && stores.some((store) => Number(store.id) === current) ? current : Number(boundStore || contextStore || stores[0].id));
+  }, [boundStore, contextStore, stores]);
 
   const refreshLocalCounts = useCallback(async () => {
     if (!resolvedStore) return;
@@ -666,6 +667,8 @@ export default function PosPage() {
       setDiscount={setDiscount}
       title={t("pos.cart")}
       allowDiscount
+      priceMode={priceMode}
+      onPriceModeChange={setPriceMode}
       onItemPriceModeChange={changeLinePriceMode}
       onRemove={removeLine}
     />

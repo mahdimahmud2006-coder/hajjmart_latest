@@ -442,11 +442,6 @@ export default function ProductBatchesPage() {
                 </div>
               )}
 
-              <p className="admin-callout" style={{ marginTop: "1rem" }}>
-                <AdminIcon name="warning"/>
-                Purging decrements physical stock to prevent overselling and transfers the asset cost (৳{formatPrice(purgeLossAmount)}) to HajjMart Stock Loss Expenditure in reporting.
-              </p>
-
               <AdminButton icon="trash" disabled={busy || !selectedPurgeBatch || !Number(purgeQuantity)}>
                 {busy ? t("shared.working") : t("stockEntry.purgeConfirm")}
               </AdminButton>

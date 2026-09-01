@@ -41,7 +41,6 @@ type SocialDraft = {
   sourceReference: string;
   customerNote: string;
   adminNote: string;
-  priority: string;
   assignedTo: number | null;
   shopId: number | null;
   updatedAt: string;
@@ -75,7 +74,9 @@ export default function SocialCommercePage() {
   const { showToast } = useAdminToast();
   const { state: offline, prepareForCommit, refresh: refreshOfflineState } = useOfflineCommerce();
   const defaultUserStore = user?.shop_id || user?.shop?.id || stores.find((s) => s.is_default)?.id || stores[0]?.id || null;
-  const resolvedStore = offline.registeredDevice && offline.boundShopId ? offline.boundShopId : (selectedStoreId === "all" ? defaultUserStore : selectedStoreId);
+  const contextStore = selectedStoreId === "all" ? defaultUserStore : selectedStoreId;
+  const boundStore = offline.registeredDevice && offline.boundShopId ? offline.boundShopId : null;
+  const defaultStore = contextStore ? Number(contextStore) : (boundStore ?? (stores[0]?.id ? Number(stores[0].id) : null));
   const draftKey = user?.id ? `v2-social-draft:${user.id}` : null;
 
   const [cart, setCart] = useState<CartLine[]>([]);
@@ -89,9 +90,9 @@ export default function SocialCommercePage() {
   const [sourceReference, setSourceReference] = useState("");
   const [customerNote, setCustomerNote] = useState("");
   const [adminNote, setAdminNote] = useState("");
-  const [priority, setPriority] = useState("normal");
   const [assignedTo, setAssignedTo] = useState<number | null>(user?.id || null);
-  const [shopId, setShopId] = useState<number | null>(resolvedStore ? Number(resolvedStore) : null);
+  const [shopId, setShopId] = useState<number | null>(defaultStore ? Number(defaultStore) : null);
+  const resolvedStore = shopId ?? defaultStore;
   const [customerId, setCustomerId] = useState<number | null>(null);
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
@@ -114,7 +115,11 @@ export default function SocialCommercePage() {
   const total = useMemo(() => Math.max(0, subtotal - discount + delivery), [subtotal, discount, delivery]);
   const itemCount = useMemo(() => cart.reduce((sum, line) => sum + line.quantity, 0), [cart]);
 
-  useEffect(() => { if (!shopId && resolvedStore) setShopId(Number(resolvedStore)); }, [resolvedStore, shopId]);
+  useEffect(() => {
+    if (contextStore) {
+      setShopId(Number(contextStore));
+    }
+  }, [contextStore]);
   useEffect(() => { if (!assignedTo && user?.id) setAssignedTo(user.id); }, [assignedTo, user?.id]);
   useEffect(() => { setCart((current) => current.map((line) => ({ ...line, unitPrice: salePrice(line.product, line.variant, priceMode) }))); }, [priceMode]);
   useEffect(() => { setDiscount((current) => Math.min(current, subtotal)); }, [subtotal]);
@@ -123,8 +128,8 @@ export default function SocialCommercePage() {
   const snapshot = useCallback((): SocialDraft => ({
     customerId, customerName, customerPhone, customerEmail, customerAddress, customerDistrict,
     cart, discount, priceMode, delivery, paymentMethod, advance, paymentReference, sourceSubSource,
-    sourceReference, customerNote, adminNote, priority, assignedTo, shopId, updatedAt: new Date().toISOString(), clientTransactionId: retryClientId.current,
-  }), [customerId, customerName, customerPhone, customerEmail, customerAddress, customerDistrict, cart, discount, priceMode, delivery, paymentMethod, advance, paymentReference, sourceSubSource, sourceReference, customerNote, adminNote, priority, assignedTo, shopId]);
+    sourceReference, customerNote, adminNote, assignedTo, shopId, updatedAt: new Date().toISOString(), clientTransactionId: retryClientId.current,
+  }), [customerId, customerName, customerPhone, customerEmail, customerAddress, customerDistrict, cart, discount, priceMode, delivery, paymentMethod, advance, paymentReference, sourceSubSource, sourceReference, customerNote, adminNote, assignedTo, shopId]);
 
   const restoreDraft = useCallback((draft: SocialDraft) => {
     setCustomerId(draft.customerId || null); setCustomerName(draft.customerName || ""); setCustomerPhone(draft.customerPhone || "");
@@ -132,7 +137,7 @@ export default function SocialCommercePage() {
     setCart(Array.isArray(draft.cart) ? draft.cart : []); setDiscount(Number(draft.discount || 0)); setPriceMode(draft.priceMode || "retail");
     setDelivery(Number(draft.delivery ?? 120)); setPaymentMethod(draft.paymentMethod || "cod"); setAdvance(Number(draft.advance || 0));
     setPaymentReference(draft.paymentReference || ""); setSourceSubSource(draft.sourceSubSource || "Facebook"); setSourceReference(draft.sourceReference || "");
-    setCustomerNote(draft.customerNote || ""); setAdminNote(draft.adminNote || ""); setPriority(draft.priority || "normal");
+    setCustomerNote(draft.customerNote || ""); setAdminNote(draft.adminNote || "");
     setAssignedTo(draft.assignedTo ?? user?.id ?? null); setShopId(draft.shopId ?? (resolvedStore ? Number(resolvedStore) : null)); retryClientId.current = draft.clientTransactionId || null;
   }, [resolvedStore, user?.id]);
 
@@ -238,7 +243,7 @@ export default function SocialCommercePage() {
 
   function resetForm() {
     setCreated(null); setCart([]); setDiscount(0); setPriceMode("retail"); setDelivery(120); setPaymentMethod("cod"); setAdvance(0);
-    setPaymentReference(""); setSourceSubSource("Facebook"); setSourceReference(""); setCustomerNote(""); setAdminNote(""); setPriority("normal");
+    setPaymentReference(""); setSourceSubSource("Facebook"); setSourceReference(""); setCustomerNote(""); setAdminNote("");
     setAssignedTo(user?.id || null); setShopId(resolvedStore ? Number(resolvedStore) : null); setCustomerId(null); setCustomerName(""); setCustomerPhone("");
     setCustomerEmail(""); setCustomerAddress(""); setCustomerDistrict(""); setError(null); retryClientId.current = null; setCartOpen(false); clearDraft();
   }
@@ -263,7 +268,6 @@ export default function SocialCommercePage() {
       payment_reference: paymentReference.trim() || null,
       shipping_total: delivery,
       manual_discount: discount,
-      priority,
       assigned_to: assignedTo,
       customer_note: customerNote.trim() || null,
       admin_note: adminNote.trim() || null,
@@ -505,7 +509,6 @@ export default function SocialCommercePage() {
               <Field label={t("social.email")}><input type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder={t("social.optional")}/></Field>
               <Field label={t("social.sourceReference")}><input value={sourceReference} onChange={(e) => setSourceReference(e.target.value)} placeholder={t("social.optional")}/></Field>
               <Field label={t("social.paymentReference")}><input value={paymentReference} onChange={(e) => setPaymentReference(e.target.value)} placeholder={t("social.optional")}/></Field>
-              <Field label={t("social.priority")}><select value={priority} onChange={(e) => setPriority(e.target.value)}><option value="normal">{t("social.normal")}</option><option value="high">{t("social.high")}</option><option value="urgent">{t("social.urgent")}</option><option value="low">{t("social.low")}</option></select></Field>
               <Field label={t("social.employee")}><select value={assignedTo || ""} onChange={(e) => setAssignedTo(e.target.value ? Number(e.target.value) : null)}><option value="">{t("social.unassigned")}</option>{user?.id && <option value={user.id}>{user.name}</option>}</select></Field>
               <Field label={t("social.store")}><select value={shopId || ""} onChange={(e) => setShopId(e.target.value ? Number(e.target.value) : null)}>{stores.map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}</select></Field>
               <Field label={t("social.internalNote")}><textarea rows={2} value={adminNote} onChange={(e) => setAdminNote(e.target.value)} placeholder={t("social.optional")}/></Field>

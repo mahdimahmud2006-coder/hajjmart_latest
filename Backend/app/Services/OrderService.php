@@ -400,7 +400,6 @@ class OrderService
                     'checkout_idempotency_key' => $idempotencyKey,
                     'offline_created_at' => $data['offline_created_at'] ?? null,
                     'synced_at' => $data['synced_at'] ?? null,
-                    'priority' => $data['priority'] ?? 'normal',
                     'delivery_status' => $data['delivery_status'] ?? ($sourceChannel === 'pos' ? 'handed_over' : 'pending'),
                     'subtotal' => $quote['subtotal'],
                     'net_subtotal' => $quote['net_subtotal'],
@@ -568,7 +567,7 @@ class OrderService
 
                 $finalOrder = $order->fresh(['items.product', 'payments', 'statusHistory', 'couponApplications', 'reservedProducts']);
 
-                if (in_array(strtolower((string) $finalOrder->source_channel), ['website', 'social_commerce'], true)) {
+                if (in_array(strtolower((string) $finalOrder->source_channel), ['website', 'ecommerce', 'online', 'social_commerce'], true)) {
                     \App\Jobs\CheckOrderFraudJob::dispatch($finalOrder->id);
                 }
 
@@ -607,9 +606,11 @@ class OrderService
                 throw new RuntimeException("Order cannot move from {$from} to {$toStatus}");
             }
 
-            if ($toStatus === OrderStatus::SHIPPED->value
-                && in_array(strtolower((string) $order->source_channel), ['website', 'social_commerce'], true)
-                && ! $order->fraud_checked_at) {
+            $fraudCheckedAt = $order->fraud_checked_at ?? $order->fresh()?->fraud_checked_at;
+            if (! $force
+                && $toStatus === OrderStatus::SHIPPED->value
+                && in_array(strtolower((string) $order->source_channel), ['website', 'ecommerce', 'online', 'social_commerce'], true)
+                && ! $fraudCheckedAt) {
                 throw new RuntimeException('Fraud check must complete before this order can be marked Shipped.');
             }
 

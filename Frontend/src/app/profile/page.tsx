@@ -10,9 +10,12 @@ import {
   createCustomerAddress,
   updateCustomerAddress,
   updateCustomerProfile,
+  getWishlistProducts,
   type CustomerOrder,
   type CustomerAddress,
 } from "@/lib/api";
+import type { Product } from "@/lib/types";
+import { ProductCard } from "@/components/product/product-card";
 import { Button, Card, Badge, TextInput } from "@/components/ui/storefront-primitives";
 import {
   User as UserIcon,
@@ -26,6 +29,7 @@ import {
   CheckCircle2,
   Clock,
   Plus,
+  ShoppingBag,
 } from "lucide-react";
 
 const BANGLADESH_DISTRICTS = [
@@ -43,12 +47,14 @@ const BANGLADESH_DISTRICTS = [
 
 export default function ProfileDashboardPage() {
   const router = useRouter();
-  const { user, token, logout, addToCart, notify, hydrated, setSession } = useStore();
+  const { user, token, logout, addToCart, notify, hydrated, setSession, wishlist } = useStore();
 
   const [activeTab, setActiveTab] = useState<"orders" | "addresses" | "wishlist" | "settings">("orders");
   const [orders, setOrders] = useState<CustomerOrder[]>([]);
   const [addresses, setAddresses] = useState<CustomerAddress[]>([]);
   const [loading, setLoading] = useState(true);
+  const [wishlistProducts, setWishlistProducts] = useState<Product[]>([]);
+  const [wishlistLoading, setWishlistLoading] = useState(false);
   const [showAddressForm, setShowAddressForm] = useState(false);
   const [savingAddress, setSavingAddress] = useState(false);
   const [settingDefaultAddressId, setSettingDefaultAddressId] = useState<number | null>(null);
@@ -103,6 +109,21 @@ export default function ProfileDashboardPage() {
         .finally(() => setLoading(false));
     }
   }, [token]);
+
+  useEffect(() => {
+    if (!hydrated || !token) {
+      setWishlistProducts([]);
+      return;
+    }
+
+    setWishlistLoading(true);
+    getWishlistProducts(token)
+      .then((list) => setWishlistProducts(list || []))
+      .catch(() => setWishlistProducts([]))
+      .finally(() => setWishlistLoading(false));
+  }, [wishlist, token, hydrated]);
+
+  const activeWishlistProducts = wishlistProducts.filter((p) => wishlist.includes(p.id));
 
   if (!hydrated || !token) {
     return (
@@ -509,22 +530,62 @@ export default function ProfileDashboardPage() {
           {activeTab === "wishlist" && (
             <div>
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-[24px] font-bold text-[#1A1A1A]">পছন্দের তালিকা (Wishlist)</h2>
-                <Link href="/wishlist">
-                  <Button variant="secondary" size="sm">পূর্ণ তালিকা দেখুন</Button>
+                <h2 className="text-[24px] font-bold text-[#1A1A1A] flex items-center gap-2">
+                  <Heart className="w-6 h-6 text-[#B3261E] fill-[#B3261E]" />
+                  <span>পছন্দের তালিকা</span>
+                  <span className="text-[#1F5D42]">({activeWishlistProducts.length}টি পণ্য)</span>
+                </h2>
+                <Link href="/products">
+                  <Button variant="secondary" size="sm">আরও কেনাকাটা করুন</Button>
                 </Link>
               </div>
 
-              <Card bordered className="p-8 text-center bg-[#FFFDF8]">
-                <Heart className="w-12 h-12 text-[#B3261E] fill-[#B3261E] mx-auto mb-2" />
-                <h3 className="text-[20px] font-bold text-[#1A1A1A]">আপনার পছন্দের তালিকা অ্যাক্সেস করুন</h3>
-                <p className="text-[18px] text-[#5B5650] mt-1">
-                  সংরক্ষিত পণ্যগুলো দেখতে এবং কার্টে সরাতে নিচের বাটনে ক্লিক করুন।
-                </p>
-                <Link href="/wishlist" className="inline-block mt-4">
-                  <Button variant="primary" size="md">পছন্দের তালিকায় যান</Button>
-                </Link>
-              </Card>
+              {/* Wishlist Loading Skeleton */}
+              {wishlistLoading && (
+                <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                  {[...Array(3)].map((_, i) => (
+                    <div
+                      key={i}
+                      className="bg-[#FFFDF8] border border-[#DDD6C7] rounded-[8px] p-3 h-80 animate-pulse flex flex-col gap-3"
+                    >
+                      <div className="w-full aspect-square bg-[#F1ECE0] rounded-[6px]" />
+                      <div className="h-5 bg-[#F1ECE0] rounded w-3/4" />
+                      <div className="h-4 bg-[#F1ECE0] rounded w-1/2" />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Saved Wishlist Grid */}
+              {!wishlistLoading && activeWishlistProducts.length > 0 && (
+                <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                  {activeWishlistProducts.map((product) => (
+                    <ProductCard key={product.id} product={product} />
+                  ))}
+                </div>
+              )}
+
+              {/* Empty Wishlist State */}
+              {!wishlistLoading && activeWishlistProducts.length === 0 && (
+                <Card bordered className="p-8 text-center bg-[#FFFDF8] flex flex-col items-center justify-center gap-3">
+                  <div className="w-16 h-16 bg-[#FEE2E2] rounded-full flex items-center justify-center text-[#B3261E]">
+                    <Heart className="w-8 h-8" />
+                  </div>
+                  <div>
+                    <h3 className="text-[20px] font-bold text-[#1A1A1A]">
+                      আপনার পছন্দের তালিকা ফাঁকা রয়েছে
+                    </h3>
+                    <p className="text-[16px] text-[#5B5650] mt-1">
+                      যেকোনো পণ্যের হার্ট আইকনে ট্যাপ করে আপনার পরবর্তীতে ক্রয়ের জন্য সংরক্ষণ করুন।
+                    </p>
+                  </div>
+                  <Link href="/products" className="inline-block mt-2">
+                    <Button variant="primary" size="md" icon={<ShoppingBag className="w-4 h-4" />}>
+                      কেনাকাটা শুরু করুন
+                    </Button>
+                  </Link>
+                </Card>
+              )}
             </div>
           )}
 

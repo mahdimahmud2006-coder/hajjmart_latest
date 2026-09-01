@@ -5,7 +5,7 @@ import Link from "next/link";
 import type { Product } from "@/lib/types";
 import { Badge, Button, Card, PriceDisplay } from "@/components/ui/storefront-primitives";
 import { useStore } from "@/context/store-context";
-import { Heart, Star, ShoppingBag } from "lucide-react";
+import { Heart, ShoppingBag } from "lucide-react";
 import { useLanguage } from "@/context/language-context";
 import { resolvePromotionUnitPrice } from "@/lib/promotion-price";
 
@@ -36,9 +36,6 @@ export function ProductCard({ product, className = "" }: ProductCardProps) {
   const inStock =
     product.in_stock ??
     (product.stock_status === "instock" || (product.available_stock ?? 0) > 0);
-
-  const rating = Number(product.average_rating || 4.8);
-  const reviewCount = product.review_count || 12;
 
   const handleAddToCart = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -96,13 +93,6 @@ export function ProductCard({ product, className = "" }: ProductCardProps) {
               />
             </button>
           )}
-        </div>
-
-        {/* Rating Summary */}
-        <div className="flex items-center gap-1 mb-1 text-[14px] text-[#5B5650]">
-          <Star className="w-4 h-4 fill-[#B8860B] text-[#B8860B]" />
-          <span className="font-bold text-[#1A1A1A]">{rating.toFixed(1)}</span>
-          <span>({reviewCount})</span>
         </div>
 
         {/* Product Title */}

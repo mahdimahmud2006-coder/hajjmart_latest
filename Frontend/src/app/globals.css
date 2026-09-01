@@ -3995,8 +3995,23 @@ td.admin-actions-col {
 .admin-picker-card-body .admin-button {
   width: 100%;
   min-height: 36px;
-  padding: 7px 8px;
-  font-size: 9.5px;
+  height: auto;
+  padding: 6px 8px;
+  font-size: 11.5px;
+  line-height: 1.25;
+  gap: 6px;
+  text-align: center;
+}
+
+.admin-picker-card-body .admin-button svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.admin-picker-card-body .admin-button span {
+  line-height: 1.25;
+  text-align: center;
 }
 
 .admin-product-picker>.admin-pagination {
@@ -10979,7 +10994,13 @@ td.admin-actions-col {
 .prd04-detail-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+  gap: 1px;
+}
+
+.prd04-detail-grid>div.admin-detail-grid-full,
+.prd04-detail-grid>div:last-child:nth-child(odd),
+.admin-detail-grid>div.admin-detail-grid-full {
+  grid-column: 1 / -1;
 }
 
 .prd04-detail-grid strong,
@@ -11112,6 +11133,7 @@ td.admin-actions-col {
   border: 1px solid var(--neutral-300);
   border-radius: 8px;
   background: var(--surface);
+  overflow: hidden;
 }
 
 .admin-order-more-details summary {
@@ -11130,7 +11152,12 @@ td.admin-actions-col {
 }
 
 .admin-order-more-details>div {
-  padding: 16px;
+  padding: 0;
+}
+
+.admin-order-more-details>.admin-detail-grid {
+  border: none;
+  border-radius: 0;
 }
 
 .admin-order-detail-actions {
@@ -12806,13 +12833,27 @@ td.admin-actions-col {
 }
 
 .admin-pos-page .admin-picker-card-body .admin-button {
-  min-height: 34px;
-  height: 34px;
+  min-height: 36px;
+  height: auto;
   width: 100%;
   font-size: 12px;
   font-weight: 600;
+  line-height: 1.25;
   border-radius: 6px;
-  padding: 0 8px;
+  padding: 6px 8px;
+  gap: 6px;
+  text-align: center;
+}
+
+.admin-pos-page .admin-picker-card-body .admin-button svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.admin-pos-page .admin-picker-card-body .admin-button span {
+  line-height: 1.25;
+  text-align: center;
 }
 
 .admin-pos-page .admin-picker-popular-head strong {
@@ -14358,6 +14399,22 @@ td.admin-actions-col {
   text-overflow: ellipsis;
 }
 
+.admin-order-lookup-cid {
+  font-size: 11px;
+  font-weight: 700;
+  color: #2563eb;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  padding: 1px 6px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  width: fit-content;
+  margin-top: 3px;
+  white-space: nowrap;
+}
+
 .admin-order-lookup-item>div:nth-child(2) {
   display: flex;
   flex-direction: column;
@@ -14376,6 +14433,15 @@ td.admin-actions-col {
 .admin-order-lookup-item>div:nth-child(2) small {
   font-size: 13px;
   color: var(--neutral-600);
+}
+
+.admin-order-lookup-badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  flex: 0 0 auto;
 }
 
 .admin-order-lookup-header {

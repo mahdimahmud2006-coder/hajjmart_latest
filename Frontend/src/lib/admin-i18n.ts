@@ -420,6 +420,10 @@ const translations = {
     "orders.pending": "Pending",
     "orders.confirmed": "Confirmed",
     "orders.potentialFraud": "Potential Fraud",
+    "orders.fraudBannerTitle": "Potential Fraud Order",
+    "orders.fraudRiskScore": "Risk Score",
+    "orders.fraudBannerDescription": "This order was marked as potential fraud and moved to Pending status. An employee must confirm this order before shipping.",
+    "orders.fraudSignalsHeading": "Risk Signals / Reasons:",
     "orders.shipped": "Shipped",
     "orders.delivered": "Delivered",
     "orders.returned": "Returned",
@@ -1820,6 +1824,10 @@ const translations = {
     "orders.pending": "পেন্ডিং",
     "orders.confirmed": "কনফার্মড",
     "orders.potentialFraud": "সম্ভাব্য ফ্রড",
+    "orders.fraudBannerTitle": "সম্ভাব্য প্রতারণামূলক অর্ডার",
+    "orders.fraudRiskScore": "ঝুঁকি স্কোর",
+    "orders.fraudBannerDescription": "এই অর্ডারটি সম্ভাব্য প্রতারণামূলক হিসেবে চিহ্নিত করে পেন্ডিং অবস্থায় রাখা হয়েছে। ডেলিভারির আগে একজন কর্মীকে এটি নিশ্চিত করতে হবে।",
+    "orders.fraudSignalsHeading": "ঝুঁকির সংকেত / কারণসমূহ:",
     "orders.shipped": "শিপড",
     "orders.delivered": "ডেলিভারড",
     "orders.returned": "রিটার্নড",
@@ -2807,4 +2815,81 @@ export type AdminTranslationKey = keyof typeof translations.en;
 
 export function translateAdmin(language: AdminLanguage, key: AdminTranslationKey): string {
   return translations[language][key] || translations.en[key];
+}
+
+export function translateFraudReason(reason: string, language: AdminLanguage): string {
+  if (language !== "bn") return reason;
+
+  // 1. Brand new mobile number
+  if (/^Brand new mobile number/i.test(reason)) {
+    return "নতুন মোবাইল নম্বর - পাঠাও বা লোকাল ডেটাবেজে কোনো ডেলিভারি ইতিহাস নেই";
+  }
+
+  // 2. Multiple addresses
+  const multiAddrMatch = reason.match(/^Multiple addresses - Same phone is used across (\d+) different delivery addresses/i);
+  if (multiAddrMatch) {
+    return `একাধিক ঠিকানা - একই ফোন নম্বর ${multiAddrMatch[1]}টি ভিন্ন ডেলিভারি ঠিকানায় ব্যবহৃত হয়েছে`;
+  }
+
+  // 3. Duplicate payment reference
+  const dupRefMatch = reason.match(/^Duplicate payment reference - Reference ['"]?([^'"]+)['"]? is already attached to another payment/i);
+  if (dupRefMatch) {
+    return `ডুপ্লিকেট পেমেন্ট রেফারেন্স - '${dupRefMatch[1]}' রেফারেন্সটি ইতিমধ্যে অন্য পেমেন্টে যুক্ত আছে`;
+  }
+
+  // 4. Pathao delivery success rate low
+  const pathaoLowMatch = reason.match(/^Pathao delivery success rate is low \((\d+)% - (\d+)\/(\d+) delivered\)/i);
+  if (pathaoLowMatch) {
+    return `পাঠাও ডেলিভারি সাফল্যের হার কম (${pathaoLowMatch[1]}% - ${pathaoLowMatch[2]}/${pathaoLowMatch[3]}টি ডেলিভারি সম্পন্ন)`;
+  }
+
+  // 5. Pathao delivery success rate moderate
+  const pathaoModMatch = reason.match(/^Pathao delivery success rate is moderate \((\d+)% - (\d+)\/(\d+) delivered\)/i);
+  if (pathaoModMatch) {
+    return `পাঠাও ডেলিভারি সাফল্যের হার মাঝারি (${pathaoModMatch[1]}% - ${pathaoModMatch[2]}/${pathaoModMatch[3]}টি ডেলিভারি সম্পন্ন)`;
+  }
+
+  // 6. Pathao customer rating flagged
+  const pathaoRatingMatch = reason.match(/^Pathao customer rating is flagged as ['"]?([^'"]+)['"]?/i);
+  if (pathaoRatingMatch) {
+    return `পাঠাও গ্রাহক রেটিং '${pathaoRatingMatch[1]}' হিসেবে চিহ্নিত`;
+  }
+
+  // 7. COD cancellation history
+  const codCancelMatch = reason.match(/^COD cancellation history - Customer has (\d+) past cancelled or refused orders in local database/i);
+  if (codCancelMatch) {
+    return `ক্যাশ অন ডেলিভারি বাতিল ইতিহাস - লোকাল ডেটাবেজে গ্রাহকের ${codCancelMatch[1]}টি পূর্ববর্তী বাতিল বা প্রত্যাখ্যাত অর্ডার রয়েছে`;
+  }
+
+  // 8. Internal delivery success rate low
+  const internalRateMatch = reason.match(/^Internal delivery success rate is low \((\d+)% - (\d+)\/(\d+) delivered\)/i);
+  if (internalRateMatch) {
+    return `অভ্যন্তরীণ ডেলিভারি সাফল্যের হার কম (${internalRateMatch[1]}% - ${internalRateMatch[2]}/${internalRateMatch[3]}টি ডেলিভারি সম্পন্ন)`;
+  }
+
+  // 9. High value Cash-On-Delivery order
+  const highCodMatch = reason.match(/^High value Cash-On-Delivery order \(([\d,.]+) BDT\)/i);
+  if (highCodMatch) {
+    return `উচ্চ মূল্যের ক্যাশ অন ডেলিভারি অর্ডার (${highCodMatch[1]} টাকা)`;
+  }
+
+  // 10. COD order velocity
+  const codVelocityMatch = reason.match(/^COD order velocity - Repeated COD orders \((\d+)\) from the same phone in a short window \(60 minutes\)/i);
+  if (codVelocityMatch) {
+    return `ঘন ঘন সিওডি অর্ডার - স্বল্প সময়ের মধ্যে (৬০ মিনিট) একই ফোন থেকে বারবার সিওডি অর্ডার (${codVelocityMatch[1]}টি)`;
+  }
+
+  // 11. Large customer due across DB or direct order
+  const dueDirectMatch = reason.match(/^Large customer due - Total unpaid balance of ([\d,.]+) BDT across existing database or direct order/i);
+  if (dueDirectMatch) {
+    return `গ্রাহকের বড় বকেয়া - পূর্ববর্তী ডেটাবেজ বা সরাসরি অর্ডারে মোট ${dueDirectMatch[1]} টাকা বকেয়া রয়েছে`;
+  }
+
+  // 12. Large customer due in database
+  const dueDbMatch = reason.match(/^Large customer due - Total unpaid balance of ([\d,.]+) BDT in database/i);
+  if (dueDbMatch) {
+    return `গ্রাহকের বড় বকেয়া - ডেটাবেজে মোট ${dueDbMatch[1]} টাকা বকেয়া রয়েছে`;
+  }
+
+  return reason;
 }

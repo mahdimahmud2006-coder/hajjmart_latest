@@ -193,7 +193,7 @@ export function TextField({ label, error, hint, required, className = "", ...pro
 
 export function SearchField({ value, onChange, placeholder }: { value: string; onChange: (value: string) => void; placeholder?: string }) {
   const { t } = useAdminLanguage();
-  return <label className="admin-search"><AdminIcon name="search" size={20}/><input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder || t("shared.search")}/></label>;
+  return <label className="admin-search"><AdminIcon name="search" size={20}/><input value={value} onChange={(event) => onChange(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") event.preventDefault(); }} placeholder={placeholder || t("shared.search")}/></label>;
 }
 
 export function AdminSelect<T extends string | number>({ value, onChange, children, label }: { value: T; onChange: (value: T) => void; children: React.ReactNode; label?: string }) {

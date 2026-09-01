@@ -133,7 +133,6 @@ use App\Http\Controllers\Api\V1\OrderController as V1OrderController;
 use App\Http\Controllers\Api\V1\PaymentController as V1PaymentController;
 use App\Http\Controllers\Api\V1\ProductController as V1ProductController;
 use App\Http\Controllers\Api\V1\ReportController as V1ReportController;
-use App\Http\Controllers\Api\V1\ReviewQuestionController as V1ReviewQuestionController;
 use App\Http\Controllers\Api\V1\ReturnRequestController as V1ReturnRequestController;
 use App\Http\Controllers\Api\V1\SearchController as V1SearchController;
 use App\Http\Controllers\Api\V1\WishlistController as V1WishlistController;
@@ -157,7 +156,6 @@ use App\Http\Controllers\Api\V1\Admin\DeliveryChargeController as AdminDeliveryC
 Route::prefix('v1')->group(function () {
     Route::get('/homepage', [V1HomepageController::class, 'index']);
     Route::get('/products', [V1ProductController::class, 'index']);
-    Route::get('/products/{product}/reviews', [V1ReviewQuestionController::class, 'productReviews']);
     Route::get('/products/{slug}', [V1ProductController::class, 'show']);
     Route::get('/categories', [V1CategoryController::class, 'index']);
     Route::get('/categories/{slug}/products', [V1CategoryController::class, 'showProducts']);
@@ -168,7 +166,6 @@ Route::prefix('v1')->group(function () {
     Route::get('/checkout/status/{orderNumber}', [V1OrderController::class, 'checkoutStatus'])->middleware('throttle:checkout');
     Route::get('/track-order', [V1OrderController::class, 'trackOrder'])->middleware('throttle:checkout');
     Route::get('/promotions', [V1CouponController::class, 'publicPromotions']);
-    Route::post('/reviews/guest', [V1ReviewQuestionController::class, 'guestReview']);
 
     Route::post('/auth/register', [V1AuthController::class, 'register'])->middleware('throttle:login');
     Route::post('/auth/login', [V1AuthController::class, 'login'])->middleware('throttle:login');
@@ -204,10 +201,6 @@ Route::prefix('v1')->group(function () {
         Route::get('/payments/{order}/initiate', [V1PaymentController::class, 'initiate']);
         Route::get('/payments/{order}/status', [V1PaymentController::class, 'status']);
 
-        Route::post('/reviews', [V1ReviewQuestionController::class, 'review']);
-        Route::get('/reviews/mine', [V1ReviewQuestionController::class, 'myReviews']);
-        Route::post('/products/{product}/questions', [V1ReviewQuestionController::class, 'ask']);
-        Route::post('/questions/{question}/answers', [V1ReviewQuestionController::class, 'answer']);
         Route::get('/notifications', [V1NotificationController::class, 'index']);
         Route::put('/notifications/{id}/read', [V1NotificationController::class, 'read']);
 
@@ -243,9 +236,6 @@ Route::prefix('v1')->group(function () {
             Route::post('/coupons', [V1CouponController::class, 'store']);
             Route::put('/coupons/{coupon}', [V1CouponController::class, 'update']);
             Route::delete('/coupons/{coupon}', [V1CouponController::class, 'destroy']);
-
-            Route::get('/reviews', [V1ReviewQuestionController::class, 'adminIndex']);
-            Route::put('/reviews/{review}/moderate', [V1ReviewQuestionController::class, 'moderate']);
 
 
             Route::get('/pos/ping', [AdminPosController::class, 'ping']);

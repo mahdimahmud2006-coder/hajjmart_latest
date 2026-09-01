@@ -84,8 +84,6 @@ Artisan::command('hajjmart:verify-seed', function (): int {
         ['Active administrators', \App\Models\User::where('is_employee', true)->where('is_admin', true)->where('is_active', true)->count(), 1],
         ['Seeded direct batches', \App\Models\ProductBatch::where('batch_reference', 'like', 'SEED-%')->distinct('batch_reference')->count('batch_reference'), $expectedInventory],
         ['Default promotions/coupons', \App\Models\Coupon::count(), 0],
-        ['Product reviews', \App\Models\ProductReview::count(), 300],
-        ['Product questions', \App\Models\ProductQuestion::count(), 150],
         ['Contact messages', \App\Models\ContactMessage::count(), 150],
         ['Stock transfers', \App\Models\StockTransfer::where('transfer_number', 'like', 'TRF-HM-%')->count(), 120],
         ['Daily summaries', \App\Models\DailySalesSummary::count(), 30],

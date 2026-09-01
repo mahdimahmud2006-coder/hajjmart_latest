@@ -29,9 +29,9 @@ class CheckOrderFraudJob implements ShouldQueue
             return;
         }
 
-        // Only evaluate ecommerce and social commerce orders
+        // Only evaluate ecommerce, website, and social commerce orders
         $channel = strtolower((string) $order->source_channel);
-        if (! in_array($channel, ['website', 'social_commerce'], true)) {
+        if (! in_array($channel, ['website', 'ecommerce', 'online', 'social_commerce'], true)) {
             return;
         }
 
@@ -71,15 +71,18 @@ class CheckOrderFraudJob implements ShouldQueue
                 $q->whereIn('status', ['cancelled', 'returned'])->orWhereIn('order_status', ['Cancelled', 'Returned']);
             })->count();
 
-            // Check distinct delivery addresses
-            $distinctAddressesCount = (clone $otherOrdersQuery)
+            // Check distinct delivery addresses across all orders for this customer (including current order)
+            $allAddresses = (clone $otherOrdersQuery)
                 ->whereNotNull('checkout_full_address')
                 ->where('checkout_full_address', '<>', '')
-                ->distinct()
-                ->count('checkout_full_address');
+                ->pluck('checkout_full_address');
             if ($order->checkout_full_address) {
-                $distinctAddressesCount++;
+                $allAddresses->push($order->checkout_full_address);
             }
+            $distinctAddressesCount = $allAddresses
+                ->map(fn ($addr) => trim(preg_replace('/\s+/', ' ', (string) $addr)))
+                ->unique()
+                ->count();
 
             // Check existing customer due from database
             $existingDbDue = (float) (clone $otherOrdersQuery)
@@ -132,8 +135,8 @@ class CheckOrderFraudJob implements ShouldQueue
 
         // 4. Scoring Matrix Evaluation
         // Rule A: Brand New Phone Number (0 history in Pathao AND 0 history in DB)
-        if ($pathaoTotal === 0 && $otherOrdersCount === 0) {
-            $fraudScore += 40;
+        if ($pathaoTotal === 0 && $deliveredDbCount === 0) {
+            $fraudScore += 50;
             $reasons[] = 'Brand new mobile number - No delivery history in Pathao or local database';
         }
 

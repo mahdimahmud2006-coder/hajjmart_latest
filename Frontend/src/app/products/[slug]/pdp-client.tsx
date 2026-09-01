@@ -11,7 +11,7 @@ import { PDPStickyBar } from "@/components/pdp/pdp-sticky-bar";
 import { ProductCard } from "@/components/product/product-card";
 import { Button, PriceDisplay, QuantityStepper } from "@/components/ui/storefront-primitives";
 import { useStore } from "@/context/store-context";
-import { Heart, ShoppingBag, Zap, Star, ChevronRight, Truck, ShieldCheck } from "lucide-react";
+import { Heart, ShoppingBag, Zap, ChevronRight, Truck, ShieldCheck } from "lucide-react";
 import { resolvePromotionUnitPrice } from "@/lib/promotion-price";
 
 interface PDPClientProps {
@@ -105,20 +105,6 @@ export function PDPClient({ product, relatedProducts }: PDPClientProps) {
 
         {/* Right Column: Details & Buy Box (7 Cols) */}
         <div className="lg:col-span-7 flex flex-col gap-4 bg-[#FFFDF8] border border-[#DDD6C7] p-6 rounded-[12px] shadow-xs">
-          {/* Rating & Review Header */}
-          <div className="flex items-center gap-2 text-[16px]">
-            <div className="flex items-center gap-1">
-              {[...Array(5)].map((_, i) => (
-                <Star key={i} className="w-4 h-4 fill-[#B8860B] text-[#B8860B]" />
-              ))}
-            </div>
-            <span className="font-bold text-[#1A1A1A]">
-              {Number(product.average_rating || 4.8).toFixed(1)}
-            </span>
-            <span className="text-[#5B5650]">
-              ({product.review_count || 24}টি রিভিউ)
-            </span>
-          </div>
 
           {/* Title */}
           <h1 className="text-[24px] sm:text-[30px] font-bold text-[#1A1A1A] leading-tight">
@@ -207,12 +193,10 @@ export function PDPClient({ product, relatedProducts }: PDPClientProps) {
         </div>
       </div>
 
-      {/* Specifications, Shipping, Reviews & Q&A Tabs */}
+      {/* Specifications & Shipping Tabs */}
       <PDPTabs
         descriptionHtml={product.description || product.description_html}
         specifications={product.specifications}
-        ratingAverage={Number(product.average_rating || 4.8)}
-        reviewCount={product.review_count || 24}
       />
 
       {/* Related Products Grid */}

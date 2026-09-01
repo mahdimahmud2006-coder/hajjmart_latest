@@ -8,7 +8,7 @@ import { useAdmin } from "@/context/admin-context";
 import { useAdminLanguage } from "@/context/admin-language-context";
 import { adminRequest, pageRows, queryString } from "@/lib/admin-api";
 import { demoCustomers } from "@/lib/admin-demo";
-import type { AdminCustomer, AdminFraudCheckResult, Paginated } from "@/lib/admin-types";
+import type { AdminCustomer, Paginated } from "@/lib/admin-types";
 import type { AdminTranslationKey } from "@/lib/admin-i18n";
 import { formatPrice } from "@/lib/utils";
 
@@ -58,8 +58,6 @@ export default function CustomersPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
-  const [fraudChecking, setFraudChecking] = useState(false);
-  const [fraudError, setFraudError] = useState<string | null>(null);
   const requestId = useRef(0);
 
   useEffect(() => {
@@ -104,7 +102,6 @@ export default function CustomersPage() {
     const local = typeof customerOrKey === "string" ? demoCustomers.find((customer) => customer.customer_key === key) || null : customerOrKey;
     setSelected(local);
     setDetailError(null);
-    setFraudError(null);
     if (demoMode) {
       setSelected(demoCustomers.find((customer) => customer.customer_key === key) || local);
       return;
@@ -118,73 +115,6 @@ export default function CustomersPage() {
       setDetailError(t("customers.detailError"));
     } finally {
       setDetailLoading(false);
-    }
-  }
-
-  async function handleCheckFraud() {
-    if (!selected) return;
-    setFraudChecking(true);
-    setFraudError(null);
-    if (demoMode) {
-      window.setTimeout(() => {
-        const phone = selected.phone || "";
-        const dueNum = Number(selected.outstanding_due) || 0;
-        let mockResult: AdminFraudCheckResult;
-        if (phone === "01678260051") {
-          mockResult = {
-            customer_key: selected.customer_key,
-            phone,
-            is_potential_fraud: false,
-            fraud_score: 0,
-            fraud_reasons: [],
-            fraud_checked_at: new Date().toISOString(),
-            pathao_summary: { total_delivery: 10, successful_delivery: 10, success_rate: 100, rating: "Excellent_customer" }
-          };
-        } else if (phone === "01710000004") {
-          mockResult = {
-            customer_key: selected.customer_key,
-            phone,
-            is_potential_fraud: false,
-            fraud_score: 0,
-            fraud_reasons: [],
-            fraud_checked_at: new Date().toISOString(),
-            pathao_summary: { total_delivery: 4, successful_delivery: 4, success_rate: 100, rating: "New_customer" }
-          };
-        } else if (phone === "01635467892" || selected.order_count === 0 || (selected.order_count <= 1 && dueNum === 0)) {
-          mockResult = {
-            customer_key: selected.customer_key,
-            phone,
-            is_potential_fraud: true,
-            fraud_score: 50,
-            fraud_reasons: ["Brand new mobile number - No delivery history in Pathao or local database"],
-            fraud_checked_at: new Date().toISOString(),
-            pathao_summary: { total_delivery: 0, successful_delivery: 0, success_rate: 0, rating: "New_customer" }
-          };
-        } else {
-          const isHighRisk = dueNum > 5000 || (selected.return_count || 0) > 0;
-          mockResult = {
-            customer_key: selected.customer_key,
-            phone,
-            is_potential_fraud: isHighRisk,
-            fraud_score: isHighRisk ? 65 : 0,
-            fraud_reasons: isHighRisk ? ["Pathao delivery success rate is moderate (65% - 13/20 delivered)"] : [],
-            fraud_checked_at: new Date().toISOString(),
-            pathao_summary: { total_delivery: 20, successful_delivery: 13, success_rate: 65, rating: "Moderate" }
-          };
-        }
-        setSelected((curr) => curr ? { ...curr, fraud_check: mockResult } : null);
-        setFraudChecking(false);
-      }, 300);
-      return;
-    }
-    if (!token) { setFraudError(t("customers.detailError")); setFraudChecking(false); return; }
-    try {
-      const res = await adminRequest<AdminFraudCheckResult>(`/customers/${encodeURIComponent(selected.customer_key)}/check-fraud${queryString({ shop_id: selectedStoreId === "all" ? undefined : selectedStoreId })}`, { method: "POST", token });
-      setSelected((curr) => curr ? { ...curr, fraud_check: res } : null);
-    } catch {
-      setFraudError("Failed to complete fraud check. Please try again.");
-    } finally {
-      setFraudChecking(false);
     }
   }
 
@@ -212,44 +142,13 @@ export default function CustomersPage() {
       <Pagination currentPage={meta.currentPage} lastPage={meta.lastPage} total={meta.total} perPage={perPage} onPageChange={setPage} onPerPageChange={setPerPage} perPageOptions={[20, 50, 100]}/>
     </Panel>
 
-    <Sheet open={Boolean(selected) || detailLoading || Boolean(detailError && deepLinkKey)} onClose={() => { setSelected(null); setDetailError(null); setFraudError(null); }} title={selected?.name || t("customers.title")} subtitle={selected?.phone || selected?.email || undefined} wide>
+    <Sheet open={Boolean(selected) || detailLoading || Boolean(detailError && deepLinkKey)} onClose={() => { setSelected(null); setDetailError(null); }} title={selected?.name || t("customers.title")} subtitle={selected?.phone || selected?.email || undefined} wide>
       {detailLoading && !selected && <div className="admin-list-loading"><span/><p>{t("customers.loading")}</p></div>}
       {detailError && <p className="admin-form-error"><AdminIcon name="warning" size={20}/>{detailError}</p>}
       {selected && <div className="admin-customer-detail">
         <section>
-          <div className="flex items-center justify-between gap-2" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <h3>{t("customers.contact")}</h3>
-            <AdminButton variant="secondary" icon="shield" disabled={fraudChecking} onClick={() => void handleCheckFraud()}>
-              {fraudChecking ? t("customers.checkingFraud") : t("customers.checkFraud")}
-            </AdminButton>
-          </div>
+          <h3>{t("customers.contact")}</h3>
           <dl><div><dt>{t("customers.customer")}</dt><dd>{selected.name}</dd></div><div><dt>{t("customers.phone")}</dt><dd>{selected.phone || t("customers.noPhone")}</dd></div><div><dt>{t("customers.email")}</dt><dd>{selected.email || t("customers.noEmail")}</dd></div></dl>
-          {fraudError && <p className="admin-form-error mt-2"><AdminIcon name="warning" size={16}/>{fraudError}</p>}
-          {selected.fraud_check && (
-            <div style={{ marginTop: "12px", borderRadius: "10px", padding: "12px 14px", border: `1px solid ${selected.fraud_check.is_potential_fraud ? '#fca5a5' : '#86efac'}`, backgroundColor: selected.fraud_check.is_potential_fraud ? '#fef2f2' : '#f0fdf4' }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px" }}>
-                <strong style={{ fontSize: "14px", color: selected.fraud_check.is_potential_fraud ? '#991b1b' : '#166534' }}>
-                  {t("customers.fraudSectionTitle")}
-                </strong>
-                <span style={{ fontSize: "12px", fontWeight: 700, padding: "2px 8px", borderRadius: "9999px", color: selected.fraud_check.is_potential_fraud ? '#991b1b' : '#166534', backgroundColor: selected.fraud_check.is_potential_fraud ? '#fee2e2' : '#dcfce7' }}>
-                  {selected.fraud_check.is_potential_fraud ? `⚠️ ${t("customers.potentialFraudBadge")}` : `✓ ${t("customers.cleanRiskBadge")}`}
-                </span>
-              </div>
-              <p style={{ margin: "6px 0 0 0", fontSize: "13px", color: "var(--neutral-700)" }}>
-                <strong>{t("customers.fraudScoreLabel")}:</strong> {selected.fraud_check.fraud_score} / 100
-              </p>
-              {selected.fraud_check.pathao_summary && (
-                <p style={{ margin: "4px 0 0 0", fontSize: "12px", color: "var(--neutral-600)" }}>
-                  <strong>{t("customers.pathaoDeliveries")}:</strong> {selected.fraud_check.pathao_summary.successful_delivery} / {selected.fraud_check.pathao_summary.total_delivery} ({selected.fraud_check.pathao_summary.success_rate}%) · Rating: {selected.fraud_check.pathao_summary.rating || "N/A"}
-                </p>
-              )}
-              {selected.fraud_check.fraud_reasons && selected.fraud_check.fraud_reasons.length > 0 && (
-                <ul style={{ margin: "8px 0 0 0", paddingLeft: "18px", fontSize: "12px", color: selected.fraud_check.is_potential_fraud ? '#7f1d1d' : '#14532d' }}>
-                  {selected.fraud_check.fraud_reasons.map((reason, idx) => <li key={idx}>{reason}</li>)}
-                </ul>
-              )}
-            </div>
-          )}
         </section>
         <section><h3>{t("customers.delivery")}</h3><p>{selected.last_address || t("customers.noAddress")}</p>{selected.last_district && <small>{selected.last_district}</small>}</section>
         <section><h3>{t("customers.buying")}</h3><div className="admin-customer-summary-grid"><div><span>{t("customers.orders")}</span><strong>{selected.order_count}</strong></div><div><span>{t("customers.totalSpent")}</span><strong>{formatPrice(selected.lifetime_sales)}</strong></div><div><span>{t("customers.due")}</span><strong>{formatPrice(selected.outstanding_due)}</strong></div><div><span>{t("customers.refunds")}</span><strong>{formatPrice(selected.total_refunds || 0)}</strong></div></div><p><strong>{t("customers.paymentMethod")}:</strong> {paymentMethodLabel(selected.last_payment_method)}</p>{selected.return_count !== undefined && <p><strong>{t("customers.returns")}:</strong> {selected.return_count}</p>}<div className="admin-customer-channels">{selected.channels.map((channel) => <StatusChip key={channel} value={t(channelLabelKey(channel))} channel={channelTone(channel)}/>)}</div></section>

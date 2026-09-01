@@ -14,7 +14,9 @@ const provider = read("src/context/offline-commerce-context.tsx");
 const layout = read("src/app/admin/layout.tsx");
 const i18n = read("src/lib/admin-i18n.ts");
 const css = read("src/app/globals.css");
-const backend = read("../backend/app/Http/Controllers/Api/V1/Admin/OrderController.php");
+const backend = fs.existsSync(path.join(root, "../Backend/app/Http/Controllers/Api/V1/Admin/OrderController.php"))
+  ? read("../Backend/app/Http/Controllers/Api/V1/Admin/OrderController.php")
+  : read("../backend/app/Http/Controllers/Api/V1/Admin/OrderController.php");
 
 const checks = [
   ["phone lookup is the first customer input", social.indexOf("<CustomerLookup") >= 0 && social.indexOf("<CustomerLookup") < social.indexOf('label={t("social.customerName")')],

@@ -38,18 +38,39 @@ class ProductService
             }
         }
 
-        if ($search = $filters['q'] ?? $filters['search'] ?? null) {
-            $query->where(function ($q) use ($search): void {
-                $q->where('name', 'like', "%{$search}%")
-                  ->orWhere('sku', 'like', "%{$search}%")
-                  ->orWhere('barcode', 'like', "%{$search}%")
-                  ->orWhere('description', 'like', "%{$search}%")
-                  ->orWhere('short_description', 'like', "%{$search}%")
-                  ->orWhere('brand', 'like', "%{$search}%")
-                  ->orWhereHas('productVariants', fn ($variant) => $variant
-                      ->where('sku', 'like', "%{$search}%")
-                      ->orWhere('barcode', 'like', "%{$search}%"));
-            });
+        $rawSearch = trim((string) ($filters['q'] ?? $filters['search'] ?? ''));
+        $searchCandidateId = null;
+        $tokens = [];
+        if ($rawSearch !== '') {
+            if (preg_match('/^(?:hm-?|#)?(\d+)$/i', $rawSearch, $matches)) {
+                $searchCandidateId = (int) $matches[1];
+            }
+
+            $tokens = array_values(array_filter(preg_split('/\s+/', $rawSearch), fn ($t) => $t !== ''));
+
+            foreach ($tokens as $token) {
+                $query->where(function ($q) use ($token, $searchCandidateId): void {
+                    $q->where('name', 'like', "%{$token}%")
+                      ->orWhere('sku', 'like', "%{$token}%")
+                      ->orWhere('barcode', 'like', "%{$token}%")
+                      ->orWhere('brand', 'like', "%{$token}%");
+
+                    if ($searchCandidateId !== null) {
+                        $q->orWhere('id', $searchCandidateId);
+                    }
+
+                    $q->orWhereHas('categories', fn ($cat) => $cat->where('name', 'like', "%{$token}%")->orWhere('slug', 'like', "%{$token}%"))
+                      ->orWhereHas('primaryCategory', fn ($cat) => $cat->where('name', 'like', "%{$token}%")->orWhere('slug', 'like', "%{$token}%"))
+                      ->orWhereHas('productVariants', fn ($variant) => $variant
+                          ->where('sku', 'like', "%{$token}%")
+                          ->orWhere('barcode', 'like', "%{$token}%")
+                          ->orWhere('attribute_values', 'like', "%{$token}%")
+                          ->orWhere('attributes_json', 'like', "%{$token}%")
+                          ->orWhere('variation_description', 'like', "%{$token}%"))
+                      ->orWhere('short_description', 'like', "%{$token}%")
+                      ->orWhere('description', 'like', "%{$token}%");
+                });
+            }
         }
 
         if ($slug = $filters['category'] ?? null) {
@@ -115,13 +136,37 @@ class ProductService
             : 'COALESCE(products.retail_price, products.sale_price, products.selling_price, products.regular_price, 0)';
         $effectivePriceExpression = "COALESCE((SELECT MIN({$variantPriceExpression}) FROM product_variants WHERE product_variants.product_id = products.id AND product_variants.is_active = 1), {$productPriceExpression})";
 
-        match ($filters['sort'] ?? 'newest') {
-            'price_asc' => $query->orderByRaw("{$effectivePriceExpression} asc")->orderBy('products.id'),
-            'price_desc' => $query->orderByRaw("{$effectivePriceExpression} desc")->orderBy('products.id'),
-            'best_selling' => $query->orderByDesc('sold_count'),
-            'rating' => $query->orderByDesc('average_rating')->orderByDesc('review_count')->orderByDesc('products.created_at'),
-            default => $query->latest('products.created_at'),
-        };
+        if ($rawSearch !== '' && (! isset($filters['sort']) || $filters['sort'] === 'newest')) {
+            $escapedSearch = str_replace(['\\', '%', '_', "'"], ['\\\\', '\\%', '\\_', "''"], $rawSearch);
+            $tokenNameConditions = ! empty($tokens) ? implode(' AND ', array_map(function ($t) {
+                $escaped = str_replace(['\\', '%', '_', "'"], ['\\\\', '\\%', '\\_', "''"], $t);
+                return "products.name LIKE '%{$escaped}%'";
+            }, $tokens)) : '1=1';
+
+            $relevanceScore = "(
+                CASE
+                    WHEN products.name = '{$escapedSearch}' THEN 100
+                    WHEN products.sku = '{$escapedSearch}' THEN 95
+                    WHEN products.barcode = '{$escapedSearch}' THEN 95
+                    " . ($searchCandidateId ? "WHEN products.id = {$searchCandidateId} THEN 90 " : '') . "
+                    WHEN products.name LIKE '{$escapedSearch}%' THEN 80
+                    WHEN products.name LIKE '%{$escapedSearch}%' THEN 75
+                    WHEN {$tokenNameConditions} THEN 70
+                    WHEN products.brand LIKE '%{$escapedSearch}%' THEN 40
+                    ELSE 10
+                END
+            )";
+
+            $query->orderByRaw("{$relevanceScore} DESC")->latest('products.created_at');
+        } else {
+            match ($filters['sort'] ?? 'newest') {
+                'price_asc' => $query->orderByRaw("{$effectivePriceExpression} asc")->orderBy('products.id'),
+                'price_desc' => $query->orderByRaw("{$effectivePriceExpression} desc")->orderBy('products.id'),
+                'best_selling' => $query->orderByDesc('sold_count'),
+                'rating' => $query->orderByDesc('average_rating')->orderByDesc('review_count')->orderByDesc('products.created_at'),
+                default => $query->latest('products.created_at'),
+            };
+        }
 
         $perPage = max(1, min(250, (int) ($filters['per_page'] ?? 20)));
         return $query->paginate($perPage);

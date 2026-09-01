@@ -21,8 +21,6 @@ export const demoProducts: Product[] = [
     image_src: ["/images/products/ihram-package.svg"],
     categories: [demoCategories[0]],
     is_featured: true,
-    average_rating: 4.9,
-    review_count: 28,
     available_stock: 14,
   },
   {
@@ -35,8 +33,6 @@ export const demoProducts: Product[] = [
     image_src: ["/images/products/ihram-cloth.svg"],
     categories: [demoCategories[0]],
     is_featured: true,
-    average_rating: 4.8,
-    review_count: 41,
     available_stock: 22,
   },
   {
@@ -48,8 +44,6 @@ export const demoProducts: Product[] = [
     short_description: "Soft, grippy and easy to carry between every step.",
     image_src: ["/images/products/sandal.svg"],
     categories: [demoCategories[2]],
-    average_rating: 4.7,
-    review_count: 19,
     available_stock: 11,
     product_variants: [
       { id: 201, sku: "SANDAL-40", price: 1200, attributes_json: { Size: "40" }, in_stock: true },
@@ -66,8 +60,6 @@ export const demoProducts: Product[] = [
     short_description: "A discreet cross-body companion for documents and currency.",
     image_src: ["/images/products/neck-bag.svg"],
     categories: [demoCategories[3]],
-    average_rating: 4.8,
-    review_count: 33,
     available_stock: 30,
   },
   {
@@ -79,8 +71,6 @@ export const demoProducts: Product[] = [
     short_description: "Compact care essentials for hand luggage and hotel stays.",
     image_src: ["/images/products/travel-kit.svg"],
     categories: [demoCategories[1]],
-    average_rating: 4.6,
-    review_count: 17,
     available_stock: 18,
   },
   {
@@ -92,8 +82,6 @@ export const demoProducts: Product[] = [
     short_description: "Hands-free shade with a foldable, travel-ready profile.",
     image_src: ["/images/products/umbrella.svg"],
     categories: [demoCategories[5]],
-    average_rating: 4.5,
-    review_count: 12,
     available_stock: 15,
   },
   {
@@ -105,8 +93,6 @@ export const demoProducts: Product[] = [
     short_description: "A refined, compact prayer mat for travel and gifting.",
     image_src: ["/images/products/prayer-mat.svg"],
     categories: [demoCategories[4]],
-    average_rating: 4.9,
-    review_count: 23,
     available_stock: 20,
   },
   {
@@ -118,8 +104,6 @@ export const demoProducts: Product[] = [
     short_description: "Space-saving hydration for long days and crowded routes.",
     image_src: ["/images/products/bottle.svg"],
     categories: [demoCategories[1]],
-    average_rating: 4.4,
-    review_count: 9,
     available_stock: 8,
   },
 ];

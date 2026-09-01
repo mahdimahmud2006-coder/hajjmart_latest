@@ -5,6 +5,7 @@ import { useAdmin } from "@/context/admin-context";
 import { useAdminLanguage } from "@/context/admin-language-context";
 import { adminRequest, pageRows, queryString } from "@/lib/admin-api";
 import { demoOrders, demoProductsAdmin, demoReturns } from "@/lib/admin-demo";
+import type { AdminTranslationKey } from "@/lib/admin-i18n";
 import type { AdminOrder, AdminProduct, AdminProductVariant, AdminReturn, Paginated } from "@/lib/admin-types";
 import { formatPrice } from "@/lib/utils";
 import { AdminProductImage } from "@/components/admin/admin-product-image";
@@ -33,6 +34,37 @@ type PickedReplacement = {
   quantity: number;
   unit_price: number;
 };
+
+const orderStatusKeys: Record<string, AdminTranslationKey> = {
+  pending: "orders.status.pending",
+  confirmed: "orders.status.confirmed",
+  shipped: "orders.status.shipped",
+  delivered: "orders.status.delivered",
+  returned: "orders.status.returned",
+  completed: "orders.status.delivered",
+};
+
+const paymentStatusKeys: Record<string, AdminTranslationKey> = {
+  due: "orders.paymentStatus.due",
+  partial: "orders.paymentStatus.partially_paid",
+  partially_paid: "orders.paymentStatus.partially_paid",
+  paid: "orders.paymentStatus.paid",
+};
+
+function statusTone(status?: string): "success" | "warning" | "error" | "info" | "neutral" {
+  if (status === "delivered" || status === "completed") return "success";
+  if (status === "returned") return "error";
+  if (status === "pending") return "warning";
+  if (status === "confirmed" || status === "shipped") return "info";
+  return "neutral";
+}
+
+function paymentTone(status?: string): "success" | "warning" | "error" | "neutral" {
+  if (status === "paid" || status === "completed") return "success";
+  if (status === "partial" || status === "partially_paid") return "warning";
+  if (status === "due") return "error";
+  return "neutral";
+}
 
 export default function ReturnsPage() {
   const { token, selectedStoreId, demoMode } = useAdmin();
@@ -149,25 +181,33 @@ export default function ReturnsPage() {
     return () => controller.abort();
   }, [token, demoMode, selectedStoreId, debouncedSearch, typeFilter, fromDate, toDate, page, t]);
 
+  const orderStatusLabel = (value?: string) => value && orderStatusKeys[value] ? t(orderStatusKeys[value]) : (value || "").replaceAll("_", " ");
+  const paymentStatusLabel = (value?: string) => value && paymentStatusKeys[value] ? t(paymentStatusKeys[value]) : (value || "").replaceAll("_", " ");
+
   // Order Lookup search for Return Modal
   useEffect(() => {
     if (!returnModalOpen) return;
     if (demoMode) {
       const q = debouncedReturnOrderQuery.toLowerCase();
       const results = demoOrders.filter((order) => {
-        const haystack = `${order.order_number} ${order.checkout_name || ""} ${order.checkout_mobile_number || ""}`.toLowerCase();
-        return !q || haystack.includes(q);
+        const isEligible = ["shipped", "delivered", "completed"].includes(order.status?.toLowerCase());
+        const haystack = `${order.order_number} ${order.checkout_name || ""} ${order.checkout_mobile_number || ""} ${order.pathao_consignment_id || ""}`.toLowerCase();
+        return isEligible && (!q || haystack.includes(q));
       });
       setMatchedReturnOrders(results.slice(0, 10));
       return;
     }
-    if (!token || !debouncedReturnOrderQuery) {
+    if (!token) {
       setMatchedReturnOrders([]);
       return;
     }
     setSearchingReturnOrders(true);
-    adminRequest<Paginated<AdminOrder>>(`/orders?q=${encodeURIComponent(debouncedReturnOrderQuery)}&per_page=10`, { token })
-      .then((res) => setMatchedReturnOrders(pageRows(res)))
+    const query = debouncedReturnOrderQuery ? `q=${encodeURIComponent(debouncedReturnOrderQuery)}&per_page=50` : `per_page=50`;
+    adminRequest<Paginated<AdminOrder>>(`/orders?${query}`, { token })
+      .then((res) => {
+        const eligible = pageRows(res).filter((order) => ["shipped", "delivered", "completed"].includes(order.status?.toLowerCase()));
+        setMatchedReturnOrders(eligible.slice(0, 10));
+      })
       .catch(() => setMatchedReturnOrders([]))
       .finally(() => setSearchingReturnOrders(false));
   }, [returnModalOpen, debouncedReturnOrderQuery, token, demoMode]);
@@ -178,19 +218,24 @@ export default function ReturnsPage() {
     if (demoMode) {
       const q = debouncedExchangeOrderQuery.toLowerCase();
       const results = demoOrders.filter((order) => {
-        const haystack = `${order.order_number} ${order.checkout_name || ""} ${order.checkout_mobile_number || ""}`.toLowerCase();
-        return !q || haystack.includes(q);
+        const isEligible = ["shipped", "delivered", "completed"].includes(order.status?.toLowerCase());
+        const haystack = `${order.order_number} ${order.checkout_name || ""} ${order.checkout_mobile_number || ""} ${order.pathao_consignment_id || ""}`.toLowerCase();
+        return isEligible && (!q || haystack.includes(q));
       });
       setMatchedExchangeOrders(results.slice(0, 10));
       return;
     }
-    if (!token || !debouncedExchangeOrderQuery) {
+    if (!token) {
       setMatchedExchangeOrders([]);
       return;
     }
     setSearchingExchangeOrders(true);
-    adminRequest<Paginated<AdminOrder>>(`/orders?q=${encodeURIComponent(debouncedExchangeOrderQuery)}&per_page=10`, { token })
-      .then((res) => setMatchedExchangeOrders(pageRows(res)))
+    const query = debouncedExchangeOrderQuery ? `q=${encodeURIComponent(debouncedExchangeOrderQuery)}&per_page=50` : `per_page=50`;
+    adminRequest<Paginated<AdminOrder>>(`/orders?${query}`, { token })
+      .then((res) => {
+        const eligible = pageRows(res).filter((order) => ["shipped", "delivered", "completed"].includes(order.status?.toLowerCase()));
+        setMatchedExchangeOrders(eligible.slice(0, 10));
+      })
       .catch(() => setMatchedExchangeOrders([]))
       .finally(() => setSearchingExchangeOrders(false));
   }, [exchangeModalOpen, debouncedExchangeOrderQuery, token, demoMode]);
@@ -626,7 +671,7 @@ export default function ReturnsPage() {
       </Sheet>
 
       {/* MODAL 1: RECORD RETURN MODAL */}
-      <Sheet open={returnModalOpen} onClose={() => { if (!busy) setReturnModalOpen(false); }} title={t("returns.filterReturns")} subtitle={t("returns.selectOrder")}>
+      <Sheet open={returnModalOpen} onClose={() => { if (!busy) setReturnModalOpen(false); }} title={t("returns.filterReturns")} subtitle={t("returns.selectOrder")} wide>
         <div className="admin-stack">
           {!targetReturnOrder ? (
             <div className="admin-stack">
@@ -639,12 +684,20 @@ export default function ReturnsPage() {
                       <div>
                         <strong>{order.order_number}</strong>
                         <small>{formatDate(order.order_date || order.created_at, true)} · {order.shop?.name || t("orders.defaultStore")}</small>
+                        {order.pathao_consignment_id && (
+                          <span className="admin-order-lookup-cid">🚚 CID: {order.pathao_consignment_id}</span>
+                        )}
                       </div>
                       <div>
                         <strong>{order.checkout_name || t("orders.walkIn")}</strong>
                         <small>{order.checkout_mobile_number || t("orders.noPhone")}</small>
                       </div>
-                      <StatusChip value={order.status} tone="neutral" />
+                      <div className="admin-order-lookup-badges">
+                        <StatusChip value={orderStatusLabel(order.status)} tone={statusTone(order.status)} />
+                        {order.payment_status && (
+                          <StatusChip value={paymentStatusLabel(order.payment_status)} tone={paymentTone(order.payment_status)} />
+                        )}
+                      </div>
                     </button>
                   ))}
                 </div>
@@ -660,10 +713,19 @@ export default function ReturnsPage() {
                 <div>
                   <strong>{targetReturnOrder.order_number}</strong>
                   <small>{targetReturnOrder.checkout_name || t("orders.walkIn")} · {targetReturnOrder.checkout_mobile_number || t("orders.noPhone")}</small>
+                  {targetReturnOrder.pathao_consignment_id && (
+                    <span className="admin-order-lookup-cid">🚚 CID: {targetReturnOrder.pathao_consignment_id}</span>
+                  )}
                 </div>
-                <AdminButton type="button" variant="ghost" onClick={() => setTargetReturnOrder(null)}>
-                  {t("returns.selectOrder")}
-                </AdminButton>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                  <StatusChip value={orderStatusLabel(targetReturnOrder.status)} tone={statusTone(targetReturnOrder.status)} />
+                  {targetReturnOrder.payment_status && (
+                    <StatusChip value={paymentStatusLabel(targetReturnOrder.payment_status)} tone={paymentTone(targetReturnOrder.payment_status)} />
+                  )}
+                  <AdminButton type="button" variant="ghost" onClick={() => setTargetReturnOrder(null)}>
+                    {t("returns.selectOrder")}
+                  </AdminButton>
+                </div>
               </div>
 
               <Panel title={t("returns.items")}>
@@ -719,12 +781,20 @@ export default function ReturnsPage() {
                       <div>
                         <strong>{order.order_number}</strong>
                         <small>{formatDate(order.order_date || order.created_at, true)} · {order.shop?.name || t("orders.defaultStore")}</small>
+                        {order.pathao_consignment_id && (
+                          <span className="admin-order-lookup-cid">🚚 CID: {order.pathao_consignment_id}</span>
+                        )}
                       </div>
                       <div>
                         <strong>{order.checkout_name || t("orders.walkIn")}</strong>
                         <small>{order.checkout_mobile_number || t("orders.noPhone")}</small>
                       </div>
-                      <StatusChip value={order.status} tone="neutral" />
+                      <div className="admin-order-lookup-badges">
+                        <StatusChip value={orderStatusLabel(order.status)} tone={statusTone(order.status)} />
+                        {order.payment_status && (
+                          <StatusChip value={paymentStatusLabel(order.payment_status)} tone={paymentTone(order.payment_status)} />
+                        )}
+                      </div>
                     </button>
                   ))}
                 </div>
@@ -740,10 +810,19 @@ export default function ReturnsPage() {
                 <div>
                   <strong>{targetExchangeOrder.order_number}</strong>
                   <small>{targetExchangeOrder.checkout_name || t("orders.walkIn")} · {targetExchangeOrder.checkout_mobile_number || t("orders.noPhone")}</small>
+                  {targetExchangeOrder.pathao_consignment_id && (
+                    <span className="admin-order-lookup-cid">🚚 CID: {targetExchangeOrder.pathao_consignment_id}</span>
+                  )}
                 </div>
-                <AdminButton type="button" variant="ghost" onClick={() => setTargetExchangeOrder(null)}>
-                  {t("returns.selectOrder")}
-                </AdminButton>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                  <StatusChip value={orderStatusLabel(targetExchangeOrder.status)} tone={statusTone(targetExchangeOrder.status)} />
+                  {targetExchangeOrder.payment_status && (
+                    <StatusChip value={paymentStatusLabel(targetExchangeOrder.payment_status)} tone={paymentTone(targetExchangeOrder.payment_status)} />
+                  )}
+                  <AdminButton type="button" variant="ghost" onClick={() => setTargetExchangeOrder(null)}>
+                    {t("returns.selectOrder")}
+                  </AdminButton>
+                </div>
               </div>
 
               {/* Split screen layout */}

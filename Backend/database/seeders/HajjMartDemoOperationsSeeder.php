@@ -183,7 +183,6 @@ class HajjMartDemoOperationsSeeder extends Seeder
                 'paid_amount' => $paidAmount,
                 'due_amount' => $dueAmount,
                 'source_reference' => 'SEED-' . strtoupper($source) . '-' . str_pad((string) $i, 4, '0', STR_PAD_LEFT),
-                'priority' => $i % 17 === 0 ? 'urgent' : 'normal',
                 'delivery_status' => in_array($status, ['delivered', 'completed'], true) ? 'delivered' : $status,
                 'placed_at' => $orderedAt,
                 'confirmed_at' => in_array($status, ['confirmed', 'processing', 'delivered', 'completed'], true) ? $orderedAt->copy()->addMinutes(30) : null,

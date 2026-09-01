@@ -17,7 +17,6 @@ const sortOptions = [
   { value: "price_asc", label: "কম দাম থেকে বেশি" },
   { value: "price_desc", label: "বেশি দাম থেকে কম" },
   { value: "newest", label: "নতুন পণ্য আগে" },
-  { value: "rating", label: "সর্বোচ্চ রেটিং" },
 ];
 
 export function SortControls({

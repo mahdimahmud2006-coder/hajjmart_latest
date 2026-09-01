@@ -51,7 +51,7 @@ class HajjMartRealisticDatabaseSeeder extends Seeder
                 'Orders, items and payments' => fn () => $this->seedOrders(),
                 'Returns and exchanges' => fn () => $this->seedReturns(),
                 'Stock transfers' => fn () => $this->seedStockTransfers(),
-                'Reviews, questions and wishlists' => fn () => $this->seedEngagement(),
+                'Wishlists and social shares' => fn () => $this->seedEngagement(),
                 'Cancellation requests' => fn () => $this->seedCancellations(),
                 'Notifications' => fn () => $this->seedNotifications(),
                 'Daily summaries' => fn () => $this->seedDailySummaries(),
@@ -289,7 +289,7 @@ class HajjMartRealisticDatabaseSeeder extends Seeder
                 'checkout_note' => 'Realistic seeded order for operational testing.', 'status' => $status, 'order_status' => $status,
                 'payment_status' => $paymentState === 'unpaid' ? 'pending' : $paymentState, 'payment_method' => $blueprint['payment_method'],
                 'payment_channel' => $blueprint['payment_method'], 'terms_accepted' => true, 'source_channel' => $blueprint['source_channel'],
-                'source_reference' => $blueprint['source_reference'], 'priority' => $blueprint['priority'],
+                'source_reference' => $blueprint['source_reference'],
                 'delivery_status' => in_array($status, ['delivered', 'completed'], true) ? 'delivered' : $status,
                 'subtotal' => round($subtotal, 2), 'net_subtotal' => round($subtotal - $discount, 2), 'tax_total' => 0,
                 'shipping_total' => $shipping, 'delivery_charge' => $shipping, 'delivery_method' => $blueprint['source_channel'] === 'pos' ? 'counter_pickup' : 'home_delivery',
@@ -429,21 +429,6 @@ class HajjMartRealisticDatabaseSeeder extends Seeder
 
     private function seedEngagement(): void
     {
-        foreach ($this->data['product_reviews'] ?? [] as $index => $row) {
-            $product = $this->product($row['product_slot']); $customerId = $this->customer($row['customer_slot']); $at = $this->at($row['days_ago'], 620);
-            $this->insert('product_reviews', [
-                'product_id' => $product['id'], 'user_id' => $customerId, 'rating' => $row['rating'], 'title' => $row['title'], 'body' => $row['body'],
-                'is_approved' => $row['is_approved'], 'is_featured' => $row['is_featured'], 'helpful_count' => $row['helpful_count'],
-                'is_guest' => false, 'verified_purchase' => true, 'status' => $row['is_approved'] ? 'approved' : 'pending',
-                'approved_at' => $row['is_approved'] ? $at->addHour() : null, 'approved_by' => $this->employee($index), 'source_channel' => $row['source_channel'],
-                'ip_address' => '10.10.'.($index % 240).'.'.(($index % 200) + 1), 'user_agent' => 'HajjMart realistic seed', 'created_at' => $at, 'updated_at' => $at,
-            ]);
-        }
-        foreach ($this->data['product_questions'] ?? [] as $index => $row) {
-            $product = $this->product($row['product_slot']); $at = $this->at($row['days_ago'], 640);
-            $questionId = $this->insert('product_questions', ['product_id' => $product['id'], 'user_id' => $this->customer($row['customer_slot']), 'question' => $row['question'], 'created_at' => $at]);
-            $this->insert('product_answers', ['question_id' => $questionId, 'user_id' => $this->employee($index), 'is_admin' => true, 'answer' => $row['answer'], 'created_at' => $at->addHour()]);
-        }
         foreach ($this->data['wishlists'] ?? [] as $row) {
             $product = $this->product($row['product_slot']); $variant = $this->variant($product, $row['variant_slot']);
             $this->upsert('wishlists', ['user_id' => $this->customer($row['customer_slot']), 'product_id' => $product['id'], 'variant_id' => $variant['id'] ?? null], ['user_id' => $this->customer($row['customer_slot']), 'product_id' => $product['id'], 'variant_id' => $variant['id'] ?? null, 'created_at' => $this->at($row['days_ago'], 650)]);
@@ -492,9 +477,7 @@ class HajjMartRealisticDatabaseSeeder extends Seeder
         foreach ($this->products as $product) {
             $id = (int) $product['id'];
             $sold = (int) DB::table('order_items')->where('product_id', $id)->sum('quantity');
-            $reviewCount = (int) DB::table('product_reviews')->where('product_id', $id)->where('is_approved', true)->count();
-            $rating = (float) (DB::table('product_reviews')->where('product_id', $id)->where('is_approved', true)->avg('rating') ?: 0);
-            DB::table('products')->where('id', $id)->update($this->filter('products', ['sold_count' => $sold, 'review_count' => $reviewCount, 'average_rating' => round($rating, 2), 'stock_status' => 'in_stock', 'purchasable' => true, 'is_active' => true, 'updated_at' => $this->anchor]));
+            DB::table('products')->where('id', $id)->update($this->filter('products', ['sold_count' => $sold, 'stock_status' => 'in_stock', 'purchasable' => true, 'is_active' => true, 'updated_at' => $this->anchor]));
         }
     }
 

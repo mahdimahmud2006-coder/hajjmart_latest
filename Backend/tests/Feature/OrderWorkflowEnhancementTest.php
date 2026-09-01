@@ -81,7 +81,7 @@ class OrderWorkflowEnhancementTest extends TestCase
     {
         Queue::fake();
         $order = app(OrderService::class)->place([
-            'source_channel' => 'social_commerce',
+            'source_channel' => 'website',
             'shop_id' => $this->shop->id,
             'created_by' => $this->user->id,
             'customer_name' => 'Online Customer',

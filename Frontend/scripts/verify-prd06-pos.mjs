@@ -12,8 +12,12 @@ const commerceSync = read("src/lib/offline/commerce-sync.ts");
 const commerceStock = read("src/lib/offline/commerce-stock.ts");
 const i18n = read("src/lib/admin-i18n.ts");
 const css = read("src/app/globals.css");
-const backend = read("../backend/app/Http/Controllers/Api/V1/Admin/PosController.php");
-const products = read("../backend/app/Services/ProductService.php");
+const backend = fs.existsSync(path.join(root, "../Backend/app/Http/Controllers/Api/V1/Admin/PosController.php"))
+  ? read("../Backend/app/Http/Controllers/Api/V1/Admin/PosController.php")
+  : read("../backend/app/Http/Controllers/Api/V1/Admin/PosController.php");
+const products = fs.existsSync(path.join(root, "../Backend/app/Services/ProductService.php"))
+  ? read("../Backend/app/Services/ProductService.php")
+  : read("../backend/app/Services/ProductService.php");
 
 const checks = [
   ["POS stays in PRD-01 full-screen shell", shell.includes('pathname === "/admin/pos"') && shell.includes("admin-pos-mode-shell") && shell.includes('t("shell.exitPos")')],

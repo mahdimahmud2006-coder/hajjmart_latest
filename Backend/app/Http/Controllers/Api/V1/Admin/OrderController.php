@@ -127,7 +127,6 @@ class OrderController extends Controller
             'source_reference' => ['nullable', 'string', 'max:150'],
             'customer_note' => ['nullable', 'string', 'max:2000'],
             'admin_note' => ['nullable', 'string', 'max:2000'],
-            'priority' => ['nullable', Rule::in(['low', 'normal', 'high', 'urgent'])],
             'items' => ['sometimes', 'array', 'min:1'],
             'items.*.product_id' => ['required_with:items', 'integer', 'exists:products,id'],
             'items.*.variant_id' => ['nullable', 'integer', 'exists:product_variants,id'],
@@ -137,7 +136,7 @@ class OrderController extends Controller
         $order->loadMissing('items');
         $before = $order->only([
             'checkout_name', 'checkout_mobile_number', 'checkout_email', 'checkout_full_address',
-            'checkout_district', 'source_reference', 'customer_note', 'admin_note', 'priority',
+            'checkout_district', 'source_reference', 'customer_note', 'admin_note',
             'subtotal', 'net_subtotal', 'item_discount_total', 'discount_total', 'grand_total', 'due_amount', 'payment_status',
         ]);
         $before['items'] = $order->items->map(fn ($item): array => [
@@ -178,7 +177,6 @@ class OrderController extends Controller
                 'source_reference' => $data['source_reference'] ?? null,
                 'customer_note' => $data['customer_note'] ?? null,
                 'admin_note' => $data['admin_note'] ?? null,
-                'priority' => $data['priority'] ?? ($order->priority ?: 'normal'),
                 // Keep legacy fields in sync for older reports/integrations.
                 'customer_details' => array_merge((array) ($order->customer_details ?? []), [
                     'name' => $data['customer_name'],
@@ -251,7 +249,6 @@ class OrderController extends Controller
             'manual_discount' => ['nullable', 'numeric', 'min:0'],
             'order_date' => ['nullable', 'date'],
             'source_reference' => ['nullable', 'string', 'max:150'],
-            'priority' => ['nullable', Rule::in(['low', 'normal', 'high', 'urgent'])],
             'status' => ['nullable', 'string', 'max:50'],
             'assigned_to' => ['nullable', 'integer', 'exists:users,id'],
             'customer_note' => ['nullable', 'string', 'max:2000'],
@@ -389,6 +386,12 @@ class OrderController extends Controller
 
     public function createReturn(Request $request, Order $order)
     {
+        abort_if(
+            ! in_array(strtolower((string) $order->status), ['shipped', 'delivered', 'completed'], true),
+            422,
+            'Only shipped or delivered orders can be returned or exchanged.'
+        );
+
         $data = $request->validate([
             'type' => ['required', Rule::in(['return', 'exchange'])],
             'reason' => ['nullable', 'string', 'max:1000'],
